@@ -22,11 +22,11 @@ function formatGameName(folderName: string): string {
 function findPreviewImage(distDir: string, gameId: string, previewsDir: string): string | null {
   const extensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp']
 
-  // Check in public/previews folder first
+  // Check in previews folder first
   for (const ext of extensions) {
     const previewPath = path.join(previewsDir, `${gameId}${ext}`)
     if (fs.existsSync(previewPath)) {
-      return `./previews/${gameId}${ext}`
+      return `/previews/${gameId}${ext}`
     }
   }
 
@@ -34,7 +34,7 @@ function findPreviewImage(distDir: string, gameId: string, previewsDir: string):
   for (const ext of extensions) {
     const inGamePreview = path.join(distDir, gameId, `preview${ext}`)
     if (fs.existsSync(inGamePreview)) {
-      return `./${gameId}/preview${ext}`
+      return `/${gameId}/preview${ext}`
     }
   }
 
@@ -70,7 +70,7 @@ function discoverGames(): GameInfo[] {
       games.push({
         id: gameId,
         name: formatGameName(gameId),
-        path: `./${gameId}/`,
+        path: `./${gameId}/index.html`,
         preview
       })
     }

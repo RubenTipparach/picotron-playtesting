@@ -7,7 +7,8 @@
       "Bash(npm run build:*)",
       "Bash(dir:*)",
       "Bash(npm run dev:*)",
-      "Bash(npm run prepare:*)"
+      "Bash(npm run prepare:*)",
+      "Bash(npm run preview:*)"
     ]
   }
 }

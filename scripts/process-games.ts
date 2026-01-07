@@ -71,11 +71,8 @@ function processGameHtml(html: string, gameName: string): string {
     `<title>${gameName}</title>`
   )
 
-  // 4. Enable autoplay by default
-  processed = processed.replace(
-    /var p8_autoplay = false;/,
-    'var p8_autoplay = true;'
-  )
+  // 4. Keep autoplay disabled - let users click to start
+  // (autoplay causes Module.pico8Boot errors when module isn't ready)
 
   // 5. Enable touch controls (commented out in Picotron exports)
   processed = processed.replace(
