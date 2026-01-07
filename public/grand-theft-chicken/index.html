@@ -1,39 +1,6 @@
 ﻿<html><head>
-<title>Grand Theft Chicken</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="theme-color" content="#222222">
-<style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      touch-action: none;
-      -webkit-touch-callout: none;
-      -webkit-user-select: none;
-      user-select: none;
-    }
-    /* Safe area insets for notched phones */
-    body {
-      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-      box-sizing: border-box;
-    }
-    /* Prevent pull-to-refresh */
-    body {
-      overscroll-behavior: none;
-    }
-    /* Better canvas rendering */
-    canvas {
-      image-rendering: pixelated;
-      image-rendering: crisp-edges;
-      -ms-interpolation-mode: nearest-neighbor;
-    }
-  </style>
+<title>Picotron Cartridge</title>
+<meta name="viewport" content="width=device-width, user-scalable=no">
 </head>
 <body style="background-color:#222">
 <div id="body_0"> <!-- hide this when playing in mobile (p8_touch_detected) so that elements don't affect layout -->
@@ -45,7 +12,7 @@
 
 	// p8_autoplay true to boot the cartridge automatically after page load when possible
 	// if the browser can not create an audio context outside of a user gesture (e.g. on iOS), p8_autoplay has no effect
-	var p8_autoplay = true;
+	var p8_autoplay = false;
 
 	// When pico8_state is defined, PICO-8 will set .is_paused, .sound_volume and .frame_number each frame 
 	// (used for determining button icons)
@@ -484,8 +451,8 @@
 	var p8_touch_detected = false;
 
 
-	// Touch controls enabled by build script
-	addEventListener("touchstart", function(event){p8_touch_detected = true; },  {passive: true});
+	// ** commented for first release; no touch controls yet **
+	// addEventListener("touchstart", function(event){p8_touch_detected = true; },  {passive: true});
 
 	
 

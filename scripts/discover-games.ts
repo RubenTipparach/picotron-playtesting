@@ -43,7 +43,7 @@ function findPreviewImage(distDir: string, gameId: string, previewsDir: string):
 
 function discoverGames(): GameInfo[] {
   const distDir = path.resolve(__dirname, '../dist')
-  const previewsDir = path.resolve(__dirname, '../public/previews')
+  const previewsDir = path.resolve(__dirname, '../dist/previews')
   const games: GameInfo[] = []
 
   if (!fs.existsSync(distDir)) {

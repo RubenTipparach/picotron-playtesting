@@ -4,9 +4,10 @@
   "description": "A quick and dirty delivery vehicle for hosting web games on GitHub. One repo to rule them all...",
   "type": "module",
   "scripts": {
-    "dev": "npm run discover && vite",
+    "dev": "npm run process-games && npm run discover && vite",
+    "process-games": "npx tsx scripts/process-games.ts",
     "discover": "npx tsx scripts/discover-games.ts",
-    "build": "npm run discover && vite build",
+    "build": "npm run process-games && npm run discover && vite build",
     "preview": "vite preview",
     "prepare": "husky"
   },
