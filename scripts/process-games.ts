@@ -41,6 +41,70 @@ const htmlImprovements = {
       image-rendering: crisp-edges;
       -ms-interpolation-mode: nearest-neighbor;
     }
+    /* Landscape mode: fullscreen game, hide touch controls */
+    @media screen and (orientation: landscape) and (max-height: 500px) {
+      #touch_controls_gfx, #touch_controls_background,
+      #controls_left_panel, #controls_right_panel,
+      .p8_menu_button, #p8_menu_buttons, #p8_menu_buttons_touch {
+        display: none !important;
+        visibility: hidden !important;
+      }
+      #p8_playarea {
+        margin-top: 0 !important;
+      }
+      #canvas {
+        width: 100vw !important;
+        height: 100vh !important;
+        max-width: 100vw !important;
+        max-height: 100vh !important;
+      }
+      #p8_container {
+        width: 100vw !important;
+        height: 100vh !important;
+      }
+      body {
+        padding: 0 !important;
+      }
+    }
+  `,
+
+  // JavaScript to override the 2/3 limit in landscape
+  landscapeFullscreenJS: `
+    // Override for landscape fullscreen
+    var originalP8UpdateLayout = p8_update_layout;
+    p8_update_layout = function() {
+      var isLandscape = window.innerWidth > window.innerHeight;
+      var isSmallScreen = window.innerHeight < 500;
+      if (isLandscape && isSmallScreen && p8_touch_detected && p8_is_running) {
+        var canvas = document.getElementById("canvas");
+        var p8_container = document.getElementById("p8_container");
+        var p8_playarea = document.getElementById("p8_playarea");
+        if (canvas && p8_container && p8_playarea) {
+          var w = window.innerWidth;
+          var h = window.innerHeight;
+          // Scale to fit screen while maintaining 16:9 aspect ratio
+          var scale = Math.min(w / 480, h / 270);
+          var cw = Math.floor(480 * scale);
+          var ch = Math.floor(270 * scale);
+          canvas.style.width = cw + "px";
+          canvas.style.height = ch + "px";
+          canvas.style.marginLeft = Math.floor((w - cw) / 2) + "px";
+          canvas.style.marginTop = Math.floor((h - ch) / 2) + "px";
+          p8_container.style.width = cw + "px";
+          p8_container.style.height = ch + "px";
+          p8_playarea.style.marginTop = "0";
+          // Hide touch controls in landscape
+          var hide = ["touch_controls_gfx", "touch_controls_background"];
+          hide.forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) el.style.display = "none";
+          });
+          requestAnimationFrame(p8_update_layout);
+          return;
+        }
+      }
+      originalP8UpdateLayout();
+    };
   `
 }
 
@@ -78,6 +142,12 @@ function processGameHtml(html: string, gameName: string): string {
   processed = processed.replace(
     /\/\/ \*\* commented for first release; no touch controls yet \*\*\s*\n\s*\/\/ addEventListener\("touchstart", function\(event\)\{p8_touch_detected = true; \},\s*\{passive: true\}\);/,
     '// Touch controls enabled by build script\n\taddEventListener("touchstart", function(event){p8_touch_detected = true; },  {passive: true});'
+  )
+
+  // 6. Add landscape fullscreen JavaScript before </body>
+  processed = processed.replace(
+    '</body>',
+    `<script>${htmlImprovements.landscapeFullscreenJS}</script>\n</body>`
   )
 
   return processed
