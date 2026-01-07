@@ -1,0 +1,54 @@
+picotron cartridge // www.picotron.net
+version 2
+
+:: gfx/
+:: map/
+:: sfx/
+:: main.lua
+--[[pod_format="raw",created="2025-04-05 15:16:09",modified="2025-12-19 22:15:37",revision=11]]
+-- get the process id of gfx.p64
+local gfx_id = nil
+for process in all(fetch"/ram/system/processes.pod") do
+    if process.prog == "/system/apps/gfx.p64" then
+        gfx_id = process.id
+        break
+    end
+end
+if gfx_id == nil then
+    error"error: /system/apps/gfx.p64 not found in process list"
+end
+
+send_message(gfx_id,{event="set_palette",palette=fetch"toybox_palette.pal"})
+:: .info.pod
+--[[pod,author="rob, age 44",created="2025-04-05 15:31:07",modified="2025-12-19 22:16:03",notes="",runtime=24,title="",version="",workspaces={{location="main.lua#13",workspace_index=1},{location="clean_class.lua",workspace_index=1},{location="gfx/0.gfx",workspace_index=2},{location="map/0.map",workspace_index=3},{location="sfx/0.sfx",workspace_index=4}}]]
+:: gfx/.info.pod
+--[[pod,created="2025-04-05 15:31:07",modified="2025-12-19 22:16:03"]]
+:: gfx/0.gfx
+b64$LS1bW3BvZCxjcmVhdGVkPSIyMDI1LTA0LTA1IDE1OjMwOjQ0Iixtb2RpZmllZD0iMjAyNS0w
+NC0wNSAxNTozMTowNyIscmV2aXNpb249Ml1dbHo0AH4AAAASMQAA8yF7WzBdPXtibXA9cHh1AEMg
+EBAE8FYHEAfAF9AXwAcQB-BWLGZsYWdzPTAscGFuX3gIAMt5PTAsem9vbT04fSw_AB-wMQD-----
+-----------------------------------------------------------XUG09OH19
+:: map/.info.pod
+--[[pod,created="2025-04-05 15:31:07",modified="2025-12-19 22:16:03"]]
+:: map/0.map
+b64$LS1bW3BvZCxjcmVhdGVkPSIyMDI1LTA0LTA1IDE1OjMwOjQ0Iixtb2RpZmllZD0iMjAyNS0x
+MS0yMyAwOTo0NTowMSIscmV2aXNpb249M11dbHo0AEwAAABQAAAA8Rx7e2JtcD1weHUATIAgIAD-
+AAD---8DLGhpZGRlbj1mYWxzZSxwYW5feD0wCADSeT0wLHRpbGVfaD0xNgoAEHcKAIB6b29tPTF9
+fQ==
+:: sfx/.info.pod
+--[[pod,created="2025-04-05 15:31:07",modified="2025-12-19 22:16:03"]]
+:: sfx/0.sfx
+b64$LS1bW3BvZCxjcmVhdGVkPSIyMDI1LTA0LTA1IDE1OjMwOjQ0Iixtb2RpZmllZD0iMjAyNS0w
+NC0wNSAxNTozMTowNyIscmV2aXNpb249M11dbHo0AKAAAAALCgAA-zBweHUAAygAAAQABA9AEAIO
+AAGgASACoA4ADxAADfDKAQIDQA8PkAQFBgdADJAICQoLQAyQDwwPDQ8ODEAM8P8BAOv-J6oBEAYP
+IBABIAEgAfAAAhACDhABIA8hIAEwD0Dwww8oD--wxg-4Cg--D4AP9w8NAfAJARAGDjAA------_9
+H-8BAKzPyA9AAA8QQP--sPD-AQD-6lD-----KQ==
+:: toybox_palette.pal
+b64$LS1bW3BvZCxjcmVhdGVkPSIyMDI1LTEyLTE5IDIxOjQ5OjQ1Iixtb2RpZmllZD0iMjAyNS0x
+Mi0xOSAyMTo1NTo0MyIscmV2aXNpb249NV1dbHo0AB8BAAAVAgAA-QV1c2VyZGF0YSgiaTMyIiw2
+NCwiMAEA8GU3NTNlMWUwMDQ3MmUzZTAwMGQyMTQwMDAyNDM5NjYwMDc5MTU1MTAwMTE2MDYxMDA0
+MzQ0NDUwMDZlNDI1MDAwNDk1MTY5MDA2OTY1NzAwMGM0MGMyZTAwZTk3MjFkMDBmNTMxNDEwMDg3
+NWQ1ODAwYWQ2YUAAwDllNzc2NzAwZmY3MDgA8AcxNzljNDMwMDIwODA2YzAwZmFhMDMyCADwNWQ5
+MzcwMGI1OGM3ZjAwMzU1M2E2MDAxYzc1YmQwMDVjYjg4ODAwNzZkY2E3MDAyNWFjZjUwMGE2OWE5
+YzAwZDlhNzk4mABAYmJiM3AA32M0OWUwMGYyZjJkYTABANlQMDAwIik=
+:: [eoc]
