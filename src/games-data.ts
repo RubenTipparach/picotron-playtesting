@@ -8,6 +8,12 @@ export interface GameInfo {
 
 export const games: GameInfo[] = [
   {
+    "id": "dune",
+    "name": "Dune",
+    "path": "./dune/",
+    "preview": null
+  },
+  {
     "id": "grand-theft-chicken",
     "name": "Grand Theft Chicken",
     "path": "./grand-theft-chicken/",
