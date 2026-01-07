@@ -1,5 +1,7 @@
 #!/bin/sh
 
-# Run game discovery and stage the updated games-data.ts
-npm run discover
+# Run game discovery, build, and stage the results
+npm run build
 git add src/games-data.ts
+git add dist/index.html
+git add dist/assets/

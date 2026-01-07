@@ -1,10 +1,6 @@
 # Dependencies
 node_modules/
 
-# Build output (but keep game folders in dist/)
-dist/assets/
-dist/index.html
-
 # Editor
 .vscode/
 *.swp
