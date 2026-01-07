@@ -1,0 +1,26 @@
+{
+  "name": "pictron-playetesting",
+  "version": "1.0.0",
+  "description": "A quick and dirty delivery vehicle for hosting web games on GitHub. One repo to rule them all...",
+  "type": "module",
+  "scripts": {
+    "dev": "npm run discover && vite",
+    "discover": "npx tsx scripts/discover-games.ts",
+    "build": "npm run discover && vite build",
+    "preview": "vite preview",
+    "prepare": "husky"
+  },
+  "keywords": [
+    "games",
+    "picotron",
+    "playtesting"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.1"
+  }
+}

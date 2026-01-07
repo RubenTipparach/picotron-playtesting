@@ -1,0 +1,5 @@
+#!/bin/sh
+
+# Run game discovery and stage the updated games-data.ts
+npm run discover
+git add src/games-data.ts
