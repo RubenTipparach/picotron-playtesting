@@ -28,12 +28,31 @@ export const CodeEditor = forwardRef(
     const onOpenTechTreeRef = useRef(onOpenTechTree);
     const validationInfoRef = useRef([]);
 
-    // Expose scrollToLine to parent
+    // Expose scrollToLine and insertText to parent
     useImperativeHandle(ref, () => ({
       scrollToLine: (line) => {
         if (editorRef.current) {
           editorRef.current.revealLineInCenter(line);
           editorRef.current.setPosition({ lineNumber: line, column: 1 });
+        }
+      },
+      insertText: (text) => {
+        if (editorRef.current) {
+          const editor = editorRef.current;
+          editor.focus();
+          const position = editor.getPosition();
+          if (position) {
+            const range = {
+              startLineNumber: position.lineNumber,
+              startColumn: position.column,
+              endLineNumber: position.lineNumber,
+              endColumn: position.column,
+            };
+            editor.executeEdits("docs-insert", [{ range, text }]);
+            // Move cursor to end of inserted text
+            const newCol = position.column + text.length;
+            editor.setPosition({ lineNumber: position.lineNumber, column: newCol });
+          }
         }
       },
     }));
@@ -208,6 +227,76 @@ export const CodeEditor = forwardRef(
       });
 
       // ── Autocomplete provider ──
+      const functionDocs = {
+        produceResourceA: {
+          signature: "produceResourceA(): Promise<number>",
+          description: "Produces 1 unit of resource A. Takes 2 seconds.",
+          insert: "produceResourceA()",
+        },
+        convertAToB: {
+          signature: "convertAToB(): Promise<number>",
+          description: "Converts 2 A into 1 B. Takes 3 seconds. Returns 1 if successful, 0 if not enough A.",
+          insert: "convertAToB()",
+        },
+        getResourceCount: {
+          signature: "getResourceCount(name: string): Promise<number>",
+          description: "Gets the current count of a resource. Pass 'A', 'B', or 'C'. Takes 1 second.",
+          insert: "getResourceCount('${1:A}')",
+          isSnippet: true,
+        },
+        log: {
+          signature: "log(msg: string): Promise<void>",
+          description: "Logs a message to the console. Takes 0.5 seconds.",
+          insert: "log('${1:message}')",
+          isSnippet: true,
+        },
+        makeResourceC: {
+          signature: "makeResourceC(): Promise<number>",
+          description: "Converts 3 A + 1 B into 1 C. Takes 3 seconds.",
+          insert: "makeResourceC()",
+        },
+      };
+
+      // Extract user-defined variables and functions from code
+      function extractUserSymbols(model) {
+        const text = model.getValue();
+        const symbols = [];
+        const seen = new Set();
+
+        // Variables: let/const/var name
+        const varRegex = /\b(?:let|const|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g;
+        let m;
+        while ((m = varRegex.exec(text)) !== null) {
+          if (!seen.has(m[1])) {
+            seen.add(m[1]);
+            symbols.push({ label: m[1], kind: monaco.languages.CompletionItemKind.Variable, detail: "variable" });
+          }
+        }
+
+        // User functions: function name(
+        const fnRegex = /\bfunction\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/g;
+        while ((m = fnRegex.exec(text)) !== null) {
+          if (!seen.has(m[1])) {
+            seen.add(m[1]);
+            symbols.push({ label: m[1], kind: monaco.languages.CompletionItemKind.Function, detail: "user function", insert: m[1] + "()" });
+          }
+        }
+
+        return symbols;
+      }
+
+      const keywordCompletions = [
+        { label: "while", insert: "while (${1:true}) {\n  ${2}\n}", detail: "while loop", description: "Loop while condition is true" },
+        { label: "if", insert: "if (${1:condition}) {\n  ${2}\n}", detail: "if statement", description: "Conditional execution" },
+        { label: "else", insert: "else {\n  ${1}\n}", detail: "else block", description: "Else branch" },
+        { label: "let", insert: "let ${1:name} = ${2:value}", detail: "variable", description: "Declare a mutable variable" },
+        { label: "const", insert: "const ${1:name} = ${2:value}", detail: "constant", description: "Declare a constant" },
+        { label: "function", insert: "function ${1:name}(${2}) {\n  ${3}\n}", detail: "function", description: "Define a function" },
+        { label: "true", insert: "true", detail: "boolean", description: "" },
+        { label: "false", insert: "false", detail: "boolean", description: "" },
+        { label: "return", insert: "return ${1}", detail: "keyword", description: "Return a value" },
+      ];
+
       const completionProvider = {
         provideCompletionItems: (model, position) => {
           const availableFunctions = getAvailableFunctions();
@@ -219,40 +308,53 @@ export const CodeEditor = forwardRef(
             endColumn: word.endColumn,
           };
 
-          const functionDocs = {
-            produceResourceA: {
-              signature: "produceResourceA(): Promise<number>",
-              description: "Produces 1 unit of resource A. Takes 2 seconds.",
-            },
-            convertAToB: {
-              signature: "convertAToB(): Promise<number>",
-              description:
-                "Converts 2 A into 1 B. Takes 3 seconds. Returns 1 if successful, 0 if not enough A.",
-            },
-            getResourceCount: {
-              signature: "getResourceCount(name: string): Promise<number>",
-              description:
-                "Gets the current count of a resource. Pass 'A' or 'B' as the name. Takes 1 second.",
-            },
-            log: {
-              signature: "log(msg: string): Promise<void>",
-              description: "Logs a message to the console. Takes 0.5 seconds.",
-            },
-          };
+          const suggestions = [];
+          let sortIndex = 0;
 
-          return {
-            suggestions: availableFunctions.map((funcName) => {
-              const doc = functionDocs[funcName];
-              return {
-                label: funcName,
-                kind: monaco.languages.CompletionItemKind.Function,
-                documentation: doc?.description || "",
-                insertText: funcName + "()",
-                detail: doc?.signature || funcName + "()",
-                range,
-              };
-            }),
-          };
+          // API functions (highest priority)
+          availableFunctions.forEach((funcName) => {
+            const doc = functionDocs[funcName];
+            if (!doc) return;
+            suggestions.push({
+              label: funcName,
+              kind: monaco.languages.CompletionItemKind.Function,
+              documentation: doc.description,
+              insertText: doc.insert,
+              insertTextRules: doc.isSnippet ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet : undefined,
+              detail: doc.signature,
+              range,
+              sortText: `0_${String(sortIndex++).padStart(3, "0")}`,
+            });
+          });
+
+          // User-defined symbols
+          const userSymbols = extractUserSymbols(model);
+          userSymbols.forEach((sym) => {
+            suggestions.push({
+              label: sym.label,
+              kind: sym.kind,
+              detail: sym.detail,
+              insertText: sym.insert || sym.label,
+              range,
+              sortText: `1_${sym.label}`,
+            });
+          });
+
+          // Keywords
+          keywordCompletions.forEach((kw) => {
+            suggestions.push({
+              label: kw.label,
+              kind: monaco.languages.CompletionItemKind.Keyword,
+              detail: kw.detail,
+              documentation: kw.description,
+              insertText: kw.insert,
+              insertTextRules: kw.insert.includes("${") ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet : undefined,
+              range,
+              sortText: `2_${kw.label}`,
+            });
+          });
+
+          return { suggestions };
         },
         triggerCharacters: [],
       };

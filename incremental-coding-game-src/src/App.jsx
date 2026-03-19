@@ -408,7 +408,7 @@ export function App() {
           <div style={{ flex: 1, overflow: "hidden" }}>
             {rightTab === "shop" && <ShopPanel />}
             {rightTab === "docs" && (
-              <DocsPanel isOpen={true} onClose={() => {}} scrollToSection={docsScrollSection} inline />
+              <DocsPanel isOpen={true} onClose={() => {}} scrollToSection={docsScrollSection} inline onInsertCode={(text) => { if (editorRef.current?.insertText) editorRef.current.insertText(text); }} />
             )}
             {rightTab === "profiler" && <CpuStats stats={stats} />}
             {rightTab === "hints" && (
