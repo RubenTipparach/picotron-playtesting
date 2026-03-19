@@ -301,7 +301,7 @@ export function createGameApi(executionContext) {
 
       await executeWithDelay(500, context, () => {
         useGameStore.getState().addVirtualTime(0.5);
-        executionContext.onLog?.(message);
+        executionContext.onLog?.(String(message));
       });
     },
 

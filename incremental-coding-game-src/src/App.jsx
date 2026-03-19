@@ -169,7 +169,8 @@ export function App() {
         if (event.type === "lineChange") {
           setScrollToLine(event.lineNumber);
         } else if (event.type === "log") {
-          const isWarning = event.message.startsWith("⚠️ Warning:");
+          const msg = String(event.message);
+          const isWarning = msg.startsWith("⚠️ Warning:");
           setLogs((prev) => [...prev, { type: isWarning ? "warning" : "log", message: event.message, timestamp: Date.now() }]);
         } else if (event.type === "error") {
           setIsRunning(false);
