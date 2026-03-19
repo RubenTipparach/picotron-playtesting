@@ -301,6 +301,24 @@ export function App() {
   useHotkeys("ctrl+u, cmd+u", (e) => { e.preventDefault(); setIsTechTreeOpen((p) => { if (!p) setTechTreeSelectedId(undefined); return !p; }); }, { enableOnFormTags: true });
   useHotkeys("ctrl+s, cmd+s", (e) => e.preventDefault(), { enableOnFormTags: true });
 
+  // ── Resizable console ──
+  const [consoleHeight, setConsoleHeight] = useState(200);
+  const isDraggingDivider = useRef(false);
+  const leftPanelRef = useRef(null);
+
+  useEffect(() => {
+    const onMouseMove = (e) => {
+      if (!isDraggingDivider.current || !leftPanelRef.current) return;
+      const rect = leftPanelRef.current.getBoundingClientRect();
+      const newConsoleHeight = Math.max(60, Math.min(rect.height - 120, rect.bottom - e.clientY));
+      setConsoleHeight(newConsoleHeight);
+    };
+    const onMouseUp = () => { isDraggingDivider.current = false; document.body.style.cursor = ""; document.body.style.userSelect = ""; };
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+    return () => { document.removeEventListener("mousemove", onMouseMove); document.removeEventListener("mouseup", onMouseUp); };
+  }, []);
+
   const charCount = code.length;
   const ramPercent = Math.min(100, (charCount / ram) * 100);
   const ramColor = ramPercent > 90 ? "#ff0040" : ramPercent > 70 ? "#ccff00" : "#00ff41";
@@ -324,9 +342,9 @@ export function App() {
       {/* Main Content */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         {/* LEFT PANEL: Editor + Output */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", borderRight: "1px solid #003300", minWidth: 0 }}>
+        <div ref={leftPanelRef} style={{ flex: 1, display: "flex", flexDirection: "column", borderRight: "1px solid #003300", minWidth: 0 }}>
           {/* Editor */}
-          <div style={{ flex: 1, position: "relative", borderBottom: "1px solid #003300", minHeight: 0 }}>
+          <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
             <CodeEditor
               ref={editorRef}
               code={code}
@@ -344,8 +362,16 @@ export function App() {
             </div>
           </div>
 
+          {/* Drag handle */}
+          <div
+            onMouseDown={() => { isDraggingDivider.current = true; document.body.style.cursor = "row-resize"; document.body.style.userSelect = "none"; }}
+            style={{ height: "5px", cursor: "row-resize", backgroundColor: "#003300", flexShrink: 0, position: "relative" }}
+          >
+            <div style={{ position: "absolute", left: "50%", top: "1px", transform: "translateX(-50%)", width: "40px", height: "3px", backgroundColor: "#005500", borderRadius: "2px" }} />
+          </div>
+
           {/* Output / Log */}
-          <div style={{ height: "200px", minHeight: "120px", overflow: "hidden" }}>
+          <div style={{ height: `${consoleHeight}px`, minHeight: "60px", overflow: "hidden", flexShrink: 0 }}>
             <LogPanel logs={logs} />
           </div>
         </div>
