@@ -18,5 +18,11 @@ export const games: GameInfo[] = [
     "name": "Grand Theft Chicken",
     "path": "./grand-theft-chicken/index.html",
     "preview": null
+  },
+  {
+    "id": "incremental-coding-game",
+    "name": "Incremental Coding Game",
+    "path": "./incremental-coding-game/index.html",
+    "preview": null
   }
 ]
