@@ -75,10 +75,10 @@ function getProcessingSpeed() {
     speed *= 0.8;
   }
 
-  // CPU upgrades: each level = 10% faster
+  // CPU upgrades: each level = 50% faster (halves remaining time)
   const cpuLevel = useGameStore.getState().cpuLevel;
   if (cpuLevel > 0) {
-    speed *= Math.pow(0.9, cpuLevel);
+    speed *= Math.pow(0.5, cpuLevel);
   }
 
   return speed;

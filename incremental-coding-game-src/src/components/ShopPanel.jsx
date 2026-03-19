@@ -12,7 +12,7 @@ const RAM_UPGRADES = [
   { ram: 8192, cost: 10000 },
 ];
 
-const CPU_COSTS = [30, 100, 400, 1500, 5000, 15000];
+const CPU_BASE_COST = 30;
 
 export function ShopPanel() {
   const resources = useGameStore((s) => s.resources);
@@ -37,18 +37,17 @@ export function ShopPanel() {
     }
   };
 
+  const nextCpuCost = Math.round(CPU_BASE_COST * Math.pow(2, cpuLevel));
   const buyCpu = () => {
-    const cost = CPU_COSTS[cpuLevel];
-    if (cost && credits >= cost) {
-      if (useGameStore.getState().spendCredits(cost)) {
+    if (credits >= nextCpuCost) {
+      if (useGameStore.getState().spendCredits(nextCpuCost)) {
         useGameStore.getState().upgradeCpu();
       }
     }
   };
 
   const nextRam = RAM_UPGRADES.find((u) => u.ram > ram);
-  const nextCpuCost = CPU_COSTS[cpuLevel];
-  const cpuSpeedPercent = Math.round((1 - Math.pow(0.9, cpuLevel)) * 100);
+  const cpuSpeedPercent = Math.round((1 - Math.pow(0.5, cpuLevel)) * 100);
 
   return (
     <div style={{ padding: "12px", fontFamily: "'Courier New', monospace", color: "#00ff41", height: "100%", overflowY: "auto", boxSizing: "border-box" }}>
@@ -136,27 +135,23 @@ export function ShopPanel() {
           Level: <span style={{ color: "#00ff41" }}>{cpuLevel}</span>
           {cpuLevel > 0 && <span style={{ color: "#00cc33" }}> (+{cpuSpeedPercent}% speed)</span>}
         </div>
-        {nextCpuCost ? (
-          <button
-            onClick={buyCpu}
-            disabled={credits < nextCpuCost}
-            style={{
-              padding: "4px 12px",
-              fontSize: "12px",
-              fontFamily: "'Courier New', monospace",
-              backgroundColor: credits >= nextCpuCost ? "#001a00" : "#0a0a0a",
-              color: credits >= nextCpuCost ? "#00ff41" : "#004400",
-              border: `1px solid ${credits >= nextCpuCost ? "#00ff41" : "#003300"}`,
-              cursor: credits >= nextCpuCost ? "pointer" : "default",
-              width: "100%",
-              textAlign: "left",
-            }}
-          >
-            Level {cpuLevel + 1} — ${nextCpuCost}
-          </button>
-        ) : (
-          <div style={{ color: "#004400", fontSize: "11px" }}>MAX LEVEL</div>
-        )}
+        <button
+          onClick={buyCpu}
+          disabled={credits < nextCpuCost}
+          style={{
+            padding: "4px 12px",
+            fontSize: "12px",
+            fontFamily: "'Courier New', monospace",
+            backgroundColor: credits >= nextCpuCost ? "#001a00" : "#0a0a0a",
+            color: credits >= nextCpuCost ? "#00ff41" : "#004400",
+            border: `1px solid ${credits >= nextCpuCost ? "#00ff41" : "#003300"}`,
+            cursor: credits >= nextCpuCost ? "pointer" : "default",
+            width: "100%",
+            textAlign: "left",
+          }}
+        >
+          Level {cpuLevel + 1} — ${nextCpuCost}
+        </button>
       </div>
     </div>
   );

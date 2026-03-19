@@ -3,7 +3,7 @@ import { useGameStore } from "../gameStore.js";
 
 export function CpuStats({ stats }) {
   const cpuLevel = useGameStore((s) => s.cpuLevel);
-  const speedBoost = Math.round((1 - Math.pow(0.9, cpuLevel)) * 100);
+  const speedBoost = Math.round((1 - Math.pow(0.5, cpuLevel)) * 100);
 
   return (
     <div style={{

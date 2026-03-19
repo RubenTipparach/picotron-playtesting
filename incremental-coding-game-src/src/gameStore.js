@@ -26,7 +26,7 @@ const DEFAULT_STATE = {
   // Shop system
   credits: 0,
   ram: 256,       // max characters allowed in editor
-  cpuLevel: 0,    // each level = 10% speed boost
+  cpuLevel: 0,    // each level = 50% faster, cost doubles each level
 };
 
 /**
