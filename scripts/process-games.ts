@@ -261,6 +261,25 @@ function formatGameName(folderName: string): string {
     .join(' ')
 }
 
+function isPicotronGame(html: string): boolean {
+  return html.includes('pico8_buttons') || html.includes('p8_update_layout') || html.includes('p8_touch_detected')
+}
+
+function copyDirRecursive(src: string, dest: string) {
+  if (!fs.existsSync(dest)) {
+    fs.mkdirSync(dest, { recursive: true })
+  }
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const srcPath = path.join(src, entry.name)
+    const destPath = path.join(dest, entry.name)
+    if (entry.isDirectory()) {
+      copyDirRecursive(srcPath, destPath)
+    } else {
+      fs.copyFileSync(srcPath, destPath)
+    }
+  }
+}
+
 function processGames() {
   console.log('Processing games from public/ to dist/...')
 
@@ -299,19 +318,29 @@ function processGames() {
       fs.mkdirSync(gameDistDir, { recursive: true })
     }
 
-    // Read, process, and write the HTML
     const originalHtml = fs.readFileSync(indexPath, 'utf-8')
-    const processedHtml = processGameHtml(originalHtml, gameName)
 
-    fs.writeFileSync(path.join(gameDistDir, 'index.html'), processedHtml)
+    if (isPicotronGame(originalHtml)) {
+      // Apply Picotron-specific HTML improvements
+      const processedHtml = processGameHtml(originalHtml, gameName)
+      fs.writeFileSync(path.join(gameDistDir, 'index.html'), processedHtml)
+    } else {
+      // Generic HTML5 game - copy as-is
+      console.log(`  (non-Picotron game, copying as-is)`)
+      fs.copyFileSync(indexPath, path.join(gameDistDir, 'index.html'))
+    }
 
-    // Copy any other files (like preview images)
-    const gameFiles = fs.readdirSync(gameSourceDir)
+    // Copy all other files and subdirectories
+    const gameFiles = fs.readdirSync(gameSourceDir, { withFileTypes: true })
     for (const file of gameFiles) {
-      if (file === 'index.html') continue
-      const srcFile = path.join(gameSourceDir, file)
-      const destFile = path.join(gameDistDir, file)
-      fs.copyFileSync(srcFile, destFile)
+      if (file.name === 'index.html') continue
+      const srcFile = path.join(gameSourceDir, file.name)
+      const destFile = path.join(gameDistDir, file.name)
+      if (file.isDirectory()) {
+        copyDirRecursive(srcFile, destFile)
+      } else {
+        fs.copyFileSync(srcFile, destFile)
+      }
     }
 
     console.log(`  Processed: ${gameName}`)
