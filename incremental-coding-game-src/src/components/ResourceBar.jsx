@@ -86,7 +86,6 @@ export function ResourceBar({
 
       {/* Theme Switcher */}
       <button
-        className="hide-mobile"
         onClick={onCycleTheme}
         style={btnStyle(t.accent, true)}
         title={`Theme: ${themeName}`}
