@@ -9,8 +9,8 @@ function ResourceCostBadge({ resource, amount, available }) {
       display: "inline-flex", alignItems: "center", justifyContent: "center",
       padding: "2px 6px", fontSize: "11px", fontFamily: "var(--hk-font)",
       backgroundColor: hasEnough ? "#001a00" : "#0a0a0a",
-      color: hasEnough ? "#00ff41" : "#004400",
-      border: `1px solid ${hasEnough ? "#00ff41" : "#003300"}`,
+      color: hasEnough ? "#00ff41" : "#558855",
+      border: `1px solid ${hasEnough ? "#00ff41" : "#336633"}`,
       marginRight: "4px",
     }} title={`${amount} ${resource} (${available} available)`}>
       {amount}{resource}
@@ -20,7 +20,7 @@ function ResourceCostBadge({ resource, amount, available }) {
 
 function TechNode({ tech, isUnlocked, isAvailable, isSelected, resources, onClick }) {
   const canAfford = tech.cost.every((c) => resources[c.resource] >= c.amount);
-  const borderColor = isSelected ? "#00ff41" : isUnlocked ? "#00cc33" : isAvailable && canAfford ? "#ccff00" : "#003300";
+  const borderColor = isSelected ? "#00ff41" : isUnlocked ? "#00cc33" : isAvailable && canAfford ? "#ccff00" : "#335533";
 
   return (
     <div
@@ -37,7 +37,7 @@ function TechNode({ tech, isUnlocked, isAvailable, isSelected, resources, onClic
       }}
       title={tech.name}
     >
-      <div style={{ fontSize: "28px", lineHeight: "1", filter: isUnlocked ? "none" : "brightness(0.5)" }}>
+      <div style={{ fontSize: "28px", lineHeight: "1", filter: isUnlocked ? "none" : "brightness(0.7)" }}>
         {tech.icon}
       </div>
       {!isUnlocked && (
@@ -45,7 +45,7 @@ function TechNode({ tech, isUnlocked, isAvailable, isSelected, resources, onClic
           {tech.cost.slice(0, 2).map((cost, i) => (
             <div key={i} style={{
               fontSize: "8px", fontFamily: "var(--hk-font)",
-              color: resources[cost.resource] >= cost.amount ? "#00ff41" : "#003300",
+              color: resources[cost.resource] >= cost.amount ? "#00ff41" : "#558855",
             }}>
               {cost.amount}{cost.resource}
             </div>
@@ -154,9 +154,9 @@ export function TechTreePanel({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
                   <div key={`${depId}-${node.id}`} style={{
                     position: "absolute", left: sx, top: sy,
                     width: `${len}px`, height: isDepUnlocked ? "2px" : "1px",
-                    backgroundColor: isDepUnlocked ? "#00ff41" : "#003300",
+                    backgroundColor: isDepUnlocked ? "#00ff41" : "#335533",
                     transformOrigin: "0 50%", transform: `rotate(${angle}deg)`,
-                    opacity: isDepUnlocked ? 0.8 : 0.4,
+                    opacity: isDepUnlocked ? 0.8 : 0.6,
                   }} />
                 );
               });
@@ -195,7 +195,7 @@ export function TechTreePanel({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
 
               {!tech[selectedTech.id] && (
                 <div style={{ padding: "10px", backgroundColor: "#001a00", border: "1px solid #003300" }}>
-                  <div style={{ color: "#004400", fontSize: "10px", marginBottom: "8px", letterSpacing: "1px" }}>COST</div>
+                  <div style={{ color: "#00aa2a", fontSize: "10px", marginBottom: "8px", letterSpacing: "1px" }}>COST</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
                     {selectedTech.cost.map((c, i) => (
                       <ResourceCostBadge key={i} resource={c.resource} amount={c.amount} available={resources[c.resource]} />
@@ -230,8 +230,8 @@ export function TechTreePanel({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
                   style={{
                     width: "100%", padding: "10px",
                     backgroundColor: canUnlockSelected ? "#001a00" : "#0a0a0a",
-                    color: canUnlockSelected ? "#00ff41" : "#003300",
-                    border: `1px solid ${canUnlockSelected ? "#00ff41" : "#003300"}`,
+                    color: canUnlockSelected ? "#00ff41" : "#557755",
+                    border: `1px solid ${canUnlockSelected ? "#00ff41" : "#335533"}`,
                     cursor: canUnlockSelected ? "pointer" : "not-allowed",
                     fontSize: "12px", fontFamily: "var(--hk-font)",
                     letterSpacing: "1px",
@@ -242,7 +242,7 @@ export function TechTreePanel({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
               )}
             </>
           ) : (
-            <div style={{ color: "#003300", fontSize: "11px" }}>Select a node...</div>
+            <div style={{ color: "#558855", fontSize: "11px" }}>Select a node...</div>
           )}
         </div>
       </div>

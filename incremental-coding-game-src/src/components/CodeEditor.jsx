@@ -446,8 +446,8 @@ export const CodeEditor = forwardRef(
             wordBasedSuggestions: "matchingDocuments",
             renderValidationDecorations: "on",
             fixedOverflowWidgets: true,
-            cursorBlinking: "phase",
-            cursorStyle: "block",
+            cursorBlinking: "smooth",
+            cursorStyle: "line",
             scrollbar: { verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
           }}
         />
