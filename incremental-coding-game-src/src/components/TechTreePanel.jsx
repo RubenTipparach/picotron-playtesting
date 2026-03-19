@@ -1,231 +1,83 @@
-/**
- * TechTreePanel Component
- *
- * Interactive tech tree modal with:
- * - Visual node graph with dependency lines
- * - Node selection with detail panel
- * - Unlock button with cost display
- * - "View in Docs" link for unlocked techs
- */
-
 import React, { useState, useEffect } from "react";
 import { useGameStore } from "../gameStore.js";
-import {
-  TECH_TREE,
-  getAvailableUpgrades,
-  RESOURCE_COLORS,
-  TECH_TO_DOCS_SECTION,
-} from "../techTree.js";
+import { TECH_TREE, getAvailableUpgrades, RESOURCE_COLORS, TECH_TO_DOCS_SECTION } from "../techTree.js";
 
-// ── Resource Cost Badge ──
 function ResourceCostBadge({ resource, amount, available }) {
   const hasEnough = available >= amount;
   return (
-    <div
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        width: "24px",
-        height: "24px",
-        backgroundColor: RESOURCE_COLORS[resource],
-        borderRadius: "4px",
-        fontSize: "11px",
-        fontWeight: "bold",
-        color: "#fff",
-        marginRight: "4px",
-        opacity: hasEnough ? 1 : 0.5,
-        border: hasEnough ? "2px solid #fff" : "2px solid transparent",
-      }}
-      title={`${amount} ${resource} (${available} available)`}
-    >
-      {amount}
-    </div>
+    <span style={{
+      display: "inline-flex", alignItems: "center", justifyContent: "center",
+      padding: "2px 6px", fontSize: "11px", fontFamily: "var(--hk-font)",
+      backgroundColor: hasEnough ? "#001a00" : "#0a0a0a",
+      color: hasEnough ? "#00ff41" : "#004400",
+      border: `1px solid ${hasEnough ? "#00ff41" : "#003300"}`,
+      marginRight: "4px",
+    }} title={`${amount} ${resource} (${available} available)`}>
+      {amount}{resource}
+    </span>
   );
 }
 
-// ── Tech Node (single node in the graph) ──
 function TechNode({ tech, isUnlocked, isAvailable, isSelected, resources, onClick }) {
   const canAfford = tech.cost.every((c) => resources[c.resource] >= c.amount);
+  const borderColor = isSelected ? "#00ff41" : isUnlocked ? "#00cc33" : isAvailable && canAfford ? "#ccff00" : "#003300";
 
   return (
     <div
       onClick={onClick}
-      onMouseEnter={(e) => {
-        if (!isSelected) {
-          e.currentTarget.style.transform = "scale(1.1)";
-          e.currentTarget.style.zIndex = "10";
-        }
-      }}
-      onMouseLeave={(e) => {
-        if (!isSelected) {
-          e.currentTarget.style.transform = "scale(1)";
-          e.currentTarget.style.zIndex = "1";
-        }
-      }}
       style={{
-        position: "relative",
-        width: "80px",
-        height: "80px",
-        background: isUnlocked
-          ? "linear-gradient(135deg, #2d4a5c 0%, #1a3a4a 100%)"
-          : isAvailable && canAfford
-            ? "linear-gradient(135deg, #3d2d1e 0%, #2a1f15 100%)"
-            : "linear-gradient(135deg, #1f1f1f 0%, #151515 100%)",
-        border: isSelected
-          ? "3px solid #4a9eff"
-          : isUnlocked
-            ? "2px solid #4a9eff"
-            : isAvailable && canAfford
-              ? "2px solid #ff6b35"
-              : "2px solid #4a4a4a",
-        borderRadius: "12px",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
+        width: "80px", height: "80px",
+        backgroundColor: isUnlocked ? "#001a00" : "#0a0a0a",
+        border: `${isSelected ? "2px" : "1px"} solid ${borderColor}`,
+        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
         cursor: "pointer",
-        transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-        boxShadow: isSelected
-          ? "0 0 20px rgba(74, 158, 255, 0.8), 0 4px 12px rgba(0, 0, 0, 0.5)"
-          : isUnlocked
-            ? "0 0 12px rgba(74, 158, 255, 0.4), 0 2px 8px rgba(0, 0, 0, 0.3)"
-            : isAvailable && canAfford
-              ? "0 0 8px rgba(255, 107, 53, 0.3), 0 2px 6px rgba(0, 0, 0, 0.2)"
-              : "0 2px 4px rgba(0, 0, 0, 0.2)",
+        boxShadow: isSelected ? `0 0 15px rgba(0, 255, 65, 0.3)` : isUnlocked ? `0 0 8px rgba(0, 255, 65, 0.1)` : "none",
+        transition: "all 0.2s",
+        position: "relative",
       }}
       title={tech.name}
     >
-      {/* Icon */}
-      <div
-        style={{
-          fontSize: "36px",
-          lineHeight: "1",
-          marginBottom: "2px",
-          filter: isUnlocked ? "none" : isAvailable ? "brightness(0.9)" : "brightness(0.5)",
-        }}
-      >
+      <div style={{ fontSize: "28px", lineHeight: "1", filter: isUnlocked ? "none" : "brightness(0.5)" }}>
         {tech.icon}
       </div>
-
-      {/* Cost indicators at bottom */}
-      <div
-        style={{
-          position: "absolute",
-          bottom: "4px",
-          left: "50%",
-          transform: "translateX(-50%)",
-          gap: "2px",
-          display: isUnlocked ? "none" : "flex",
-        }}
-      >
-        {tech.cost.slice(0, 2).map((cost, i) => (
-          <div
-            key={i}
-            style={{
-              width: "14px",
-              height: "14px",
-              backgroundColor: RESOURCE_COLORS[cost.resource],
-              borderRadius: "3px",
-              fontSize: "8px",
-              fontWeight: "bold",
-              color: "#fff",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: resources[cost.resource] >= cost.amount ? 1 : 0.5,
-            }}
-            title={`${cost.amount} ${cost.resource}`}
-          >
-            {cost.amount}
-          </div>
-        ))}
-      </div>
-
-      {/* Unlocked checkmark */}
-      {isUnlocked && (
-        <div
-          style={{
-            position: "absolute",
-            top: "6px",
-            right: "6px",
-            width: "16px",
-            height: "16px",
-            background: "linear-gradient(135deg, #4a9eff 0%, #2d5a8f 100%)",
-            borderRadius: "50%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: "10px",
-            color: "#fff",
-            boxShadow: "0 2px 4px rgba(74, 158, 255, 0.5)",
-          }}
-        >
-          ✓
+      {!isUnlocked && (
+        <div style={{ position: "absolute", bottom: "4px", display: "flex", gap: "2px" }}>
+          {tech.cost.slice(0, 2).map((cost, i) => (
+            <div key={i} style={{
+              fontSize: "8px", fontFamily: "var(--hk-font)",
+              color: resources[cost.resource] >= cost.amount ? "#00ff41" : "#003300",
+            }}>
+              {cost.amount}{cost.resource}
+            </div>
+          ))}
         </div>
       )}
-
-      {/* Available indicator */}
+      {isUnlocked && (
+        <div style={{ position: "absolute", top: "4px", right: "4px", color: "#00ff41", fontSize: "10px" }}>+</div>
+      )}
       {!isUnlocked && isAvailable && canAfford && (
-        <div
-          style={{
-            position: "absolute",
-            top: "6px",
-            right: "6px",
-            width: "16px",
-            height: "16px",
-            background: "linear-gradient(135deg, #ff6b35 0%, #cc5529 100%)",
-            borderRadius: "50%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: "10px",
-            color: "#fff",
-            boxShadow: "0 2px 4px rgba(255, 107, 53, 0.5)",
-            animation: "pulse 2s infinite",
-          }}
-        >
-          !
-        </div>
+        <div style={{ position: "absolute", top: "4px", right: "4px", color: "#ccff00", fontSize: "10px", animation: "pulse 2s infinite" }}>!</div>
       )}
     </div>
   );
 }
 
-// ── Main TechTreePanel ──
-export function TechTreePanel({
-  isOpen,
-  onClose,
-  onFocus,
-  onUnlock,
-  onOpenDocs,
-  initialSelectedTechId,
-}) {
-  const tech = useGameStore((state) => state.tech);
-  const resources = useGameStore((state) => state.resources);
+export function TechTreePanel({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, initialSelectedTechId }) {
+  const tech = useGameStore((s) => s.tech);
+  const resources = useGameStore((s) => s.resources);
   const [selectedTechId, setSelectedTechId] = useState(initialSelectedTechId);
 
-  // Auto-select first available upgrade when opening
   useEffect(() => {
     if (isOpen) {
-      if (initialSelectedTechId) {
-        setSelectedTechId(initialSelectedTechId);
-        return;
-      }
+      if (initialSelectedTechId) { setSelectedTechId(initialSelectedTechId); return; }
       if (selectedTechId) return;
-
       const available = getAvailableUpgrades(resources, tech);
-      if (available.length > 0) {
-        setSelectedTechId(available[0].id);
-      } else if (TECH_TREE.length > 0) {
-        setSelectedTechId(TECH_TREE[0].id);
-      }
+      if (available.length > 0) setSelectedTechId(available[0].id);
+      else if (TECH_TREE.length > 0) setSelectedTechId(TECH_TREE[0].id);
     }
   }, [isOpen, selectedTechId, resources, tech, initialSelectedTechId]);
 
-  useEffect(() => {
-    if (selectedTechId) onFocus();
-  }, [selectedTechId, onFocus]);
+  useEffect(() => { if (selectedTechId) onFocus(); }, [selectedTechId, onFocus]);
 
   const selectedTech = TECH_TREE.find((t) => t.id === selectedTechId);
   const availableUpgrades = getAvailableUpgrades(resources, tech);
@@ -233,9 +85,7 @@ export function TechTreePanel({
 
   const handleUnlock = () => {
     if (!selectedTech) return;
-    const isUnlocked = tech[selectedTech.id];
-    const meetsThreshold = selectedTech.threshold(resources);
-    if (!isUnlocked && meetsThreshold) {
+    if (!tech[selectedTech.id] && selectedTech.threshold(resources)) {
       if (useGameStore.getState().consumeResources(selectedTech.cost)) {
         useGameStore.getState().unlockTech(selectedTech.id);
         onUnlock?.(selectedTech.id);
@@ -243,19 +93,16 @@ export function TechTreePanel({
     }
   };
 
-  const getTechStatus = (techNode) => {
-    const isUnlocked = tech[techNode.id];
-    const meetsThreshold = techNode.threshold(resources);
-    const depsMet = !techNode.dependencies || techNode.dependencies.every((d) => tech[d]);
-    return isUnlocked ? "unlocked" : meetsThreshold && depsMet ? "available" : "locked";
+  const getTechStatus = (node) => {
+    if (tech[node.id]) return "unlocked";
+    const depsMet = !node.dependencies || node.dependencies.every((d) => tech[d]);
+    return node.threshold(resources) && depsMet ? "available" : "locked";
   };
 
-  // Grid layout calculations
   const maxRow = Math.max(...TECH_TREE.map((t) => t.position?.row || 0));
   const maxCol = Math.max(...TECH_TREE.map((t) => t.position?.col || 0));
-  const CELL_SIZE = 140;
+  const CELL_SIZE = 130;
   const NODE_SIZE = 80;
-  const PADDING = 40;
   const gridWidth = (maxCol + 1) * CELL_SIZE;
   const gridHeight = (maxRow + 1) * CELL_SIZE;
 
@@ -263,313 +110,116 @@ export function TechTreePanel({
 
   return (
     <div
-      style={{
-        position: "fixed",
-        top: 0, left: 0, right: 0, bottom: 0,
-        backgroundColor: "rgba(0, 0, 0, 0.7)",
-        zIndex: 10000,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
+      style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.85)", zIndex: 10000, display: "flex", alignItems: "center", justifyContent: "center" }}
       onClick={onClose}
     >
       <div
         style={{
-          backgroundColor: "#1e1e1e",
-          border: "2px solid #4a9eff",
-          borderRadius: "8px",
-          padding: "24px",
-          width: "90%",
-          maxWidth: "1200px",
-          maxHeight: "90vh",
-          boxShadow: "0 8px 32px rgba(0, 0, 0, 0.8)",
-          display: "grid",
-          gridTemplateRows: "auto 1fr",
-          gridTemplateColumns: "1fr 1fr",
-          gap: "24px",
-          overflow: "hidden",
+          backgroundColor: "#0a0a0a", border: "1px solid #00ff41",
+          padding: "20px", width: "90%", maxWidth: "1100px", maxHeight: "85vh",
+          boxShadow: "0 0 40px rgba(0,255,65,0.15)",
+          display: "grid", gridTemplateRows: "auto 1fr", gridTemplateColumns: "1fr 300px",
+          gap: "16px", overflow: "hidden", fontFamily: "var(--hk-font)",
         }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div
-          style={{
-            gridColumn: "1 / -1",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <h2 style={{ margin: 0, color: "#cccccc", fontSize: "20px" }}>Tech Tree</h2>
-          <button
-            onClick={onClose}
-            style={{
-              padding: "4px 12px", fontSize: "18px",
-              backgroundColor: "transparent", color: "#cccccc",
-              border: "none", cursor: "pointer", lineHeight: "1",
-            }}
-          >
-            ×
-          </button>
+        <div style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ color: "#00ff41", fontSize: "12px", letterSpacing: "2px" }}>[ TECH TREE ]</span>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "#00ff41", cursor: "pointer", fontSize: "14px", fontFamily: "var(--hk-font)" }}>[X]</button>
         </div>
 
-        {/* Graph Area */}
-        <div style={{ display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0, overflow: "hidden" }}>
-          <div
-            style={{
-              position: "relative",
-              width: "100%",
-              height: "600px",
-              overflow: "auto",
-              background: "radial-gradient(ellipse at center, #1a1a1a 0%, #0f0f0f 100%)",
-              borderRadius: "8px",
-              border: "1px solid #2a2a2a",
-              padding: "40px",
-              boxShadow: "inset 0 2px 8px rgba(0, 0, 0, 0.5)",
-            }}
-          >
-            <div style={{ position: "relative", width: gridWidth, height: gridHeight, zIndex: 1 }}>
-              {/* Dependency Lines */}
-              {TECH_TREE.map((techNode) => {
-                if (!techNode.dependencies?.length || !techNode.position) return null;
-                return techNode.dependencies.map((depId) => {
-                  const depNode = TECH_TREE.find((t) => t.id === depId);
-                  if (!depNode?.position || !techNode.position) return null;
-
-                  const isDepUnlocked = tech[depId];
-                  const from = depNode.position;
-                  const to = techNode.position;
-
-                  // Calculate line endpoints
-                  const x1 = from.col * CELL_SIZE + NODE_SIZE / 2 + PADDING;
-                  const y1 = from.row * CELL_SIZE + NODE_SIZE / 2 + PADDING;
-                  const x2 = to.col * CELL_SIZE + NODE_SIZE / 2 + PADDING;
-                  const y2 = to.row * CELL_SIZE + NODE_SIZE / 2 + PADDING;
-
-                  const dx = x2 - x1;
-                  const dy = y2 - y1;
-                  const distance = Math.sqrt(dx * dx + dy * dy);
-                  const angle = Math.atan2(dy, dx) * (180 / Math.PI);
-
-                  // Shorten line to not overlap nodes
-                  const inset = NODE_SIZE / 2 + 2;
-                  const startX = x1 + (dx / distance) * inset;
-                  const startY = y1 + (dy / distance) * inset;
-                  const endX = x2 - (dx / distance) * inset;
-                  const endY = y2 - (dy / distance) * inset;
-                  const lineLength = Math.sqrt((endX - startX) ** 2 + (endY - startY) ** 2);
-
-                  return (
-                    <div
-                      key={`${depId}-${techNode.id}`}
-                      style={{
-                        position: "absolute",
-                        left: `${startX}px`,
-                        top: `${startY}px`,
-                        width: `${lineLength}px`,
-                        height: `${isDepUnlocked ? 3 : 2.5}px`,
-                        backgroundColor: isDepUnlocked ? "#4a9eff" : "#5a5a5a",
-                        transformOrigin: "0 50%",
-                        transform: `rotate(${angle}deg)`,
-                        zIndex: 0,
-                        pointerEvents: "none",
-                        opacity: isDepUnlocked ? 1 : 0.7,
-                      }}
-                    />
-                  );
-                });
-              })}
-
-              {/* Tech Nodes */}
-              {TECH_TREE.map((techNode) => {
-                if (!techNode.position) return null;
-                const status = getTechStatus(techNode);
-                const isSelected = selectedTechId === techNode.id;
+        {/* Graph */}
+        <div style={{ overflow: "auto", backgroundColor: "#050505", border: "1px solid #003300", padding: "30px" }}>
+          <div style={{ position: "relative", width: gridWidth, height: gridHeight }}>
+            {/* Lines */}
+            {TECH_TREE.map((node) => {
+              if (!node.dependencies?.length || !node.position) return null;
+              return node.dependencies.map((depId) => {
+                const dep = TECH_TREE.find((t) => t.id === depId);
+                if (!dep?.position) return null;
+                const isDepUnlocked = tech[depId];
+                const x1 = dep.position.col * CELL_SIZE + NODE_SIZE / 2;
+                const y1 = dep.position.row * CELL_SIZE + NODE_SIZE / 2;
+                const x2 = node.position.col * CELL_SIZE + NODE_SIZE / 2;
+                const y2 = node.position.row * CELL_SIZE + NODE_SIZE / 2;
+                const dx = x2 - x1, dy = y2 - y1;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+                const inset = NODE_SIZE / 2 + 2;
+                const sx = x1 + (dx / dist) * inset, sy = y1 + (dy / dist) * inset;
+                const len = dist - inset * 2;
 
                 return (
-                  <div
-                    key={techNode.id}
-                    style={{
-                      position: "absolute",
-                      left: techNode.position.col * CELL_SIZE + 40,
-                      top: techNode.position.row * CELL_SIZE + 40,
-                      zIndex: isSelected ? 10 : status === "unlocked" ? 5 : 3,
-                    }}
-                  >
-                    <TechNode
-                      tech={techNode}
-                      isUnlocked={status === "unlocked"}
-                      isAvailable={status === "available"}
-                      isSelected={isSelected}
-                      resources={resources}
-                      onClick={() => setSelectedTechId(techNode.id)}
-                    />
-                  </div>
+                  <div key={`${depId}-${node.id}`} style={{
+                    position: "absolute", left: sx, top: sy,
+                    width: `${len}px`, height: isDepUnlocked ? "2px" : "1px",
+                    backgroundColor: isDepUnlocked ? "#00ff41" : "#003300",
+                    transformOrigin: "0 50%", transform: `rotate(${angle}deg)`,
+                    opacity: isDepUnlocked ? 0.8 : 0.4,
+                  }} />
                 );
-              }).filter(Boolean)}
-            </div>
+              });
+            })}
+
+            {/* Nodes */}
+            {TECH_TREE.map((node) => {
+              if (!node.position) return null;
+              const status = getTechStatus(node);
+              return (
+                <div key={node.id} style={{ position: "absolute", left: node.position.col * CELL_SIZE, top: node.position.row * CELL_SIZE }}>
+                  <TechNode
+                    tech={node}
+                    isUnlocked={status === "unlocked"}
+                    isAvailable={status === "available"}
+                    isSelected={selectedTechId === node.id}
+                    resources={resources}
+                    onClick={() => setSelectedTechId(node.id)}
+                  />
+                </div>
+              );
+            })}
           </div>
         </div>
 
         {/* Detail Panel */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "20px",
-            borderLeft: "1px solid #2a2a2a",
-            paddingLeft: "24px",
-            overflowY: "auto",
-            minWidth: 0,
-            minHeight: 0,
-          }}
-        >
+        <div style={{ display: "flex", flexDirection: "column", gap: "12px", borderLeft: "1px solid #003300", paddingLeft: "16px", overflowY: "auto" }}>
           {selectedTech ? (
             <>
-              {/* Tech Info */}
-              <div>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "16px",
-                    marginBottom: "12px",
-                    paddingBottom: "16px",
-                    borderBottom: "1px solid #2a2a2a",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: "48px",
-                      lineHeight: "1",
-                      filter: tech[selectedTech.id] ? "none" : "brightness(0.7)",
-                    }}
-                  >
-                    {selectedTech.icon}
-                  </div>
-                  <div>
-                    <h3
-                      style={{
-                        margin: 0, color: "#cccccc", fontSize: "20px",
-                        fontWeight: "600", marginBottom: "4px",
-                      }}
-                    >
-                      {selectedTech.name}
-                    </h3>
-                    {tech[selectedTech.id] && (
-                      <div
-                        style={{
-                          display: "inline-block",
-                          padding: "2px 8px",
-                          backgroundColor: "rgba(74, 158, 255, 0.2)",
-                          color: "#4a9eff",
-                          fontSize: "11px",
-                          fontWeight: "bold",
-                          borderRadius: "4px",
-                          textTransform: "uppercase",
-                        }}
-                      >
-                        Unlocked
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <p style={{ margin: 0, color: "#aaaaaa", fontSize: "14px", lineHeight: "1.6" }}>
-                  {selectedTech.description}
-                </p>
+              <div style={{ borderBottom: "1px solid #003300", paddingBottom: "12px" }}>
+                <div style={{ fontSize: "32px", marginBottom: "8px", filter: tech[selectedTech.id] ? "none" : "brightness(0.7)" }}>{selectedTech.icon}</div>
+                <div style={{ color: "#00ff41", fontSize: "14px", fontWeight: "bold" }}>{selectedTech.name}</div>
+                {tech[selectedTech.id] && <div style={{ color: "#00cc33", fontSize: "10px", marginTop: "4px" }}>UNLOCKED</div>}
               </div>
+              <p style={{ margin: 0, color: "#00cc33", fontSize: "11px", lineHeight: 1.5 }}>{selectedTech.description}</p>
 
-              {/* Cost Display (hidden if unlocked) */}
-              <div
-                hidden={tech[selectedTech.id]}
-                style={{
-                  padding: "16px",
-                  background: "linear-gradient(135deg, #2d2d2d 0%, #1f1f1f 100%)",
-                  borderRadius: "8px",
-                  border: "1px solid #3c3c3c",
-                  boxShadow: "0 2px 8px rgba(0, 0, 0, 0.3)",
-                }}
-              >
-                <div
-                  style={{
-                    color: "#cccccc", fontSize: "13px", fontWeight: "600",
-                    marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px",
-                  }}
-                >
-                  Unlock Cost
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                  {selectedTech.cost.map((cost, i) => (
-                    <ResourceCostBadge
-                      key={i}
-                      resource={cost.resource}
-                      amount={cost.amount}
-                      available={resources[cost.resource]}
-                    />
-                  ))}
-                </div>
-                {selectedTech.cost.length > 0 && (
-                  <div
-                    style={{
-                      marginTop: "12px",
-                      paddingTop: "12px",
-                      borderTop: "1px solid #2a2a2a",
-                      fontSize: "12px",
-                      color: "#888",
-                    }}
-                  >
-                    {selectedTech.cost.map((cost, i) => (
-                      <div key={i} style={{ marginBottom: "4px" }}>
-                        You have {resources[cost.resource]} {cost.resource}
-                        {resources[cost.resource] >= cost.amount ? (
-                          <span style={{ color: "#4a9eff", marginLeft: "8px" }}>✓</span>
-                        ) : (
-                          <span style={{ color: "#ff6b35", marginLeft: "8px" }}>
-                            (need {cost.amount - resources[cost.resource]} more)
-                          </span>
-                        )}
-                      </div>
+              {!tech[selectedTech.id] && (
+                <div style={{ padding: "10px", backgroundColor: "#001a00", border: "1px solid #003300" }}>
+                  <div style={{ color: "#004400", fontSize: "10px", marginBottom: "8px", letterSpacing: "1px" }}>COST</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                    {selectedTech.cost.map((c, i) => (
+                      <ResourceCostBadge key={i} resource={c.resource} amount={c.amount} available={resources[c.resource]} />
                     ))}
                   </div>
-                )}
-              </div>
+                </div>
+              )}
 
-              {/* Action Button */}
               {tech[selectedTech.id] ? (
                 <div>
-                  <div
-                    style={{
-                      padding: "12px",
-                      backgroundColor: "rgba(74, 158, 255, 0.1)",
-                      borderRadius: "4px",
-                      border: "1px solid #4a9eff",
-                      color: "#4a9eff",
-                      fontSize: "13px",
-                      textAlign: "center",
-                    }}
-                  >
-                    ✓ UNLOCKED
+                  <div style={{ padding: "8px", backgroundColor: "#001a00", border: "1px solid #00ff41", color: "#00ff41", fontSize: "11px", textAlign: "center" }}>
+                    + UNLOCKED
                   </div>
                   {onOpenDocs && (
                     <button
-                      onClick={() => {
-                        onOpenDocs(TECH_TO_DOCS_SECTION[selectedTech.id] || "");
-                      }}
+                      onClick={() => onOpenDocs(TECH_TO_DOCS_SECTION[selectedTech.id] || "")}
                       style={{
-                        marginTop: "12px",
-                        width: "100%",
-                        padding: "10px",
-                        backgroundColor: "#4a9eff",
-                        color: "#fff",
-                        border: "none",
-                        borderRadius: "4px",
-                        cursor: "pointer",
-                        fontSize: "13px",
-                        fontWeight: "bold",
+                        marginTop: "8px", width: "100%", padding: "8px",
+                        backgroundColor: "#001a00", color: "#00ff41",
+                        border: "1px solid #00ff41", cursor: "pointer",
+                        fontSize: "11px", fontFamily: "var(--hk-font)",
                       }}
                     >
-                      View in Docs
+                      [VIEW DOCS]
                     </button>
                   )}
                 </div>
@@ -578,26 +228,21 @@ export function TechTreePanel({
                   onClick={handleUnlock}
                   disabled={!canUnlockSelected}
                   style={{
-                    width: "100%",
-                    padding: "12px",
-                    backgroundColor: canUnlockSelected ? "#ff6b35" : "#555",
-                    color: "#fff",
-                    border: "none",
-                    borderRadius: "4px",
+                    width: "100%", padding: "10px",
+                    backgroundColor: canUnlockSelected ? "#001a00" : "#0a0a0a",
+                    color: canUnlockSelected ? "#00ff41" : "#003300",
+                    border: `1px solid ${canUnlockSelected ? "#00ff41" : "#003300"}`,
                     cursor: canUnlockSelected ? "pointer" : "not-allowed",
-                    fontSize: "14px",
-                    fontWeight: "bold",
-                    opacity: canUnlockSelected ? 1 : 0.5,
+                    fontSize: "12px", fontFamily: "var(--hk-font)",
+                    letterSpacing: "1px",
                   }}
                 >
-                  {canUnlockSelected ? "Unlock" : "Insufficient Resources"}
+                  {canUnlockSelected ? "[UNLOCK]" : "INSUFFICIENT"}
                 </button>
               )}
             </>
           ) : (
-            <div style={{ color: "#888", fontSize: "14px" }}>
-              Select a tech to view details
-            </div>
+            <div style={{ color: "#003300", fontSize: "11px" }}>Select a node...</div>
           )}
         </div>
       </div>

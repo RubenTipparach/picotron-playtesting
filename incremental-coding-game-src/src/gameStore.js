@@ -23,6 +23,10 @@ const DEFAULT_STATE = {
     processingSpeed1Unlocked: false,
   },
   virtualTime: 0,
+  // Shop system
+  credits: 0,
+  ram: 256,       // max characters allowed in editor
+  cpuLevel: 0,    // each level = 10% speed boost
 };
 
 /**
@@ -38,6 +42,9 @@ function loadGameState() {
         resources: { ...DEFAULT_STATE.resources, ...parsed.resources },
         tech: { ...DEFAULT_STATE.tech, ...parsed.tech },
         virtualTime: parsed.virtualTime ?? DEFAULT_STATE.virtualTime,
+        credits: parsed.credits ?? DEFAULT_STATE.credits,
+        ram: parsed.ram ?? DEFAULT_STATE.ram,
+        cpuLevel: parsed.cpuLevel ?? DEFAULT_STATE.cpuLevel,
       };
     }
   } catch (error) {
@@ -74,6 +81,9 @@ export const useGameStore = create((set, get) => {
     resources: initial.resources,
     tech: initial.tech,
     virtualTime: initial.virtualTime,
+    credits: initial.credits,
+    ram: initial.ram,
+    cpuLevel: initial.cpuLevel,
 
     /** Replace all resources */
     setResources: (resources) => {
@@ -154,6 +164,45 @@ export const useGameStore = create((set, get) => {
       set({ virtualTime });
     },
 
+    /** Add credits */
+    addCredits: (amount) => {
+      const current = get();
+      const credits = current.credits + amount;
+      const state = { ...current, credits };
+      saveGameState(state);
+      set({ credits });
+    },
+
+    /** Spend credits. Returns true if successful. */
+    spendCredits: (amount) => {
+      const current = get();
+      if (current.credits >= amount) {
+        const credits = current.credits - amount;
+        const state = { ...current, credits };
+        saveGameState(state);
+        set({ credits });
+        return true;
+      }
+      return false;
+    },
+
+    /** Upgrade RAM capacity */
+    upgradeRam: (newRam) => {
+      const current = get();
+      const state = { ...current, ram: newRam };
+      saveGameState(state);
+      set({ ram: newRam });
+    },
+
+    /** Upgrade CPU level */
+    upgradeCpu: () => {
+      const current = get();
+      const cpuLevel = current.cpuLevel + 1;
+      const state = { ...current, cpuLevel };
+      saveGameState(state);
+      set({ cpuLevel });
+    },
+
     /** Reload state from localStorage (for cross-tab sync) */
     syncFromLocalStorage: () => {
       const loaded = loadGameState();
@@ -161,6 +210,9 @@ export const useGameStore = create((set, get) => {
         resources: loaded.resources,
         tech: loaded.tech,
         virtualTime: loaded.virtualTime,
+        credits: loaded.credits,
+        ram: loaded.ram,
+        cpuLevel: loaded.cpuLevel,
       });
     },
 
@@ -171,6 +223,9 @@ export const useGameStore = create((set, get) => {
         resources: DEFAULT_STATE.resources,
         tech: DEFAULT_STATE.tech,
         virtualTime: DEFAULT_STATE.virtualTime,
+        credits: DEFAULT_STATE.credits,
+        ram: DEFAULT_STATE.ram,
+        cpuLevel: DEFAULT_STATE.cpuLevel,
       });
     },
   };

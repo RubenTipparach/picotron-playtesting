@@ -1,100 +1,121 @@
-/**
- * ResourceBar Component
- *
- * Fixed top bar showing current resource counts (A, B, C)
- * and virtual time elapsed. Resources are color-coded and
- * only shown after being unlocked.
- */
-
 import React from "react";
 import { useGameStore } from "../gameStore.js";
 
-export function ResourceBar() {
-  const resources = useGameStore((state) => state.resources);
-  const tech = useGameStore((state) => state.tech);
-  const virtualTime = useGameStore((state) => state.virtualTime);
+export function ResourceBar({
+  isRunning,
+  onRun,
+  onStop,
+  onOpenTechTree,
+  onReset,
+  availableUpgradeCount,
+  hasSeenUpgrades,
+}) {
+  const resources = useGameStore((s) => s.resources);
+  const tech = useGameStore((s) => s.tech);
+  const virtualTime = useGameStore((s) => s.virtualTime);
+  const credits = useGameStore((s) => s.credits);
 
-  /** Format virtual time as H:MM:SS.ss */
   const formatTime = (seconds) => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = (seconds % 60).toFixed(2);
-    return `${hours}:${minutes.toString().padStart(2, "0")}:${secs.padStart(5, "0")}`;
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = (seconds % 60).toFixed(1);
+    return `${h}:${m.toString().padStart(2, "0")}:${s.padStart(4, "0")}`;
   };
+
+  const btnStyle = (color, active) => ({
+    padding: "3px 12px",
+    fontSize: "11px",
+    fontFamily: "var(--hk-font)",
+    letterSpacing: "1px",
+    backgroundColor: active ? "#001a00" : "#0a0a0a",
+    color: active ? color : "#004400",
+    border: `1px solid ${active ? color : "#003300"}`,
+    cursor: active ? "pointer" : "default",
+    textTransform: "uppercase",
+  });
 
   return (
     <div
       style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        right: 0,
-        height: "40px",
-        backgroundColor: "#1e1e1e",
-        borderBottom: "1px solid #3c3c3c",
+        height: "36px",
+        backgroundColor: "#0a0a0a",
+        borderBottom: "1px solid #003300",
         display: "flex",
         alignItems: "center",
-        padding: "0 16px",
-        zIndex: 10000,
-        justifyContent: "space-between",
+        padding: "0 12px",
+        gap: "16px",
+        flexShrink: 0,
       }}
     >
-      {/* Resource Counts */}
-      <div style={{ display: "flex", alignItems: "center", gap: "24px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-          {/* Resource A - always visible */}
-          <ResourceCounter color="#4a9eff" label="A" count={resources.A} />
+      {/* Run/Stop */}
+      {isRunning ? (
+        <button onClick={onStop} style={btnStyle("#ff0040", true)}>
+          [STOP]
+        </button>
+      ) : (
+        <button onClick={onRun} style={btnStyle("#00ff41", true)}>
+          [RUN]
+        </button>
+      )}
 
-          {/* Resource B - visible after conversion unlock */}
-          {tech.convertAToBUnlocked && (
-            <ResourceCounter color="#9d4edd" label="B" count={resources.B} />
-          )}
-
-          {/* Resource C - visible after resource C unlock */}
-          {tech.resourceCUnlocked && (
-            <ResourceCounter color="#ff6b35" label="C" count={resources.C} />
-          )}
-        </div>
+      {/* Resources */}
+      <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+        <ResCount label="A" count={resources.A} color="#00aaff" />
+        {tech.convertAToBUnlocked && <ResCount label="B" count={resources.B} color="#aa44ff" />}
+        {tech.resourceCUnlocked && <ResCount label="C" count={resources.C} color="#ff6b35" />}
       </div>
+
+      {/* Credits */}
+      <div style={{ fontSize: "12px", color: "#00ff41" }}>
+        <span style={{ color: "#00cc33" }}>$</span>{credits}
+      </div>
+
+      {/* Spacer */}
+      <div style={{ flex: 1 }} />
 
       {/* Virtual Time */}
-      <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-        <span style={{ color: "#888", fontSize: "12px" }}>Virtual Time:</span>
-        <span
-          style={{
-            color: "#cccccc",
-            fontSize: "14px",
-            fontFamily: "monospace",
-          }}
-        >
-          {formatTime(virtualTime)}
-        </span>
-      </div>
+      <span style={{ color: "#004400", fontSize: "10px" }}>CLOCK:</span>
+      <span style={{ color: "#00cc33", fontSize: "11px", fontFamily: "var(--hk-font)" }}>
+        {formatTime(virtualTime)}
+      </span>
+
+      {/* Tech Tree */}
+      <button
+        onClick={onOpenTechTree}
+        style={{
+          ...btnStyle("#00ff41", true),
+          position: "relative",
+          animation: availableUpgradeCount > 0 && !hasSeenUpgrades ? "pulse-border 1.5s ease-in-out infinite" : "none",
+        }}
+      >
+        [TECH]
+        {availableUpgradeCount > 0 && (
+          <span style={{
+            position: "absolute", top: "-6px", right: "-6px",
+            backgroundColor: "#00ff41", color: "#000",
+            borderRadius: "50%", width: "14px", height: "14px",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: "9px", fontWeight: "bold",
+          }}>
+            {availableUpgradeCount}
+          </span>
+        )}
+      </button>
+
+      {/* Reset */}
+      <button onClick={onReset} style={btnStyle("#ff0040", true)} title="Reset all progress">
+        [RST]
+      </button>
     </div>
   );
 }
 
-/** Small colored square + count for a single resource */
-function ResourceCounter({ color, label, count }) {
+function ResCount({ label, count, color }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-      <div
-        style={{
-          width: "16px",
-          height: "16px",
-          backgroundColor: color,
-          borderRadius: "2px",
-        }}
-      />
-      <span
-        style={{
-          color: "#cccccc",
-          fontSize: "14px",
-          fontFamily: "monospace",
-        }}
-      >
-        {label}: {count}
-      </span>
-    </div>
+    <span style={{ fontSize: "12px", fontFamily: "var(--hk-font)" }}>
+      <span style={{ color, fontWeight: "bold" }}>{label}</span>
+      <span style={{ color: "#00cc33" }}>:</span>
+      <span style={{ color: "#00ff41" }}>{count}</span>
+    </span>
   );
 }

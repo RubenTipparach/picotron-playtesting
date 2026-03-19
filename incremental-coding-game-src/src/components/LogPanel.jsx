@@ -1,63 +1,49 @@
-/**
- * LogPanel Component
- *
- * Displays timestamped log messages with color coding:
- * - Normal logs: white/gray
- * - Warnings: yellow
- * - Errors: red
- * - Unlock messages: green
- *
- * Auto-scrolls to the latest message.
- */
-
 import React, { useEffect, useRef } from "react";
 
 export function LogPanel({ logs }) {
   const bottomRef = useRef(null);
 
-  // Auto-scroll to bottom when new logs arrive
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs]);
 
   const getLogColor = (type) => {
     switch (type) {
-      case "error":
-        return "#dc3545";
-      case "warning":
-        return "#ffc107";
-      case "unlock":
-        return "#28a745";
-      default:
-        return "#d4d4d4";
+      case "error": return "#ff0040";
+      case "warning": return "#ccff00";
+      case "unlock": return "#00ff41";
+      default: return "#00cc33";
     }
   };
 
   return (
-    <div
-      style={{
-        padding: "1rem",
-        fontFamily: "monospace",
-        fontSize: "0.9em",
-        backgroundColor: "#1e1e1e",
-        color: "#d4d4d4",
-        height: "100%",
-        overflowY: "auto",
-        overflowX: "hidden",
-        boxSizing: "border-box",
-      }}
-    >
-      <div
-        style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}
-      >
+    <div style={{
+      padding: "8px 12px",
+      fontFamily: "var(--hk-font)",
+      fontSize: "11px",
+      backgroundColor: "#0a0a0a",
+      color: "#00cc33",
+      height: "100%",
+      overflowY: "auto",
+      overflowX: "hidden",
+      boxSizing: "border-box",
+      borderTop: "1px solid #003300",
+    }}>
+      <div style={{ color: "#004400", fontSize: "10px", marginBottom: "6px", letterSpacing: "2px" }}>
+        &gt; OUTPUT
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
         {logs.length === 0 ? (
-          <div style={{ color: "#999", fontStyle: "italic" }}>
-            No logs yet...
+          <div style={{ color: "#003300", fontStyle: "italic" }}>
+            Awaiting execution...
           </div>
         ) : (
-          logs.map((log, index) => (
-            <div key={index} style={{ color: getLogColor(log.type) }}>
-              [{new Date(log.timestamp).toLocaleTimeString()}] {log.message}
+          logs.map((log, i) => (
+            <div key={i} style={{ color: getLogColor(log.type) }}>
+              <span style={{ color: "#003300" }}>
+                [{new Date(log.timestamp).toLocaleTimeString()}]
+              </span>{" "}
+              {log.message}
             </div>
           ))
         )}

@@ -327,14 +327,36 @@ export const CodeEditor = forwardRef(
         });
       });
 
-      // ── Custom theme ──
+      // ── Custom hackerman theme ──
       monaco.editor.defineTheme("game-script-theme", {
         base: "vs-dark",
         inherit: true,
         rules: [
-          { token: "api-function", foreground: "4ec9b0", fontStyle: "bold" },
+          { token: "api-function", foreground: "00ffcc", fontStyle: "bold" },
+          { token: "keyword", foreground: "00ff41" },
+          { token: "comment", foreground: "004400" },
+          { token: "string", foreground: "ccff00" },
+          { token: "number", foreground: "00aaff" },
+          { token: "identifier", foreground: "00cc33" },
+          { token: "delimiter", foreground: "006600" },
+          { token: "type.identifier", foreground: "00ffcc" },
         ],
-        colors: {},
+        colors: {
+          "editor.background": "#0a0a0a",
+          "editor.foreground": "#00cc33",
+          "editor.lineHighlightBackground": "#001a00",
+          "editor.selectionBackground": "#003300",
+          "editorCursor.foreground": "#00ff41",
+          "editorLineNumber.foreground": "#004400",
+          "editorLineNumber.activeForeground": "#00ff41",
+          "editor.selectionHighlightBackground": "#002200",
+          "editorWidget.background": "#0a0a0a",
+          "editorWidget.border": "#003300",
+          "editorSuggestWidget.background": "#0a0a0a",
+          "editorSuggestWidget.border": "#003300",
+          "editorSuggestWidget.selectedBackground": "#001a00",
+          "editorGutter.background": "#050505",
+        },
       });
 
       // Apply language and theme
@@ -414,7 +436,9 @@ export const CodeEditor = forwardRef(
           theme="game-script-theme"
           options={{
             minimap: { enabled: false },
-            fontSize: 14,
+            fontSize: 13,
+            fontFamily: "'Fira Code', 'Courier New', monospace",
+            fontLigatures: true,
             wordWrap: "on",
             hover: { enabled: true, delay: 200 },
             quickSuggestions: true,
@@ -422,31 +446,11 @@ export const CodeEditor = forwardRef(
             wordBasedSuggestions: "matchingDocuments",
             renderValidationDecorations: "on",
             fixedOverflowWidgets: true,
+            cursorBlinking: "phase",
+            cursorStyle: "block",
+            scrollbar: { verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
           }}
         />
-        <style>{`
-          .executing-line {
-            width: calc(100% - 24px) !important;
-            background-color: rgba(255, 255, 0, 0.2) !important;
-            border: 1px solid rgba(255, 255, 0, 0.5) !important;
-            position: relative;
-          }
-          .executing-line::after {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 0;
-            height: 100%;
-            width: var(--progress, 0%);
-            background-color: rgba(0, 128, 0, 0.4);
-            transition: width 0.0016s linear;
-            pointer-events: none;
-          }
-          .progress-text {
-            color: #28a745;
-            font-weight: bold;
-          }
-        `}</style>
       </div>
     );
   }

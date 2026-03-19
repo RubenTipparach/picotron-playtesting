@@ -1,165 +1,63 @@
-/**
- * Hint / Tutorial Components
- *
- * HintModal: Full-screen modal showing a tutorial hint with optional code example
- * HintPanel: Small fixed panel listing active and dismissed hints
- */
+import React from "react";
 
-import React, { useState } from "react";
-
-/**
- * Full-screen modal for displaying a tutorial hint.
- * Shows the hint message, optional code example, and line number link.
- */
 export function HintModal({ hint, onDismiss, onHintClick }) {
   return (
     <div
       style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: "rgba(0, 0, 0, 0.7)",
+        position: "fixed", inset: 0,
+        backgroundColor: "rgba(0, 0, 0, 0.8)",
         zIndex: 10000,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
+        display: "flex", alignItems: "center", justifyContent: "center",
       }}
       onClick={onDismiss}
     >
       <div
         style={{
-          backgroundColor: "rgba(30, 30, 30, 0.98)",
-          border: "2px solid #4a9eff",
-          borderRadius: "8px",
+          backgroundColor: "#0a0a0a",
+          border: "1px solid #00ff41",
           padding: "24px",
-          width: "90%",
-          maxWidth: "500px",
-          boxShadow:
-            "0 8px 24px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(74, 158, 255, 0.3)",
-          display: "flex",
-          flexDirection: "column",
-          gap: "16px",
+          width: "90%", maxWidth: "460px",
+          boxShadow: "0 0 30px rgba(0, 255, 65, 0.2)",
+          fontFamily: "var(--hk-font)",
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            gap: "16px",
-          }}
-        >
-          <div style={{ flex: 1 }}>
-            {/* Title */}
-            <div
-              style={{
-                color: "#4a9eff",
-                fontSize: "14px",
-                fontWeight: 600,
-                marginBottom: "12px",
-                textTransform: "uppercase",
-                letterSpacing: "0.5px",
-              }}
-            >
-              Tutorial
-            </div>
-
-            {/* Message */}
-            <div
-              style={{
-                color: "#e0e0e0",
-                fontSize: "14px",
-                lineHeight: "1.6",
-                whiteSpace: "pre-wrap",
-              }}
-            >
-              {hint.message}
-            </div>
-
-            {/* Code Example */}
-            {hint.codeExample && (
-              <div
-                style={{
-                  marginTop: "16px",
-                  padding: "12px",
-                  backgroundColor: "rgba(0, 0, 0, 0.3)",
-                  borderRadius: "4px",
-                  border: "1px solid rgba(74, 158, 255, 0.2)",
-                  fontFamily: "monospace",
-                  fontSize: "13px",
-                  color: "#4a9eff",
-                  overflowX: "auto",
-                  whiteSpace: "pre",
-                }}
-              >
-                {hint.codeExample}
-              </div>
-            )}
-
-            {/* Line Number Link */}
-            {hint.lineNumber && (
-              <div
-                style={{
-                  color: "#888",
-                  fontSize: "12px",
-                  marginTop: "12px",
-                  cursor: onHintClick ? "pointer" : "default",
-                  textDecoration: onHintClick ? "underline" : "none",
-                }}
-                onClick={() => {
-                  onHintClick?.(hint);
-                  onDismiss();
-                }}
-              >
-                Click to jump to line {hint.lineNumber}
-              </div>
-            )}
-          </div>
-
-          {/* Close X */}
-          <button
-            onClick={onDismiss}
-            style={{
-              padding: "4px 8px",
-              fontSize: "20px",
-              backgroundColor: "transparent",
-              color: "#888",
-              border: "none",
-              cursor: "pointer",
-              lineHeight: "1",
-              flexShrink: 0,
-            }}
-            title="Dismiss"
-          >
-            ×
-          </button>
+        <div style={{ color: "#00ff41", fontSize: "12px", fontWeight: 600, marginBottom: "12px", letterSpacing: "2px" }}>
+          [ SYSTEM MESSAGE ]
         </div>
-
-        {/* Got it button */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "flex-end",
-            gap: "8px",
-            marginTop: "8px",
-          }}
-        >
+        <div style={{ color: "#00cc33", fontSize: "13px", lineHeight: "1.6", whiteSpace: "pre-wrap" }}>
+          {hint.message}
+        </div>
+        {hint.codeExample && (
+          <div style={{
+            marginTop: "12px", padding: "10px",
+            backgroundColor: "#001a00", border: "1px solid #003300",
+            fontFamily: "var(--hk-font)", fontSize: "12px", color: "#00ff41",
+            whiteSpace: "pre",
+          }}>
+            {hint.codeExample}
+          </div>
+        )}
+        {hint.lineNumber && (
+          <div
+            style={{ color: "#004400", fontSize: "11px", marginTop: "10px", cursor: "pointer", textDecoration: "underline" }}
+            onClick={() => { onHintClick?.(hint); onDismiss(); }}
+          >
+            Jump to line {hint.lineNumber}
+          </div>
+        )}
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px" }}>
           <button
             onClick={onDismiss}
             style={{
-              padding: "8px 16px",
-              fontSize: "13px",
-              backgroundColor: "#4a9eff",
-              color: "#fff",
-              border: "none",
-              borderRadius: "4px",
-              cursor: "pointer",
+              padding: "6px 16px", fontSize: "11px",
+              fontFamily: "var(--hk-font)",
+              backgroundColor: "#001a00", color: "#00ff41",
+              border: "1px solid #00ff41", cursor: "pointer",
+              letterSpacing: "1px",
             }}
           >
-            Got it
+            [OK]
           </button>
         </div>
       </div>
@@ -167,154 +65,38 @@ export function HintModal({ hint, onDismiss, onHintClick }) {
   );
 }
 
-/**
- * Small fixed panel showing active and dismissed hints.
- * Can be collapsed to a single "Hints" button.
- */
-export function HintPanel({ activeHints, dismissedHints, onReopenHint }) {
-  const [isMinimized, setIsMinimized] = useState(false);
+export function HintPanel({ activeHints, dismissedHints, onReopenHint, inline }) {
   const hasHints = [...activeHints, ...dismissedHints].length > 0;
 
-  // Minimized state - just a small button
-  if (isMinimized && hasHints) {
-    return (
-      <div style={{ position: "fixed", right: "16px", bottom: "16px", zIndex: 9999 }}>
-        <button
-          onClick={() => setIsMinimized(false)}
-          style={{
-            padding: "8px 12px",
-            backgroundColor: "#2d2d2d",
-            color: "#cccccc",
-            border: "1px solid #3c3c3c",
-            borderRadius: "4px",
-            cursor: "pointer",
-            fontSize: "12px",
-          }}
-        >
-          Hints
-        </button>
-      </div>
-    );
-  }
+  const containerStyle = inline
+    ? { padding: "12px", fontFamily: "var(--hk-font)", color: "#00ff41", height: "100%", overflowY: "auto", boxSizing: "border-box" }
+    : { position: "fixed", right: "16px", bottom: "16px", width: "280px", maxHeight: "300px", backgroundColor: "#0a0a0a", border: "1px solid #003300", zIndex: 9999, fontFamily: "var(--hk-font)" };
 
-  // Full panel
   return (
-    <div
-      style={{
-        position: "fixed",
-        right: "16px",
-        bottom: "16px",
-        width: "280px",
-        maxHeight: "300px",
-        backgroundColor: "rgba(30, 30, 30, 0.95)",
-        border: "1px solid #3c3c3c",
-        borderRadius: "4px",
-        zIndex: 9999,
-        boxShadow: "0 4px 12px rgba(0, 0, 0, 0.5)",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
-      {/* Header */}
-      <div
-        style={{
-          padding: "12px",
-          borderBottom: "1px solid #3c3c3c",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
-        <h3 style={{ margin: 0, color: "#cccccc", fontSize: "14px", fontWeight: 600 }}>
-          Hints
-        </h3>
-        <button
-          onClick={() => setIsMinimized(true)}
-          style={{
-            padding: "4px 8px",
-            fontSize: "11px",
-            backgroundColor: "transparent",
-            color: "#888",
-            border: "none",
-            cursor: "pointer",
-          }}
-        >
-          −
-        </button>
+    <div style={containerStyle}>
+      <div style={{ color: "#00cc33", fontSize: "11px", marginBottom: "12px", letterSpacing: "2px" }}>
+        [ HINTS ]
       </div>
-
-      {/* Hint List */}
-      <div style={{ overflowY: "auto", maxHeight: "250px" }}>
-        {hasHints ? (
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            {/* Active hints */}
-            {activeHints.map((hint) => (
-              <div
-                key={hint.id}
-                style={{
-                  padding: "12px",
-                  borderBottom: "1px solid #3c3c3c",
-                  backgroundColor: "rgba(74, 158, 255, 0.1)",
-                }}
-              >
-                <div style={{ color: "#4a9eff", fontSize: "12px", fontWeight: 600 }}>
-                  {hint.title || "New Tutorial"}
-                </div>
-                <div style={{ color: "#888", fontSize: "11px", marginTop: "4px" }}>
-                  Click to view
-                </div>
-              </div>
-            ))}
-
-            {/* Dismissed hints (clickable to reopen) */}
-            {dismissedHints.map((hint) => (
-              <div
-                key={hint.id}
-                onClick={() => onReopenHint?.(hint)}
-                style={{
-                  padding: "12px",
-                  borderBottom: "1px solid #3c3c3c",
-                  cursor: onReopenHint ? "pointer" : "default",
-                  transition: "background-color 0.2s",
-                }}
-                onMouseEnter={(e) => {
-                  if (onReopenHint) e.currentTarget.style.backgroundColor = "#2d2d2d";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = "transparent";
-                }}
-              >
-                <div
-                  style={{
-                    color: "#4a9eff",
-                    fontSize: "12px",
-                    lineHeight: "1.5",
-                    textDecoration: "underline",
-                  }}
-                >
-                  {hint.title || hint.message.substring(0, 50) + "..."}
-                </div>
-                {hint.lineNumber && (
-                  <div style={{ color: "#888", fontSize: "11px", marginTop: "4px" }}>
-                    Line {hint.lineNumber}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div
-            style={{
-              padding: "16px",
-              color: "#888",
-              fontSize: "12px",
-              textAlign: "center",
-            }}
-          >
-            No hints available
-          </div>
-        )}
-      </div>
+      {hasHints ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+          {activeHints.map((hint) => (
+            <div key={hint.id} style={{ padding: "8px", backgroundColor: "#001a00", border: "1px solid #003300", fontSize: "11px" }}>
+              <span style={{ color: "#00ff41" }}>{hint.title || "Active"}</span>
+            </div>
+          ))}
+          {dismissedHints.map((hint) => (
+            <div
+              key={hint.id}
+              onClick={() => onReopenHint?.(hint)}
+              style={{ padding: "8px", border: "1px solid #003300", fontSize: "11px", cursor: "pointer", color: "#004400" }}
+            >
+              {hint.title || hint.message?.substring(0, 40) + "..."}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ color: "#003300", fontSize: "11px" }}>No hints available</div>
+      )}
     </div>
   );
 }
