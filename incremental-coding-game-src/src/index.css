@@ -37,11 +37,14 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background: var(--hk-bg);
+  overflow: hidden;
 }
 
 #root {
   width: 100%;
-  height: 100vh;
+  height: 100%;
+  position: fixed;
+  inset: 0;
 }
 
 /* CRT scanline overlay */
@@ -143,33 +146,6 @@ body {
   font-weight: bold;
 }
 
-/* ── Mobile bottom tab bar ── */
-.mobile-tab-bar {
-  display: flex;
-  border-top: 1px solid var(--hk-border);
-  background: var(--hk-bg);
-  flex-shrink: 0;
-}
-.mobile-tab {
-  flex: 1;
-  padding: 10px 4px;
-  font-family: var(--hk-font);
-  font-size: 10px;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  background: transparent;
-  color: var(--hk-green-dark);
-  border: none;
-  border-top: 2px solid transparent;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.mobile-tab.active {
-  color: var(--hk-green);
-  border-top-color: var(--hk-green);
-  background: var(--hk-bg2);
-}
-
 /* ── Mobile responsive ── */
 .hide-mobile { }
 
@@ -191,24 +167,7 @@ body {
     padding: 6px 12px !important;
     font-size: 12px !important;
   }
-
-  /* Larger tab targets */
-  .hk-tab {
-    padding: 10px 12px;
-    font-size: 12px;
-    min-height: 44px;
-  }
-
-  /* Tech tree modal: full screen on mobile */
-  .tech-tree-modal {
-    max-width: 100% !important;
-    max-height: 100% !important;
-    width: 100% !important;
-    height: 100% !important;
-    border-radius: 0 !important;
-  }
-
-  /* Scrollbars slightly wider for touch */
+  /* Wider scrollbars for touch */
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;

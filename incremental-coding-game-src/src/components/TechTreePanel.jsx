@@ -18,7 +18,7 @@ function ResourceCostBadge({ resource, amount, available }) {
   );
 }
 
-function TechNode({ tech, isUnlocked, isAvailable, isSelected, resources, onClick }) {
+function TechNode({ tech, isUnlocked, isAvailable, isSelected, resources, onClick, size }) {
   const canAfford = tech.cost.every((c) => resources[c.resource] >= c.amount);
   const borderColor = isSelected ? "#00ff41" : isUnlocked ? "#00cc33" : isAvailable && canAfford ? "#ccff00" : "#335533";
 
@@ -26,7 +26,7 @@ function TechNode({ tech, isUnlocked, isAvailable, isSelected, resources, onClic
     <div
       onClick={onClick}
       style={{
-        width: "80px", height: "80px",
+        width: `${size}px`, height: `${size}px`,
         backgroundColor: isUnlocked ? "#001a00" : "#0a0a0a",
         border: `${isSelected ? "2px" : "1px"} solid ${borderColor}`,
         display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
@@ -34,17 +34,18 @@ function TechNode({ tech, isUnlocked, isAvailable, isSelected, resources, onClic
         boxShadow: isSelected ? `0 0 15px rgba(0, 255, 65, 0.3)` : isUnlocked ? `0 0 8px rgba(0, 255, 65, 0.1)` : "none",
         transition: "all 0.2s",
         position: "relative",
+        flexShrink: 0,
       }}
       title={tech.name}
     >
-      <div style={{ fontSize: "28px", lineHeight: "1", filter: isUnlocked ? "none" : "brightness(0.7)" }}>
+      <div style={{ fontSize: size > 60 ? "28px" : "20px", lineHeight: "1", filter: isUnlocked ? "none" : "brightness(0.7)" }}>
         {tech.icon}
       </div>
       {!isUnlocked && (
-        <div style={{ position: "absolute", bottom: "4px", display: "flex", gap: "2px" }}>
+        <div style={{ position: "absolute", bottom: "3px", display: "flex", gap: "2px" }}>
           {tech.cost.slice(0, 2).map((cost, i) => (
             <div key={i} style={{
-              fontSize: "8px", fontFamily: "var(--hk-font)",
+              fontSize: size > 60 ? "8px" : "7px", fontFamily: "var(--hk-font)",
               color: resources[cost.resource] >= cost.amount ? "#00ff41" : "#558855",
             }}>
               {cost.amount}{cost.resource}
@@ -53,10 +54,10 @@ function TechNode({ tech, isUnlocked, isAvailable, isSelected, resources, onClic
         </div>
       )}
       {isUnlocked && (
-        <div style={{ position: "absolute", top: "4px", right: "4px", color: "#00ff41", fontSize: "10px" }}>+</div>
+        <div style={{ position: "absolute", top: "3px", right: "3px", color: "#00ff41", fontSize: "10px" }}>+</div>
       )}
       {!isUnlocked && isAvailable && canAfford && (
-        <div style={{ position: "absolute", top: "4px", right: "4px", color: "#ccff00", fontSize: "10px", animation: "pulse 2s infinite" }}>!</div>
+        <div style={{ position: "absolute", top: "3px", right: "3px", color: "#ccff00", fontSize: "10px", animation: "pulse 2s infinite" }}>!</div>
       )}
     </div>
   );
@@ -66,6 +67,13 @@ export function TechTreePanel({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
   const tech = useGameStore((s) => s.tech);
   const resources = useGameStore((s) => s.resources);
   const [selectedTechId, setSelectedTechId] = useState(initialSelectedTechId);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -99,14 +107,145 @@ export function TechTreePanel({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
     return node.threshold(resources) && depsMet ? "available" : "locked";
   };
 
+  if (!isOpen) return null;
+
+  // ── Detail panel content (shared) ──
+  const detailContent = selectedTech ? (
+    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "12px", borderBottom: "1px solid #003300", paddingBottom: "10px" }}>
+        <div style={{ fontSize: "28px", filter: tech[selectedTech.id] ? "none" : "brightness(0.7)" }}>{selectedTech.icon}</div>
+        <div>
+          <div style={{ color: "#00ff41", fontSize: "13px", fontWeight: "bold" }}>{selectedTech.name}</div>
+          {tech[selectedTech.id] && <div style={{ color: "#00cc33", fontSize: "10px" }}>UNLOCKED</div>}
+        </div>
+      </div>
+      <p style={{ margin: 0, color: "#00cc33", fontSize: "11px", lineHeight: 1.5 }}>{selectedTech.description}</p>
+
+      {!tech[selectedTech.id] && (
+        <div style={{ padding: "8px", backgroundColor: "#001a00", border: "1px solid #003300" }}>
+          <div style={{ color: "#00aa2a", fontSize: "10px", marginBottom: "6px", letterSpacing: "1px" }}>COST</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+            {selectedTech.cost.map((c, i) => (
+              <ResourceCostBadge key={i} resource={c.resource} amount={c.amount} available={resources[c.resource]} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {tech[selectedTech.id] ? (
+        <div>
+          <div style={{ padding: "8px", backgroundColor: "#001a00", border: "1px solid #00ff41", color: "#00ff41", fontSize: "11px", textAlign: "center" }}>
+            + UNLOCKED
+          </div>
+          {onOpenDocs && (
+            <button
+              onClick={() => onOpenDocs(TECH_TO_DOCS_SECTION[selectedTech.id] || "")}
+              style={{
+                marginTop: "8px", width: "100%", padding: "10px",
+                backgroundColor: "#001a00", color: "#00ff41",
+                border: "1px solid #00ff41", cursor: "pointer",
+                fontSize: "11px", fontFamily: "var(--hk-font)",
+              }}
+            >
+              [VIEW DOCS]
+            </button>
+          )}
+        </div>
+      ) : (
+        <button
+          onClick={handleUnlock}
+          disabled={!canUnlockSelected}
+          style={{
+            width: "100%", padding: "12px",
+            backgroundColor: canUnlockSelected ? "#001a00" : "#0a0a0a",
+            color: canUnlockSelected ? "#00ff41" : "#557755",
+            border: `1px solid ${canUnlockSelected ? "#00ff41" : "#335533"}`,
+            cursor: canUnlockSelected ? "pointer" : "not-allowed",
+            fontSize: "12px", fontFamily: "var(--hk-font)",
+            letterSpacing: "1px",
+          }}
+        >
+          {canUnlockSelected ? "[UNLOCK]" : "INSUFFICIENT"}
+        </button>
+      )}
+    </div>
+  ) : (
+    <div style={{ color: "#558855", fontSize: "11px" }}>Select a node...</div>
+  );
+
+  // ── MOBILE TECH TREE: full screen, vertical list ──
+  if (isMobile) {
+    return (
+      <div
+        style={{ position: "fixed", inset: 0, backgroundColor: "#0a0a0a", zIndex: 10000, display: "flex", flexDirection: "column", fontFamily: "var(--hk-font)" }}
+      >
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid #003300", flexShrink: 0 }}>
+          <span style={{ color: "#00ff41", fontSize: "12px", letterSpacing: "2px" }}>[ TECH TREE ]</span>
+          <button onClick={onClose} style={{ background: "none", border: "1px solid #00ff41", color: "#00ff41", cursor: "pointer", fontSize: "12px", fontFamily: "var(--hk-font)", padding: "6px 12px" }}>[CLOSE]</button>
+        </div>
+
+        {/* Scrollable content */}
+        <div style={{ flex: 1, overflow: "auto", padding: "12px" }}>
+          {/* Tech nodes as a vertical list */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            {TECH_TREE.map((node) => {
+              const status = getTechStatus(node);
+              const isSelected = selectedTechId === node.id;
+              const canAfford = node.cost.every((c) => resources[c.resource] >= c.amount);
+              const borderColor = isSelected ? "#00ff41" : status === "unlocked" ? "#00cc33" : status === "available" && canAfford ? "#ccff00" : "#335533";
+
+              return (
+                <div
+                  key={node.id}
+                  onClick={() => setSelectedTechId(node.id)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px",
+                    padding: "10px 12px",
+                    backgroundColor: isSelected ? "#001a00" : "#0a0a0a",
+                    border: `1px solid ${borderColor}`,
+                    cursor: "pointer",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  <div style={{ fontSize: "24px", width: "36px", textAlign: "center", flexShrink: 0, filter: status === "unlocked" ? "none" : "brightness(0.7)" }}>
+                    {node.icon}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ color: status === "unlocked" ? "#00cc33" : "#00ff41", fontSize: "12px", fontWeight: "bold" }}>
+                      {node.name}
+                    </div>
+                    <div style={{ color: "#006600", fontSize: "10px", marginTop: "2px" }}>
+                      {status === "unlocked" ? "UNLOCKED" : node.cost.map((c) => `${c.amount}${c.resource}`).join(" + ")}
+                    </div>
+                  </div>
+                  {status === "unlocked" && <span style={{ color: "#00cc33", fontSize: "12px" }}>+</span>}
+                  {status === "available" && canAfford && <span style={{ color: "#ccff00", fontSize: "12px", animation: "pulse 2s infinite" }}>!</span>}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Selected detail */}
+          {selectedTech && (
+            <div style={{ marginTop: "16px", padding: "12px", backgroundColor: "#001a00", border: "1px solid #003300" }}>
+              {detailContent}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── DESKTOP TECH TREE: grid layout with side panel ──
   const maxRow = Math.max(...TECH_TREE.map((t) => t.position?.row || 0));
   const maxCol = Math.max(...TECH_TREE.map((t) => t.position?.col || 0));
   const CELL_SIZE = 130;
   const NODE_SIZE = 80;
   const gridWidth = (maxCol + 1) * CELL_SIZE;
   const gridHeight = (maxRow + 1) * CELL_SIZE;
-
-  if (!isOpen) return null;
 
   return (
     <div
@@ -175,6 +314,7 @@ export function TechTreePanel({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
                     isSelected={selectedTechId === node.id}
                     resources={resources}
                     onClick={() => setSelectedTechId(node.id)}
+                    size={NODE_SIZE}
                   />
                 </div>
               );
@@ -184,66 +324,7 @@ export function TechTreePanel({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
 
         {/* Detail Panel */}
         <div style={{ display: "flex", flexDirection: "column", gap: "12px", borderLeft: "1px solid #003300", paddingLeft: "16px", overflowY: "auto" }}>
-          {selectedTech ? (
-            <>
-              <div style={{ borderBottom: "1px solid #003300", paddingBottom: "12px" }}>
-                <div style={{ fontSize: "32px", marginBottom: "8px", filter: tech[selectedTech.id] ? "none" : "brightness(0.7)" }}>{selectedTech.icon}</div>
-                <div style={{ color: "#00ff41", fontSize: "14px", fontWeight: "bold" }}>{selectedTech.name}</div>
-                {tech[selectedTech.id] && <div style={{ color: "#00cc33", fontSize: "10px", marginTop: "4px" }}>UNLOCKED</div>}
-              </div>
-              <p style={{ margin: 0, color: "#00cc33", fontSize: "11px", lineHeight: 1.5 }}>{selectedTech.description}</p>
-
-              {!tech[selectedTech.id] && (
-                <div style={{ padding: "10px", backgroundColor: "#001a00", border: "1px solid #003300" }}>
-                  <div style={{ color: "#00aa2a", fontSize: "10px", marginBottom: "8px", letterSpacing: "1px" }}>COST</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-                    {selectedTech.cost.map((c, i) => (
-                      <ResourceCostBadge key={i} resource={c.resource} amount={c.amount} available={resources[c.resource]} />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {tech[selectedTech.id] ? (
-                <div>
-                  <div style={{ padding: "8px", backgroundColor: "#001a00", border: "1px solid #00ff41", color: "#00ff41", fontSize: "11px", textAlign: "center" }}>
-                    + UNLOCKED
-                  </div>
-                  {onOpenDocs && (
-                    <button
-                      onClick={() => onOpenDocs(TECH_TO_DOCS_SECTION[selectedTech.id] || "")}
-                      style={{
-                        marginTop: "8px", width: "100%", padding: "8px",
-                        backgroundColor: "#001a00", color: "#00ff41",
-                        border: "1px solid #00ff41", cursor: "pointer",
-                        fontSize: "11px", fontFamily: "var(--hk-font)",
-                      }}
-                    >
-                      [VIEW DOCS]
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <button
-                  onClick={handleUnlock}
-                  disabled={!canUnlockSelected}
-                  style={{
-                    width: "100%", padding: "10px",
-                    backgroundColor: canUnlockSelected ? "#001a00" : "#0a0a0a",
-                    color: canUnlockSelected ? "#00ff41" : "#557755",
-                    border: `1px solid ${canUnlockSelected ? "#00ff41" : "#335533"}`,
-                    cursor: canUnlockSelected ? "pointer" : "not-allowed",
-                    fontSize: "12px", fontFamily: "var(--hk-font)",
-                    letterSpacing: "1px",
-                  }}
-                >
-                  {canUnlockSelected ? "[UNLOCK]" : "INSUFFICIENT"}
-                </button>
-              )}
-            </>
-          ) : (
-            <div style={{ color: "#558855", fontSize: "11px" }}>Select a node...</div>
-          )}
+          {detailContent}
         </div>
       </div>
     </div>

@@ -365,8 +365,9 @@ export function App() {
 
   // ── MOBILE LAYOUT ──
   if (isMobile) {
+    const TAB_BAR_HEIGHT = 48;
     return (
-      <div style={{ width: "100vw", height: "100vh", backgroundColor: "#0a0a0a", fontFamily: "var(--hk-font)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+      <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "#0a0a0a", fontFamily: "var(--hk-font)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div className="crt-overlay" />
 
         <ResourceBar
@@ -379,40 +380,46 @@ export function App() {
           hasSeenUpgrades={hasSeenUpgrades}
         />
 
-        {/* Mobile content area - full screen for active panel */}
-        <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-          {mobilePanel === "code" && (
-            <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
-              <CodeEditor
-                ref={editorRef}
-                code={code}
-                onCodeChange={setCode}
-                executionEvents={executionEvents}
-                scrollToLineNumber={scrollToLine}
-                onOpenTechTree={(techId) => { setIsTechTreeOpen(true); setTechTreeSelectedId(techId); }}
-              />
-              <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "3px", backgroundColor: "#001a00" }}>
-                <div style={{ height: "100%", width: `${ramPercent}%`, backgroundColor: ramColor, transition: "width 0.2s, background-color 0.3s" }} />
-              </div>
-              <div style={{ position: "absolute", bottom: "6px", right: "8px", fontSize: "10px", fontFamily: "var(--hk-font)", color: ramColor, opacity: 0.8 }}>
-                {charCount}/{ram}
-              </div>
+        {/* Mobile content area */}
+        <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+          {/* All panels are absolutely positioned so they don't fight for flex space */}
+          <div style={{ position: "absolute", inset: 0, display: mobilePanel === "code" ? "flex" : "none", flexDirection: "column" }}>
+            <CodeEditor
+              ref={editorRef}
+              code={code}
+              onCodeChange={setCode}
+              executionEvents={executionEvents}
+              scrollToLineNumber={scrollToLine}
+              onOpenTechTree={(techId) => { setIsTechTreeOpen(true); setTechTreeSelectedId(techId); }}
+            />
+            <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "3px", backgroundColor: "#001a00" }}>
+              <div style={{ height: "100%", width: `${ramPercent}%`, backgroundColor: ramColor, transition: "width 0.2s, background-color 0.3s" }} />
             </div>
-          )}
-          {mobilePanel === "output" && (
-            <div style={{ flex: 1, overflow: "hidden" }}>
-              <LogPanel logs={logs} />
+            <div style={{ position: "absolute", bottom: "6px", right: "8px", fontSize: "10px", fontFamily: "var(--hk-font)", color: ramColor, opacity: 0.8 }}>
+              {charCount}/{ram}
             </div>
-          )}
-          {["shop", "docs", "profiler", "hints"].includes(mobilePanel) && (
-            <div style={{ flex: 1, overflow: "hidden" }}>
-              {renderTabContent(mobilePanel)}
+          </div>
+
+          <div style={{ position: "absolute", inset: 0, display: mobilePanel === "output" ? "block" : "none", overflow: "auto" }}>
+            <LogPanel logs={logs} />
+          </div>
+
+          {["shop", "docs", "profiler", "hints"].map((tab) => (
+            <div key={tab} style={{ position: "absolute", inset: 0, display: mobilePanel === tab ? "block" : "none", overflow: "auto" }}>
+              {mobilePanel === tab && renderTabContent(tab)}
             </div>
-          )}
+          ))}
         </div>
 
-        {/* Mobile bottom tab bar */}
-        <div className="mobile-tab-bar">
+        {/* Mobile bottom tab bar - fixed height, always visible */}
+        <div style={{
+          display: "flex",
+          height: `${TAB_BAR_HEIGHT}px`,
+          flexShrink: 0,
+          borderTop: "1px solid #003300",
+          backgroundColor: "#0a0a0a",
+          paddingBottom: "env(safe-area-inset-bottom, 0px)",
+        }}>
           {[
             { id: "code", label: "CODE" },
             { id: "output", label: "LOG" },
@@ -422,8 +429,21 @@ export function App() {
           ].map((tab) => (
             <button
               key={tab.id}
-              className={`mobile-tab${mobilePanel === tab.id ? " active" : ""}`}
               onClick={() => setMobilePanel(tab.id)}
+              style={{
+                flex: 1,
+                padding: "8px 2px",
+                fontFamily: "var(--hk-font)",
+                fontSize: "10px",
+                letterSpacing: "1px",
+                textTransform: "uppercase",
+                background: mobilePanel === tab.id ? "#001a00" : "transparent",
+                color: mobilePanel === tab.id ? "#00ff41" : "#004400",
+                border: "none",
+                borderTop: mobilePanel === tab.id ? "2px solid #00ff41" : "2px solid transparent",
+                cursor: "pointer",
+                WebkitTapHighlightColor: "transparent",
+              }}
             >
               {tab.label}
             </button>
@@ -456,7 +476,7 @@ export function App() {
 
   // ── DESKTOP LAYOUT ──
   return (
-    <div style={{ width: "100vw", height: "100vh", backgroundColor: "#0a0a0a", fontFamily: "var(--hk-font)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "#0a0a0a", fontFamily: "var(--hk-font)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
       <div className="crt-overlay" />
 
       <ResourceBar
