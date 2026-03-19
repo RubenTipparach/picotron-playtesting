@@ -301,19 +301,24 @@ export function App() {
   useHotkeys("ctrl+u, cmd+u", (e) => { e.preventDefault(); setIsTechTreeOpen((p) => { if (!p) setTechTreeSelectedId(undefined); return !p; }); }, { enableOnFormTags: true });
   useHotkeys("ctrl+s, cmd+s", (e) => e.preventDefault(), { enableOnFormTags: true });
 
-  // ── Resizable console ──
+  // ── Resizable panels ──
   const [consoleHeight, setConsoleHeight] = useState(200);
-  const isDraggingDivider = useRef(false);
+  const [rightPanelWidth, setRightPanelWidth] = useState(320);
+  const draggingRef = useRef(null); // "vertical" | "horizontal" | null
   const leftPanelRef = useRef(null);
+  const mainContentRef = useRef(null);
 
   useEffect(() => {
     const onMouseMove = (e) => {
-      if (!isDraggingDivider.current || !leftPanelRef.current) return;
-      const rect = leftPanelRef.current.getBoundingClientRect();
-      const newConsoleHeight = Math.max(60, Math.min(rect.height - 120, rect.bottom - e.clientY));
-      setConsoleHeight(newConsoleHeight);
+      if (draggingRef.current === "vertical" && leftPanelRef.current) {
+        const rect = leftPanelRef.current.getBoundingClientRect();
+        setConsoleHeight(Math.max(60, Math.min(rect.height - 120, rect.bottom - e.clientY)));
+      } else if (draggingRef.current === "horizontal" && mainContentRef.current) {
+        const rect = mainContentRef.current.getBoundingClientRect();
+        setRightPanelWidth(Math.max(200, Math.min(rect.width - 300, rect.right - e.clientX)));
+      }
     };
-    const onMouseUp = () => { isDraggingDivider.current = false; document.body.style.cursor = ""; document.body.style.userSelect = ""; };
+    const onMouseUp = () => { draggingRef.current = null; document.body.style.cursor = ""; document.body.style.userSelect = ""; };
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", onMouseUp);
     return () => { document.removeEventListener("mousemove", onMouseMove); document.removeEventListener("mouseup", onMouseUp); };
@@ -340,7 +345,7 @@ export function App() {
       />
 
       {/* Main Content */}
-      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+      <div ref={mainContentRef} style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         {/* LEFT PANEL: Editor + Output */}
         <div ref={leftPanelRef} style={{ flex: 1, display: "flex", flexDirection: "column", borderRight: "1px solid #003300", minWidth: 0 }}>
           {/* Editor */}
@@ -364,7 +369,7 @@ export function App() {
 
           {/* Drag handle */}
           <div
-            onMouseDown={() => { isDraggingDivider.current = true; document.body.style.cursor = "row-resize"; document.body.style.userSelect = "none"; }}
+            onMouseDown={() => { draggingRef.current = "vertical"; document.body.style.cursor = "row-resize"; document.body.style.userSelect = "none"; }}
             style={{ height: "5px", cursor: "row-resize", backgroundColor: "#003300", flexShrink: 0, position: "relative" }}
           >
             <div style={{ position: "absolute", left: "50%", top: "1px", transform: "translateX(-50%)", width: "40px", height: "3px", backgroundColor: "#005500", borderRadius: "2px" }} />
@@ -376,8 +381,16 @@ export function App() {
           </div>
         </div>
 
+        {/* Horizontal drag handle */}
+        <div
+          onMouseDown={() => { draggingRef.current = "horizontal"; document.body.style.cursor = "col-resize"; document.body.style.userSelect = "none"; }}
+          style={{ width: "5px", cursor: "col-resize", backgroundColor: "#003300", flexShrink: 0, position: "relative" }}
+        >
+          <div style={{ position: "absolute", top: "50%", left: "1px", transform: "translateY(-50%)", width: "3px", height: "40px", backgroundColor: "#005500", borderRadius: "2px" }} />
+        </div>
+
         {/* RIGHT PANEL: Tabbed */}
-        <div style={{ width: "320px", display: "flex", flexDirection: "column", backgroundColor: "#0a0a0a" }}>
+        <div style={{ width: `${rightPanelWidth}px`, display: "flex", flexDirection: "column", backgroundColor: "#0a0a0a", flexShrink: 0 }}>
           {/* Tabs */}
           <div style={{ display: "flex", borderBottom: "1px solid #003300" }}>
             {["shop", "docs", "profiler", "hints"].map((tab) => (
