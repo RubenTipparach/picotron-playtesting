@@ -109,17 +109,8 @@ export function transformCode(code, insertSteps = true) {
         // Already has await - leave it
         if (awaitKeyword) return match;
 
-        // Don't add await to function declarations
-        const trimmedPrefix = prefix.trim();
-        if (
-          trimmedPrefix.endsWith("function") ||
-          trimmedPrefix.endsWith("const") ||
-          trimmedPrefix.endsWith("let") ||
-          trimmedPrefix.endsWith("var") ||
-          trimmedPrefix.endsWith("=")
-        ) {
-          return match;
-        }
+        // The regex captures at most 1 non-word char as prefix,
+        // so no keyword checks are needed here. Always add await.
 
         return prefix + "await " + call;
       });
