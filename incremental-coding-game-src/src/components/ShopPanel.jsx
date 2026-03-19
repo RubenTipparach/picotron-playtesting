@@ -1,5 +1,6 @@
 import React from "react";
 import { useGameStore } from "../gameStore.js";
+import { useTheme } from "../themes.js";
 
 const SELL_PRICES = { A: 1, B: 5, C: 25 };
 const SELL_AMOUNTS = [1, 5, 10];
@@ -20,6 +21,7 @@ export function ShopPanel() {
   const ram = useGameStore((s) => s.ram);
   const cpuLevel = useGameStore((s) => s.cpuLevel);
   const tech = useGameStore((s) => s.tech);
+  const t = useTheme();
 
   const sellResource = (name, amount) => {
     const available = resources[name];
@@ -49,19 +51,29 @@ export function ShopPanel() {
   const nextRam = RAM_UPGRADES.find((u) => u.ram > ram);
   const cpuSpeedPercent = Math.round((1 - Math.pow(0.5, cpuLevel)) * 100);
 
+  const btnStyle = (canAfford) => ({
+    padding: "2px 8px",
+    fontSize: "11px",
+    fontFamily: t.font,
+    backgroundColor: canAfford ? t.bg3 : t.bg,
+    color: canAfford ? t.primary : t.primaryDark,
+    border: `1px solid ${canAfford ? t.primary : t.border}`,
+    cursor: canAfford ? "pointer" : "default",
+  });
+
   return (
-    <div style={{ padding: "12px", fontFamily: "'Courier New', monospace", color: "#00ff41", height: "100%", overflowY: "auto", boxSizing: "border-box" }}>
+    <div style={{ padding: "12px", fontFamily: t.font, color: t.primary, height: "100%", overflowY: "auto", boxSizing: "border-box" }}>
       {/* Credits display */}
-      <div style={{ marginBottom: "16px", borderBottom: "1px solid #003300", paddingBottom: "8px" }}>
-        <span style={{ color: "#00cc33", fontSize: "11px" }}>BALANCE:</span>
-        <span style={{ color: "#00ff41", fontSize: "16px", marginLeft: "8px", fontWeight: "bold" }}>
+      <div style={{ marginBottom: "16px", borderBottom: `1px solid ${t.border}`, paddingBottom: "8px" }}>
+        <span style={{ color: t.primaryDim, fontSize: "11px" }}>BALANCE:</span>
+        <span style={{ color: t.primary, fontSize: "16px", marginLeft: "8px", fontWeight: "bold" }}>
           ${credits}
         </span>
       </div>
 
       {/* Sell Resources */}
       <div style={{ marginBottom: "16px" }}>
-        <div style={{ color: "#00cc33", fontSize: "11px", marginBottom: "8px", letterSpacing: "2px" }}>
+        <div style={{ color: t.primaryDim, fontSize: "11px", marginBottom: "8px", letterSpacing: "2px" }}>
           [ SELL RESOURCES ]
         </div>
         {["A", "B", "C"].map((name) => {
@@ -69,7 +81,7 @@ export function ShopPanel() {
           if (name === "C" && !tech.resourceCUnlocked) return null;
           return (
             <div key={name} style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
-              <span style={{ color: "#00ff41", width: "80px", fontSize: "12px" }}>
+              <span style={{ color: t.primary, width: "80px", fontSize: "12px" }}>
                 {name} (${SELL_PRICES[name]}ea)
               </span>
               {SELL_AMOUNTS.map((amt) => (
@@ -77,15 +89,7 @@ export function ShopPanel() {
                   key={amt}
                   onClick={() => sellResource(name, amt)}
                   disabled={resources[name] < 1}
-                  style={{
-                    padding: "2px 8px",
-                    fontSize: "11px",
-                    fontFamily: "'Courier New', monospace",
-                    backgroundColor: resources[name] >= amt ? "#001a00" : "#0a0a0a",
-                    color: resources[name] >= amt ? "#00ff41" : "#004400",
-                    border: `1px solid ${resources[name] >= amt ? "#00ff41" : "#003300"}`,
-                    cursor: resources[name] >= amt ? "pointer" : "default",
-                  }}
+                  style={btnStyle(resources[name] >= amt)}
                 >
                   x{amt}
                 </button>
@@ -97,24 +101,20 @@ export function ShopPanel() {
 
       {/* RAM Upgrade */}
       <div style={{ marginBottom: "16px" }}>
-        <div style={{ color: "#00cc33", fontSize: "11px", marginBottom: "8px", letterSpacing: "2px" }}>
+        <div style={{ color: t.primaryDim, fontSize: "11px", marginBottom: "8px", letterSpacing: "2px" }}>
           [ RAM UPGRADE ]
         </div>
         <div style={{ fontSize: "12px", marginBottom: "6px" }}>
-          Current: <span style={{ color: "#00ff41" }}>{ram}</span> chars
+          Current: <span style={{ color: t.primary }}>{ram}</span> chars
         </div>
         {nextRam ? (
           <button
             onClick={() => buyRam(nextRam)}
             disabled={credits < nextRam.cost}
             style={{
+              ...btnStyle(credits >= nextRam.cost),
               padding: "4px 12px",
               fontSize: "12px",
-              fontFamily: "'Courier New', monospace",
-              backgroundColor: credits >= nextRam.cost ? "#001a00" : "#0a0a0a",
-              color: credits >= nextRam.cost ? "#00ff41" : "#004400",
-              border: `1px solid ${credits >= nextRam.cost ? "#00ff41" : "#003300"}`,
-              cursor: credits >= nextRam.cost ? "pointer" : "default",
               width: "100%",
               textAlign: "left",
             }}
@@ -122,30 +122,26 @@ export function ShopPanel() {
             Upgrade to {nextRam.ram} chars — ${nextRam.cost}
           </button>
         ) : (
-          <div style={{ color: "#004400", fontSize: "11px" }}>MAX CAPACITY</div>
+          <div style={{ color: t.primaryDark, fontSize: "11px" }}>MAX CAPACITY</div>
         )}
       </div>
 
       {/* CPU Upgrade */}
       <div style={{ marginBottom: "16px" }}>
-        <div style={{ color: "#00cc33", fontSize: "11px", marginBottom: "8px", letterSpacing: "2px" }}>
+        <div style={{ color: t.primaryDim, fontSize: "11px", marginBottom: "8px", letterSpacing: "2px" }}>
           [ CPU UPGRADE ]
         </div>
         <div style={{ fontSize: "12px", marginBottom: "6px" }}>
-          Level: <span style={{ color: "#00ff41" }}>{cpuLevel}</span>
-          {cpuLevel > 0 && <span style={{ color: "#00cc33" }}> (+{cpuSpeedPercent}% speed)</span>}
+          Level: <span style={{ color: t.primary }}>{cpuLevel}</span>
+          {cpuLevel > 0 && <span style={{ color: t.primaryDim }}> (+{cpuSpeedPercent}% speed)</span>}
         </div>
         <button
           onClick={buyCpu}
           disabled={credits < nextCpuCost}
           style={{
+            ...btnStyle(credits >= nextCpuCost),
             padding: "4px 12px",
             fontSize: "12px",
-            fontFamily: "'Courier New', monospace",
-            backgroundColor: credits >= nextCpuCost ? "#001a00" : "#0a0a0a",
-            color: credits >= nextCpuCost ? "#00ff41" : "#004400",
-            border: `1px solid ${credits >= nextCpuCost ? "#00ff41" : "#003300"}`,
-            cursor: credits >= nextCpuCost ? "pointer" : "default",
             width: "100%",
             textAlign: "left",
           }}

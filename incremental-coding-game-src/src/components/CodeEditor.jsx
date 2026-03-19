@@ -14,13 +14,16 @@ import React, {
   useRef,
   useEffect,
   useImperativeHandle,
+  useContext,
 } from "react";
 import Editor from "@monaco-editor/react";
 import { API_FUNCTION_NAMES } from "../gameApi.js";
 import { getAvailableFunctions, validateCode } from "../techTree.js";
+import { ThemeContext, THEMES } from "../themes.js";
 
 export const CodeEditor = forwardRef(
   ({ code, onCodeChange, executionEvents, onOpenTechTree, scrollToLineNumber }, ref) => {
+    const theme = useContext(ThemeContext);
     const editorRef = useRef(null);
     const monacoRef = useRef(null);
     const decorationsRef = useRef([]);
@@ -429,43 +432,21 @@ export const CodeEditor = forwardRef(
         });
       });
 
-      // ── Custom hackerman theme ──
-      monaco.editor.defineTheme("game-script-theme", {
-        base: "vs-dark",
-        inherit: true,
-        rules: [
-          { token: "api-function", foreground: "00ffcc", fontStyle: "bold" },
-          { token: "keyword", foreground: "00ff41" },
-          { token: "comment", foreground: "004400" },
-          { token: "string", foreground: "ccff00" },
-          { token: "number", foreground: "00aaff" },
-          { token: "identifier", foreground: "00cc33" },
-          { token: "delimiter", foreground: "006600" },
-          { token: "type.identifier", foreground: "00ffcc" },
-        ],
-        colors: {
-          "editor.background": "#0a0a0a",
-          "editor.foreground": "#00cc33",
-          "editor.lineHighlightBackground": "#001a00",
-          "editor.selectionBackground": "#003300",
-          "editorCursor.foreground": "#00ff41",
-          "editorLineNumber.foreground": "#004400",
-          "editorLineNumber.activeForeground": "#00ff41",
-          "editor.selectionHighlightBackground": "#002200",
-          "editorWidget.background": "#0a0a0a",
-          "editorWidget.border": "#003300",
-          "editorSuggestWidget.background": "#0a0a0a",
-          "editorSuggestWidget.border": "#003300",
-          "editorSuggestWidget.selectedBackground": "#001a00",
-          "editorGutter.background": "#050505",
-        },
+      // ── Register all themes ──
+      Object.values(THEMES).forEach((t) => {
+        monaco.editor.defineTheme(`game-script-${t.id}`, {
+          base: t.monacoBase,
+          inherit: true,
+          rules: t.monacoRules,
+          colors: t.monacoColors,
+        });
       });
 
       // Apply language and theme
       const model = editor.getModel();
       if (model) {
         monaco.editor.setModelLanguage(model, "game-script");
-        monaco.editor.setTheme("game-script-theme");
+        monaco.editor.setTheme(`game-script-${theme.id}`);
 
         // Initial validation
         setTimeout(() => {
@@ -527,6 +508,13 @@ export const CodeEditor = forwardRef(
       return () => clearTimeout(timeout);
     }, [code]);
 
+    // Switch Monaco theme when app theme changes
+    useEffect(() => {
+      if (monacoRef.current) {
+        monacoRef.current.editor.setTheme(`game-script-${theme.id}`);
+      }
+    }, [theme.id]);
+
     return (
       <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
         <Editor
@@ -535,7 +523,7 @@ export const CodeEditor = forwardRef(
           value={code}
           onChange={(value) => onCodeChange(value || "")}
           onMount={handleEditorMount}
-          theme="game-script-theme"
+          theme={`game-script-${theme.id}`}
           options={{
             minimap: { enabled: false },
             fontSize: 13,

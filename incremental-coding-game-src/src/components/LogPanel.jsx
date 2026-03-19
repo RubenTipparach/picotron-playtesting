@@ -1,7 +1,9 @@
 import React, { useEffect, useRef } from "react";
+import { useTheme } from "../themes.js";
 
 export function LogPanel({ logs }) {
   const bottomRef = useRef(null);
+  const t = useTheme();
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -9,38 +11,38 @@ export function LogPanel({ logs }) {
 
   const getLogColor = (type) => {
     switch (type) {
-      case "error": return "#ff0040";
-      case "warning": return "#ccff00";
-      case "unlock": return "#00ff41";
-      default: return "#00cc33";
+      case "error": return t.red;
+      case "warning": return t.yellow;
+      case "unlock": return t.primary;
+      default: return t.primaryDim;
     }
   };
 
   return (
     <div style={{
       padding: "8px 12px",
-      fontFamily: "var(--hk-font)",
+      fontFamily: t.font,
       fontSize: "11px",
-      backgroundColor: "#0a0a0a",
-      color: "#00cc33",
+      backgroundColor: t.bg,
+      color: t.primaryDim,
       height: "100%",
       overflowY: "auto",
       overflowX: "hidden",
       boxSizing: "border-box",
-      borderTop: "1px solid #003300",
+      borderTop: `1px solid ${t.border}`,
     }}>
-      <div style={{ color: "#004400", fontSize: "10px", marginBottom: "6px", letterSpacing: "2px" }}>
+      <div style={{ color: t.primaryDark, fontSize: "10px", marginBottom: "6px", letterSpacing: "2px" }}>
         &gt; OUTPUT
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
         {logs.length === 0 ? (
-          <div style={{ color: "#003300", fontStyle: "italic" }}>
+          <div style={{ color: t.border, fontStyle: "italic" }}>
             Awaiting execution...
           </div>
         ) : (
           logs.map((log, i) => (
             <div key={i} style={{ color: getLogColor(log.type) }}>
-              <span style={{ color: "#003300" }}>
+              <span style={{ color: t.border }}>
                 [{new Date(log.timestamp).toLocaleTimeString()}]
               </span>{" "}
               {log.message}

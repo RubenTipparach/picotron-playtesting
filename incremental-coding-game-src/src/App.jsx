@@ -30,10 +30,21 @@ import { TechTreePanel } from "./components/TechTreePanel.jsx";
 import { DocsPanel } from "./components/DocsPanel.jsx";
 import { ShopPanel } from "./components/ShopPanel.jsx";
 import { HintModal, HintPanel } from "./components/HintOverlay.jsx";
+import { THEMES, ThemeContext, loadThemeId, saveThemeId } from "./themes.js";
 
 const CODE_STORAGE_KEY = "incremental-coding-game-code";
 
 export function App() {
+  // ── Theme state ──
+  const [themeId, setThemeId] = useState(loadThemeId);
+  const theme = THEMES[themeId] || THEMES.hacker;
+  const cycleTheme = useCallback(() => {
+    const ids = Object.keys(THEMES);
+    const next = ids[(ids.indexOf(themeId) + 1) % ids.length];
+    setThemeId(next);
+    saveThemeId(next);
+  }, [themeId]);
+
   // ── Code state ──
   const [code, setCode] = useState(
     localStorage.getItem(CODE_STORAGE_KEY) || "produceResourceA()"
@@ -348,7 +359,7 @@ export function App() {
 
   const charCount = code.length;
   const ramPercent = Math.min(100, (charCount / ram) * 100);
-  const ramColor = ramPercent > 90 ? "#ff0040" : ramPercent > 70 ? "#ccff00" : "#00ff41";
+  const ramColor = ramPercent > 90 ? theme.red : ramPercent > 70 ? theme.yellow : theme.primary;
 
   const startDrag = (type, cursor) => { draggingRef.current = type; document.body.style.cursor = cursor; document.body.style.userSelect = "none"; };
 
@@ -363,12 +374,16 @@ export function App() {
     }
   };
 
+  // ── Overlay element ──
+  const overlayEl = theme.crt ? <div className="crt-overlay" /> : theme.overlay === "grid" ? <div className="grid-overlay" /> : null;
+
   // ── MOBILE LAYOUT ──
   if (isMobile) {
     const TAB_BAR_HEIGHT = 48;
     return (
-      <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "#0a0a0a", fontFamily: "var(--hk-font)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <div className="crt-overlay" />
+      <ThemeContext.Provider value={theme}>
+      <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.bg, fontFamily: theme.font, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        {overlayEl}
 
         <ResourceBar
           isRunning={isRunning}
@@ -378,6 +393,8 @@ export function App() {
           onReset={handleReset}
           availableUpgradeCount={availableUpgradeCount}
           hasSeenUpgrades={hasSeenUpgrades}
+          onCycleTheme={cycleTheme}
+          themeName={theme.name}
         />
 
         {/* Mobile content area */}
@@ -392,10 +409,10 @@ export function App() {
               scrollToLineNumber={scrollToLine}
               onOpenTechTree={(techId) => { setIsTechTreeOpen(true); setTechTreeSelectedId(techId); }}
             />
-            <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "3px", backgroundColor: "#001a00" }}>
+            <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "3px", backgroundColor: theme.bg3 }}>
               <div style={{ height: "100%", width: `${ramPercent}%`, backgroundColor: ramColor, transition: "width 0.2s, background-color 0.3s" }} />
             </div>
-            <div style={{ position: "absolute", bottom: "6px", right: "8px", fontSize: "10px", fontFamily: "var(--hk-font)", color: ramColor, opacity: 0.8 }}>
+            <div style={{ position: "absolute", bottom: "6px", right: "8px", fontSize: "10px", fontFamily: theme.font, color: ramColor, opacity: 0.8 }}>
               {charCount}/{ram}
             </div>
           </div>
@@ -416,8 +433,8 @@ export function App() {
           display: "flex",
           height: `${TAB_BAR_HEIGHT}px`,
           flexShrink: 0,
-          borderTop: "1px solid #003300",
-          backgroundColor: "#0a0a0a",
+          borderTop: `1px solid ${theme.border}`,
+          backgroundColor: theme.bg,
           paddingBottom: "env(safe-area-inset-bottom, 0px)",
         }}>
           {[
@@ -433,14 +450,14 @@ export function App() {
               style={{
                 flex: 1,
                 padding: "8px 2px",
-                fontFamily: "var(--hk-font)",
+                fontFamily: theme.font,
                 fontSize: "10px",
                 letterSpacing: "1px",
                 textTransform: "uppercase",
-                background: mobilePanel === tab.id ? "#001a00" : "transparent",
-                color: mobilePanel === tab.id ? "#00ff41" : "#004400",
+                background: mobilePanel === tab.id ? theme.bg3 : "transparent",
+                color: mobilePanel === tab.id ? theme.primary : theme.primaryDark,
                 border: "none",
-                borderTop: mobilePanel === tab.id ? "2px solid #00ff41" : "2px solid transparent",
+                borderTop: mobilePanel === tab.id ? `2px solid ${theme.primary}` : "2px solid transparent",
                 cursor: "pointer",
                 WebkitTapHighlightColor: "transparent",
               }}
@@ -471,13 +488,15 @@ export function App() {
           }}
         />
       </div>
+      </ThemeContext.Provider>
     );
   }
 
   // ── DESKTOP LAYOUT ──
   return (
-    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "#0a0a0a", fontFamily: "var(--hk-font)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-      <div className="crt-overlay" />
+    <ThemeContext.Provider value={theme}>
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.bg, fontFamily: theme.font, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+      {overlayEl}
 
       <ResourceBar
         isRunning={isRunning}
@@ -487,11 +506,13 @@ export function App() {
         onReset={handleReset}
         availableUpgradeCount={availableUpgradeCount}
         hasSeenUpgrades={hasSeenUpgrades}
+        onCycleTheme={cycleTheme}
+        themeName={theme.name}
       />
 
       <div ref={mainContentRef} style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         {/* LEFT PANEL: Editor + Output */}
-        <div ref={leftPanelRef} style={{ flex: 1, display: "flex", flexDirection: "column", borderRight: "1px solid #003300", minWidth: 0 }}>
+        <div ref={leftPanelRef} style={{ flex: 1, display: "flex", flexDirection: "column", borderRight: `1px solid ${theme.border}`, minWidth: 0 }}>
           <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
             <CodeEditor
               ref={editorRef}
@@ -501,10 +522,10 @@ export function App() {
               scrollToLineNumber={scrollToLine}
               onOpenTechTree={(techId) => { setIsTechTreeOpen(true); setTechTreeSelectedId(techId); }}
             />
-            <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "3px", backgroundColor: "#001a00" }}>
+            <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "3px", backgroundColor: theme.bg3 }}>
               <div style={{ height: "100%", width: `${ramPercent}%`, backgroundColor: ramColor, transition: "width 0.2s, background-color 0.3s" }} />
             </div>
-            <div style={{ position: "absolute", bottom: "6px", right: "8px", fontSize: "10px", fontFamily: "var(--hk-font)", color: ramColor, opacity: 0.8 }}>
+            <div style={{ position: "absolute", bottom: "6px", right: "8px", fontSize: "10px", fontFamily: theme.font, color: ramColor, opacity: 0.8 }}>
               {charCount}/{ram}
             </div>
           </div>
@@ -513,9 +534,9 @@ export function App() {
           <div
             onMouseDown={() => startDrag("vertical", "row-resize")}
             onTouchStart={() => startDrag("vertical", "row-resize")}
-            style={{ height: "5px", cursor: "row-resize", backgroundColor: "#003300", flexShrink: 0, position: "relative" }}
+            style={{ height: "5px", cursor: "row-resize", backgroundColor: theme.border, flexShrink: 0, position: "relative" }}
           >
-            <div style={{ position: "absolute", left: "50%", top: "1px", transform: "translateX(-50%)", width: "40px", height: "3px", backgroundColor: "#005500", borderRadius: "2px" }} />
+            <div style={{ position: "absolute", left: "50%", top: "1px", transform: "translateX(-50%)", width: "40px", height: "3px", backgroundColor: theme.primaryDark, borderRadius: "2px" }} />
           </div>
 
           <div style={{ height: `${consoleHeight}px`, minHeight: "60px", overflow: "hidden", flexShrink: 0 }}>
@@ -527,23 +548,38 @@ export function App() {
         <div
           onMouseDown={() => startDrag("horizontal", "col-resize")}
           onTouchStart={() => startDrag("horizontal", "col-resize")}
-          style={{ width: "5px", cursor: "col-resize", backgroundColor: "#003300", flexShrink: 0, position: "relative" }}
+          style={{ width: "5px", cursor: "col-resize", backgroundColor: theme.border, flexShrink: 0, position: "relative" }}
         >
-          <div style={{ position: "absolute", top: "50%", left: "1px", transform: "translateY(-50%)", width: "3px", height: "40px", backgroundColor: "#005500", borderRadius: "2px" }} />
+          <div style={{ position: "absolute", top: "50%", left: "1px", transform: "translateY(-50%)", width: "3px", height: "40px", backgroundColor: theme.primaryDark, borderRadius: "2px" }} />
         </div>
 
         {/* RIGHT PANEL: Tabbed */}
-        <div style={{ width: `${rightPanelWidth}px`, display: "flex", flexDirection: "column", backgroundColor: "#0a0a0a", flexShrink: 0 }}>
-          <div style={{ display: "flex", borderBottom: "1px solid #003300" }}>
-            {["shop", "docs", "profiler", "hints"].map((tab) => (
-              <button
-                key={tab}
-                className={`hk-tab${rightTab === tab ? " active" : ""}`}
-                onClick={() => setRightTab(tab)}
-              >
-                {tab}
-              </button>
-            ))}
+        <div style={{ width: `${rightPanelWidth}px`, display: "flex", flexDirection: "column", backgroundColor: theme.bg, flexShrink: 0 }}>
+          <div style={{ display: "flex", borderBottom: `1px solid ${theme.border}` }}>
+            {["shop", "docs", "profiler", "hints"].map((tab) => {
+              const isActive = rightTab === tab;
+              return (
+                <button
+                  key={tab}
+                  onClick={() => setRightTab(tab)}
+                  style={{
+                    padding: "6px 14px",
+                    fontFamily: theme.font,
+                    fontSize: "11px",
+                    letterSpacing: "1px",
+                    textTransform: "uppercase",
+                    background: isActive ? theme.bg2 : "transparent",
+                    color: isActive ? theme.primary : theme.primaryDark,
+                    border: `1px solid ${isActive ? theme.borderBright : theme.border}`,
+                    borderBottom: isActive ? `1px solid ${theme.bg2}` : `1px solid ${theme.border}`,
+                    cursor: "pointer",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  {tab}
+                </button>
+              );
+            })}
           </div>
           <div style={{ flex: 1, overflow: "hidden" }}>
             {renderTabContent(rightTab)}
@@ -572,5 +608,6 @@ export function App() {
         }}
       />
     </div>
+    </ThemeContext.Provider>
   );
 }

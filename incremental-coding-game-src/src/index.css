@@ -62,6 +62,18 @@ body {
   );
 }
 
+/* Blueprint grid overlay */
+.grid-overlay {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background:
+    linear-gradient(rgba(77, 140, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(77, 140, 255, 0.06) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
 /* Subtle green glow on container borders */
 .hk-glow {
   box-shadow: 0 0 8px rgba(0, 255, 65, 0.15), inset 0 0 8px rgba(0, 255, 65, 0.05);
