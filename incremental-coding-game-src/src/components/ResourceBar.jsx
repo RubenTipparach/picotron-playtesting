@@ -36,6 +36,7 @@ export function ResourceBar({
 
   return (
     <div
+      className="resource-bar-wrap"
       style={{
         height: "36px",
         backgroundColor: "#0a0a0a",
@@ -73,9 +74,9 @@ export function ResourceBar({
       {/* Spacer */}
       <div style={{ flex: 1 }} />
 
-      {/* Virtual Time */}
-      <span style={{ color: "#004400", fontSize: "10px" }}>CLOCK:</span>
-      <span style={{ color: "#00cc33", fontSize: "11px", fontFamily: "var(--hk-font)" }}>
+      {/* Virtual Time (hidden on mobile via CSS) */}
+      <span className="hide-mobile" style={{ color: "#004400", fontSize: "10px" }}>CLOCK:</span>
+      <span className="hide-mobile" style={{ color: "#00cc33", fontSize: "11px", fontFamily: "var(--hk-font)" }}>
         {formatTime(virtualTime)}
       </span>
 
@@ -102,8 +103,8 @@ export function ResourceBar({
         )}
       </button>
 
-      {/* Reset */}
-      <button onClick={onReset} style={btnStyle("#ff0040", true)} title="Reset all progress">
+      {/* Reset (hidden on mobile) */}
+      <button className="hide-mobile" onClick={onReset} style={btnStyle("#ff0040", true)} title="Reset all progress">
         [RST]
       </button>
     </div>
