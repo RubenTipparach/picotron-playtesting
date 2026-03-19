@@ -268,8 +268,8 @@ export function createGameApi(executionContext) {
             context.lineNumber !== undefined
               ? ` (line ${context.lineNumber})`
               : "";
-          executionContext.onLog?.(
-            `⚠️ Warning: convertAToB() failed${lineInfo} - insufficient resources. Required: 2 A, Available: ${available} A`
+          throw new Error(
+            `convertAToB() failed${lineInfo} — not enough A. Need 2, have ${available}. Use if/getResourceCount to check first!`
           );
         }
       });
@@ -356,10 +356,9 @@ export function createGameApi(executionContext) {
             context.lineNumber !== undefined
               ? ` (line ${context.lineNumber})`
               : "";
-          executionContext.onLog?.(
-            `⚠️ Warning: makeResourceC() failed${lineInfo} - insufficient resources. Required: 3 A, 1 B. Available: ${availableA} A, ${availableB} B`
+          throw new Error(
+            `makeResourceC() failed${lineInfo} — not enough resources. Need 3 A + 1 B, have ${availableA} A + ${availableB} B. Use if/getResourceCount to check first!`
           );
-          produced = 0;
         }
       });
 
