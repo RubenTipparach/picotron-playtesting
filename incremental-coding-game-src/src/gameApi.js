@@ -191,6 +191,24 @@ export async function executeWithDelay(baseDelayMs, context, action) {
   }
 }
 
+/**
+ * Format a value for log display, similar to console.log behavior.
+ */
+function formatLogValue(value) {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (typeof value === "string") return value;
+  if (typeof value === "function") return `[Function: ${value.name || "anonymous"}]`;
+  if (typeof value === "object") {
+    try { return JSON.stringify(value, null, 2); } catch { return String(value); }
+  }
+  return String(value);
+}
+
+function formatLogMessage(...args) {
+  return args.map(formatLogValue).join(" ");
+}
+
 // ─── API Function Factory ─────────────────────────────────────────────
 
 /**
@@ -292,7 +310,7 @@ export function createGameApi(executionContext) {
      * Takes 0.5 seconds. Adds 0.5 virtual seconds.
      * @param {string} message - Message to display
      */
-    async log(message) {
+    async log(...args) {
       const context = {
         ...executionContext,
         functionName: "log",
@@ -301,7 +319,7 @@ export function createGameApi(executionContext) {
 
       await executeWithDelay(500, context, () => {
         useGameStore.getState().addVirtualTime(0.5);
-        executionContext.onLog?.(String(message));
+        executionContext.onLog?.(formatLogMessage(...args));
       });
     },
 
