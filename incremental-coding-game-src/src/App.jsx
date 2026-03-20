@@ -37,6 +37,15 @@ import { initMarket, setDUnlocked, startMarketTimer, stopMarketTimer, setPlayerR
 
 const CODE_STORAGE_KEY = "incremental-coding-game-code";
 
+/** Count characters excluding comment lines (// ...) and inline comments */
+function countCodeChars(src) {
+  return src
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\/\/.*$/, "").trimEnd())
+    .filter((line) => line.length > 0)
+    .join("\n").length;
+}
+
 export function App() {
   // ── Theme state ──
   const [themeId, setThemeId] = useState(loadThemeId);
@@ -278,9 +287,10 @@ export function App() {
   const handleRun = useCallback(async () => {
     if (!executor || isRunning) return;
 
-    // RAM check against saved code (what actually runs)
-    if (savedCode.length > ram) {
-      setLogs((prev) => [...prev, { type: "error", message: `ERROR: Code exceeds RAM limit (${savedCode.length}/${ram} chars). Buy more RAM in the Shop.`, timestamp: Date.now() }]);
+    // RAM check against saved code (comments excluded)
+    const codeSize = countCodeChars(savedCode);
+    if (codeSize > ram) {
+      setLogs((prev) => [...prev, { type: "error", message: `ERROR: Code exceeds RAM limit (${codeSize}/${ram} chars). Buy more RAM in the Shop.`, timestamp: Date.now() }]);
       return;
     }
 
@@ -434,7 +444,7 @@ export function App() {
     };
   }, []);
 
-  const charCount = code.length;
+  const charCount = countCodeChars(code);
   const ramPercent = Math.min(100, (charCount / ram) * 100);
   const ramColor = ramPercent > 90 ? theme.red : ramPercent > 70 ? theme.yellow : theme.primary;
 
