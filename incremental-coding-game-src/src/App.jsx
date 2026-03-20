@@ -37,13 +37,87 @@ import { initMarket, setDUnlocked, startMarketTimer, stopMarketTimer, setPlayerR
 
 const CODE_STORAGE_KEY = "incremental-coding-game-code";
 
-/** Count characters excluding comment lines (// ...) and inline comments */
-function countCodeChars(src) {
-  return src
-    .split(/\r?\n/)
-    .map((line) => line.replace(/\/\/.*$/, "").trimEnd())
-    .filter((line) => line.length > 0)
-    .join("\n").length;
+/**
+ * Count tokens using PICO-8-style rules (adapted for JS):
+ * - 1 token: identifiers, numbers, strings, keywords (except free ones), operators, opening brackets
+ * - Free: comments, `const`/`let`/`var` (like PICO-8's `local`), commas, dots, colons, semicolons, closing brackets
+ * - Unary -/~ on a number literal = 0 extra tokens (number itself is 1)
+ */
+function countTokens(src) {
+  // Strip comments first
+  let code = src.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
+
+  const FREE_KEYWORDS = new Set(["const", "let", "var"]); // like PICO-8's "local"
+  const FREE_CHARS = new Set([",", ".", ";", ":", ")", "]", "}"]);
+
+  let tokens = 0;
+  let i = 0;
+  while (i < code.length) {
+    const ch = code[i];
+
+    // Whitespace
+    if (/\s/.test(ch)) { i++; continue; }
+
+    // Free closing brackets and punctuation
+    if (FREE_CHARS.has(ch)) { i++; continue; }
+
+    // Opening brackets — 1 token each
+    if (ch === "(" || ch === "[" || ch === "{") { tokens++; i++; continue; }
+
+    // String literals — 1 token regardless of length
+    if (ch === '"' || ch === "'" || ch === "`") {
+      tokens++;
+      const quote = ch;
+      i++;
+      while (i < code.length && code[i] !== quote) {
+        if (code[i] === "\\") i++; // skip escaped char
+        i++;
+      }
+      i++; // skip closing quote
+      continue;
+    }
+
+    // Numbers (including hex 0x, binary 0b) — 1 token
+    if (/\d/.test(ch) || (ch === "." && i + 1 < code.length && /\d/.test(code[i + 1]))) {
+      tokens++;
+      i++;
+      while (i < code.length && /[\dA-Fa-fxXbBoOeE._]/.test(code[i])) i++;
+      continue;
+    }
+
+    // Identifiers / keywords
+    if (/[A-Za-z_$]/.test(ch)) {
+      let word = "";
+      while (i < code.length && /[\w$]/.test(code[i])) { word += code[i]; i++; }
+      if (!FREE_KEYWORDS.has(word)) tokens++;
+      continue;
+    }
+
+    // Operators — check for unary -/~ before a number (free, number counts as 1)
+    if ((ch === "-" || ch === "~") && i + 1 < code.length && /[\d.]/.test(code[i + 1])) {
+      // Check if this is unary (previous non-whitespace is operator, opening bracket, or start)
+      let j = i - 1;
+      while (j >= 0 && /\s/.test(code[j])) j--;
+      const prev = j >= 0 ? code[j] : "";
+      const isUnary = prev === "" || /[=+\-*/%<>&|^!~?:,;({[\[]/.test(prev);
+      if (isUnary) {
+        i++; // skip the unary op (free)
+        // The number itself will be counted as 1 token on next iteration
+        continue;
+      }
+    }
+
+    // Multi-char operators (===, !==, >=, <=, ==, !=, &&, ||, **, >>, <<, =>, +=, -=, etc.)
+    tokens++;
+    if (i + 2 < code.length && (code.slice(i, i + 3) === "===" || code.slice(i, i + 3) === "!==" || code.slice(i, i + 3) === ">>>" || code.slice(i, i + 3) === "**=")) {
+      i += 3;
+    } else if (i + 1 < code.length && /^(==|!=|>=|<=|&&|\|\||<<|>>|\*\*|=>|\+=|-=|\*=|\/=|%=|&=|\|=|\^=|\?\?|\?\.)$/.test(code.slice(i, i + 2))) {
+      i += 2;
+    } else {
+      i++;
+    }
+  }
+  return tokens;
 }
 
 export function App() {
@@ -63,6 +137,7 @@ export function App() {
   );
   const [code, setCode] = useState(savedCode);
   const hasUnsavedChanges = code !== savedCode;
+  const [isSnippetsOpen, setIsSnippetsOpen] = useState(false);
 
   // ── Execution state ──
   const [isRunning, setIsRunning] = useState(false);
@@ -288,9 +363,9 @@ export function App() {
     if (!executor || isRunning) return;
 
     // RAM check against saved code (comments excluded)
-    const codeSize = countCodeChars(savedCode);
+    const codeSize = countTokens(savedCode);
     if (codeSize > ram) {
-      setLogs((prev) => [...prev, { type: "error", message: `ERROR: Code exceeds RAM limit (${codeSize}/${ram} chars). Buy more RAM in the Shop.`, timestamp: Date.now() }]);
+      setLogs((prev) => [...prev, { type: "error", message: `ERROR: Code exceeds RAM limit (${codeSize}/${ram} tokens). Buy more RAM in the Shop.`, timestamp: Date.now() }]);
       return;
     }
 
@@ -444,8 +519,8 @@ export function App() {
     };
   }, []);
 
-  const charCount = countCodeChars(code);
-  const ramPercent = Math.min(100, (charCount / ram) * 100);
+  const tokenCount = countTokens(code);
+  const ramPercent = Math.min(100, (tokenCount / ram) * 100);
   const ramColor = ramPercent > 90 ? theme.red : ramPercent > 70 ? theme.yellow : theme.primary;
 
   const startDrag = (type, cursor) => { draggingRef.current = type; document.body.style.cursor = cursor; document.body.style.userSelect = "none"; };
@@ -454,7 +529,7 @@ export function App() {
   const desktopTabs = [
     ...(tech.shopUnlocked ? ["shop"] : []),
     ...(tech.stockMarketUnlocked ? ["market"] : []),
-    "docs", "snippets", "profiler", "hints",
+    "docs", "profiler", "hints",
   ];
   const mobileTabs = [
     { id: "code", label: "CODE" },
@@ -462,7 +537,6 @@ export function App() {
     ...(tech.shopUnlocked ? [{ id: "shop", label: "SHOP" }] : []),
     ...(tech.stockMarketUnlocked ? [{ id: "market", label: "MKT" }] : []),
     { id: "docs", label: "DOCS" },
-    { id: "snippets", label: "SNIP" },
     { id: "profiler", label: "CPU" },
   ];
 
@@ -472,7 +546,6 @@ export function App() {
       case "shop": return <ShopPanel />;
       case "market": return <StockMarketPanel />;
       case "docs": return <DocsPanel isOpen={true} onClose={() => {}} scrollToSection={docsScrollSection} inline onInsertCode={(text) => { if (editorRef.current?.insertText) editorRef.current.insertText(text); }} />;
-      case "snippets": return <SnippetsPanel currentCode={code} onLoad={(snippetCode) => { setCode(snippetCode); setSavedCode(snippetCode); }} />;
       case "profiler": return <CpuStats stats={stats} onScrollToLine={(line) => { setScrollToLine(line); if (editorRef.current?.scrollToLine) editorRef.current.scrollToLine(line); }} />;
       case "hints": return <HintPanel activeHints={activeHints} dismissedHints={dismissedHints} onHintClick={() => {}} onReopenHint={reopenHint} inline />;
       default: return null;
@@ -498,6 +571,7 @@ export function App() {
           hasUnsavedChanges={hasUnsavedChanges}
           onOpenTechTree={() => { setIsTechTreeOpen(true); setTechTreeSelectedId(undefined); }}
           onReset={handleReset}
+          onOpenSnippets={() => setIsSnippetsOpen(true)}
           availableUpgradeCount={availableUpgradeCount}
           hasSeenUpgrades={hasSeenUpgrades}
           onCycleTheme={cycleTheme}
@@ -520,7 +594,7 @@ export function App() {
               <div style={{ height: "100%", width: `${ramPercent}%`, backgroundColor: ramColor, transition: "width 0.2s, background-color 0.3s" }} />
             </div>
             <div style={{ position: "absolute", bottom: "6px", right: "8px", fontSize: "10px", fontFamily: theme.font, color: ramColor, opacity: 0.8 }}>
-              {charCount}/{ram}
+              {tokenCount}/{ram}
             </div>
           </div>
 
@@ -588,6 +662,22 @@ export function App() {
             setDocsScrollSection(sectionId);
           }}
         />
+
+        {/* Snippets Modal */}
+        {isSnippetsOpen && (
+          <div style={{ position: "fixed", inset: 0, zIndex: 9000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ position: "absolute", inset: 0, backgroundColor: "rgba(0,0,0,0.7)" }} onClick={() => setIsSnippetsOpen(false)} />
+            <div style={{ position: "relative", width: "90%", maxWidth: "420px", maxHeight: "80vh", backgroundColor: theme.bg, border: `1px solid ${theme.border}`, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", borderBottom: `1px solid ${theme.border}` }}>
+                <span style={{ fontFamily: theme.font, fontSize: "11px", color: theme.primaryDim, letterSpacing: "2px" }}>SNIPPETS</span>
+                <button onClick={() => setIsSnippetsOpen(false)} style={{ fontFamily: theme.font, fontSize: "12px", color: theme.primary, backgroundColor: "transparent", border: "none", cursor: "pointer" }}>X</button>
+              </div>
+              <div style={{ flex: 1, overflowY: "auto" }}>
+                <SnippetsPanel currentCode={code} onLoad={(snippetCode) => { setCode(snippetCode); setSavedCode(snippetCode); setIsSnippetsOpen(false); }} />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       </ThemeContext.Provider>
     );
@@ -629,7 +719,7 @@ export function App() {
               <div style={{ height: "100%", width: `${ramPercent}%`, backgroundColor: ramColor, transition: "width 0.2s, background-color 0.3s" }} />
             </div>
             <div style={{ position: "absolute", bottom: "6px", right: "8px", fontSize: "10px", fontFamily: theme.font, color: ramColor, opacity: 0.8 }}>
-              {charCount}/{ram}
+              {tokenCount}/{ram}
             </div>
           </div>
 
@@ -711,6 +801,22 @@ export function App() {
           setDocsScrollSection(sectionId);
         }}
       />
+
+      {/* Snippets Modal */}
+      {isSnippetsOpen && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ position: "absolute", inset: 0, backgroundColor: "rgba(0,0,0,0.7)" }} onClick={() => setIsSnippetsOpen(false)} />
+          <div style={{ position: "relative", width: "90%", maxWidth: "420px", maxHeight: "80vh", backgroundColor: theme.bg, border: `1px solid ${theme.border}`, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", borderBottom: `1px solid ${theme.border}` }}>
+              <span style={{ fontFamily: theme.font, fontSize: "11px", color: theme.primaryDim, letterSpacing: "2px" }}>SNIPPETS</span>
+              <button onClick={() => setIsSnippetsOpen(false)} style={{ fontFamily: theme.font, fontSize: "12px", color: theme.primary, backgroundColor: "transparent", border: "none", cursor: "pointer" }}>X</button>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              <SnippetsPanel currentCode={code} onLoad={(snippetCode) => { setCode(snippetCode); setSavedCode(snippetCode); setIsSnippetsOpen(false); }} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
     </ThemeContext.Provider>
   );

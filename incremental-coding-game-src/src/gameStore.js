@@ -28,7 +28,7 @@ const DEFAULT_STATE = {
   virtualTime: 0,
   // Shop system
   credits: 0,
-  ram: 256,       // max characters allowed in editor
+  ram: 128,       // max tokens allowed (PICO-8 style counting)
   cpuLevel: 0,    // each level = 50% faster, cost doubles each level
   // Market state (persisted separately from live engine)
   market: null,

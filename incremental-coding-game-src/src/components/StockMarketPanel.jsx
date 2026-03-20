@@ -18,9 +18,9 @@ const RED = "#ee3333";
 
 // Time windows: label, ticks of history, candles to show
 const TIME_WINDOWS = [
-  { label: "1m", historyTicks: 120, candles: 6 },
-  { label: "5m", historyTicks: 600, candles: 30 },
-  { label: "10m", historyTicks: 1200, candles: 60 },
+  { label: "1m", historyTicks: 120, candles: 30 },
+  { label: "5m", historyTicks: 600, candles: 60 },
+  { label: "10m", historyTicks: 1200, candles: 120 },
 ];
 
 // Price axis label width in pixels (HTML overlay)
@@ -103,13 +103,9 @@ function CandlestickChart({ candles, color, height = 80 }) {
   const VB_H = 100;
   const toY = (price) => VB_H - ((price - min) / range) * VB_H;
 
-  // Right-align candles to use ~80% of chart width
-  const chartUsableW = VB_W * 0.8;
-  const candleW = Math.min(8, (chartUsableW - 4) / candles.length);
+  const candleW = (VB_W - 4) / candles.length;
   const gap = Math.max(0.5, candleW * 0.25);
   const bodyW = candleW - gap;
-  const candleBlockW = candles.length * candleW + 4;
-  const candleOffsetX = VB_W - candleBlockW;
   const lastCandle = candles[candles.length - 1];
 
   const gridLines = makeGrid(min, range);
@@ -141,7 +137,7 @@ function CandlestickChart({ candles, color, height = 80 }) {
         />
         {/* Candles */}
         {candles.map((c, i) => {
-          const x = candleOffsetX + 2 + i * candleW;
+          const x = 2 + i * candleW;
           const isGreen = c.close >= c.open;
           const fill = isGreen ? GREEN : RED;
           const bodyTop = toY(Math.max(c.open, c.close));

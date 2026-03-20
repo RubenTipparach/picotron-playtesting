@@ -6,11 +6,11 @@ const SELL_PRICES = { A: 1, B: 5, C: 25 };
 const SELL_AMOUNTS = [1, 5, 10];
 
 const RAM_UPGRADES = [
-  { ram: 512, cost: 50 },
-  { ram: 1024, cost: 200 },
-  { ram: 2048, cost: 800 },
-  { ram: 4096, cost: 3000 },
-  { ram: 8192, cost: 10000 },
+  { ram: 256, cost: 50 },
+  { ram: 512, cost: 200 },
+  { ram: 1024, cost: 800 },
+  { ram: 2048, cost: 3000 },
+  { ram: 4096, cost: 10000 },
 ];
 
 const CPU_BASE_COST = 30;
@@ -108,7 +108,7 @@ export function ShopPanel() {
           [ RAM UPGRADE ]
         </div>
         <div style={{ fontSize: "12px", marginBottom: "6px" }}>
-          Current: <span style={{ color: t.primary }}>{ram}</span> chars
+          Current: <span style={{ color: t.primary }}>{ram}</span> tokens
         </div>
         {nextRam ? (
           <button
@@ -122,7 +122,7 @@ export function ShopPanel() {
               textAlign: "left",
             }}
           >
-            Upgrade to {nextRam.ram} chars — ${nextRam.cost}
+            Upgrade to {nextRam.ram} tokens — ${nextRam.cost}
           </button>
         ) : (
           <div style={{ color: t.primaryDark, fontSize: "11px" }}>MAX CAPACITY</div>

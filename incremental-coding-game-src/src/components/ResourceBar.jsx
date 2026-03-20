@@ -8,6 +8,7 @@ export function ResourceBar({
   onStop,
   onSave,
   hasUnsavedChanges,
+  onOpenSnippets,
   onOpenTechTree,
   onReset,
   availableUpgradeCount,
@@ -77,6 +78,11 @@ export function ResourceBar({
         title="Save code (Ctrl+S)"
       >
         [SAVE]
+      </button>
+
+      {/* Snippets */}
+      <button onClick={onOpenSnippets} style={btnStyle(t.accent, true)} title="Code snippets">
+        [SNIP]
       </button>
 
       {/* Resources */}
