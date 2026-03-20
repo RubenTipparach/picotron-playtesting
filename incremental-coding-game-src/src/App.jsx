@@ -46,9 +46,11 @@ export function App() {
   }, [themeId]);
 
   // ── Code state ──
-  const [code, setCode] = useState(
+  const [savedCode, setSavedCode] = useState(
     localStorage.getItem(CODE_STORAGE_KEY) || "produceResourceA()"
   );
+  const [code, setCode] = useState(savedCode);
+  const hasUnsavedChanges = code !== savedCode;
 
   // ── Execution state ──
   const [isRunning, setIsRunning] = useState(false);
@@ -103,9 +105,14 @@ export function App() {
     if (restored.length > 0) setDismissedHints(restored);
   }, []);
 
-  // ── Persist code ──
+  // ── Persist saved code ──
   useEffect(() => {
-    localStorage.setItem(CODE_STORAGE_KEY, code);
+    localStorage.setItem(CODE_STORAGE_KEY, savedCode);
+  }, [savedCode]);
+
+  // ── Save handler ──
+  const handleSave = useCallback(() => {
+    setSavedCode(code);
   }, [code]);
 
   // ── Track upgrades ──
@@ -210,14 +217,14 @@ export function App() {
   const handleRun = useCallback(async () => {
     if (!executor || isRunning) return;
 
-    // RAM check
-    if (code.length > ram) {
-      setLogs((prev) => [...prev, { type: "error", message: `ERROR: Code exceeds RAM limit (${code.length}/${ram} chars). Buy more RAM in the Shop.`, timestamp: Date.now() }]);
+    // RAM check against saved code (what actually runs)
+    if (savedCode.length > ram) {
+      setLogs((prev) => [...prev, { type: "error", message: `ERROR: Code exceeds RAM limit (${savedCode.length}/${ram} chars). Buy more RAM in the Shop.`, timestamp: Date.now() }]);
       return;
     }
 
-    const errors = validateCode(code);
-    const codeHash = hashCode(code);
+    const errors = validateCode(savedCode);
+    const codeHash = hashCode(savedCode);
 
     if (errors.length > 0) {
       if (codeHash !== lastCodeHashRef.current) {
@@ -264,7 +271,7 @@ export function App() {
     setLogs((prev) => [...prev, { type: "log", message: "--- Execution started ---", timestamp: Date.now() }]);
 
     try {
-      await executor.execute(code);
+      await executor.execute(savedCode);
       if (availableUpgradeCount > 0) {
         completionsSinceUpgradeRef.current += 1;
         if (completionsSinceUpgradeRef.current >= 3 && !hasSeenHint("upgrades-available")) {
@@ -285,7 +292,7 @@ export function App() {
       setStats((prev) => ({ ...prev, isRunning: false }));
       setScrollToLine(null);
     }
-  }, [executor, isRunning, code, ram, availableUpgradeCount, dismissHint]);
+  }, [executor, isRunning, savedCode, ram, availableUpgradeCount, dismissHint]);
 
   const handleStop = useCallback(() => {
     if (!executor || !isRunning) return;
@@ -310,7 +317,7 @@ export function App() {
   useHotkeys("f5", (e) => { e.preventDefault(); isRunning ? handleStop() : handleRun(); }, { enableOnFormTags: true }, [isRunning, handleRun, handleStop]);
   useHotkeys("escape", (e) => { if (isRunning) { e.preventDefault(); handleStop(); } }, { enableOnFormTags: true }, [isRunning]);
   useHotkeys("ctrl+u, cmd+u", (e) => { e.preventDefault(); setIsTechTreeOpen((p) => { if (!p) setTechTreeSelectedId(undefined); return !p; }); }, { enableOnFormTags: true });
-  useHotkeys("ctrl+s, cmd+s", (e) => e.preventDefault(), { enableOnFormTags: true });
+  useHotkeys("ctrl+s, cmd+s", (e) => { e.preventDefault(); handleSave(); }, { enableOnFormTags: true }, [handleSave]);
 
   // ── Mobile detection ──
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -389,6 +396,8 @@ export function App() {
           isRunning={isRunning}
           onRun={handleRun}
           onStop={handleStop}
+          onSave={handleSave}
+          hasUnsavedChanges={hasUnsavedChanges}
           onOpenTechTree={() => { setIsTechTreeOpen(true); setTechTreeSelectedId(undefined); }}
           onReset={handleReset}
           availableUpgradeCount={availableUpgradeCount}
@@ -502,6 +511,8 @@ export function App() {
         isRunning={isRunning}
         onRun={handleRun}
         onStop={handleStop}
+        onSave={handleSave}
+        hasUnsavedChanges={hasUnsavedChanges}
         onOpenTechTree={() => { setIsTechTreeOpen(true); setTechTreeSelectedId(undefined); }}
         onReset={handleReset}
         availableUpgradeCount={availableUpgradeCount}

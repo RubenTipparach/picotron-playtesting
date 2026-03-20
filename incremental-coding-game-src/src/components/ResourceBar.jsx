@@ -6,6 +6,8 @@ export function ResourceBar({
   isRunning,
   onRun,
   onStop,
+  onSave,
+  hasUnsavedChanges,
   onOpenTechTree,
   onReset,
   availableUpgradeCount,
@@ -62,6 +64,20 @@ export function ResourceBar({
           [RUN]
         </button>
       )}
+
+      {/* Save */}
+      <button
+        onClick={onSave}
+        disabled={!hasUnsavedChanges}
+        style={{
+          ...btnStyle(t.yellow, hasUnsavedChanges),
+          opacity: hasUnsavedChanges ? 1 : 0.35,
+          animation: hasUnsavedChanges ? "pulse-border 1.5s ease-in-out infinite" : "none",
+        }}
+        title="Save code (Ctrl+S)"
+      >
+        [SAVE]
+      </button>
 
       {/* Resources */}
       <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
