@@ -529,7 +529,7 @@ export class CodeExecutor {
       // ── Build and execute the script ──
       const wrappedCode = `
         return (async function(api, step) {
-          const { produceResourceA, convertAToB, getResourceCount, log, makeResourceC } = api;
+          const { produceResourceA, convertAToB, getResourceCount, log, makeResourceC, getMarketValue, buy, sell } = api;
           ${transformedCode}
         })(api, step);
       `;
