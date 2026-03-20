@@ -6,6 +6,7 @@
  */
 
 import { useGameStore } from "./gameStore.js";
+import { getMarketState } from "./marketEngine.js";
 
 /**
  * All tech tree nodes.
@@ -154,6 +155,20 @@ export const TECH_TREE = [
     icon: "$",
     dependencies: ["resourceCUnlocked", "ifStatementsUnlocked"],
     position: { row: 2, col: 2 },
+  },
+  {
+    id: "resourceDUnlocked",
+    name: "Resource D",
+    description: "Unlock volatile Resource D on the market. Trade the most volatile asset for big profits (or losses)",
+    threshold: () => {
+      const market = getMarketState();
+      return market.totalMarketProfit >= 200;
+    },
+    cost: [],
+    unlocked: false,
+    icon: "D",
+    dependencies: ["stockMarketUnlocked"],
+    position: { row: 3, col: 2 },
   },
 ];
 

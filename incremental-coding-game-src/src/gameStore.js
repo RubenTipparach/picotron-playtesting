@@ -22,6 +22,7 @@ const DEFAULT_STATE = {
     userFunctionsUnlocked: false,
     processingSpeed1Unlocked: false,
     stockMarketUnlocked: false,
+    resourceDUnlocked: false,
   },
   virtualTime: 0,
   // Shop system

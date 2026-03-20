@@ -35,9 +35,14 @@ function gaussianRandom(seed) {
  * Market state — kept in memory and synced to game store.
  * Prices update each time virtual time advances.
  */
+// Each candle covers CANDLE_PERIOD virtual seconds
+const CANDLE_PERIOD = 5;
+const MAX_CANDLES = 60;
+
 let marketState = {
   prices: { ...BASE_PRICES },
   priceHistory: { A: [], B: [], C: [], D: [] },
+  candles: { A: [], B: [], C: [], D: [] },
   lastTick: 0,
   demandPressure: { A: 0, B: 0, C: 0, D: 0 },
   totalMarketProfit: 0,
@@ -45,10 +50,16 @@ let marketState = {
 };
 
 const MAX_HISTORY = 100;
-const D_UNLOCK_PROFIT = 200; // credits earned from market to unlock D
 
 export function getMarketState() {
   return marketState;
+}
+
+/**
+ * Set whether resource D is unlocked (called when tech tree node is unlocked).
+ */
+export function setDUnlocked(unlocked) {
+  marketState.dUnlocked = unlocked;
 }
 
 export function initMarket(savedState) {
@@ -56,6 +67,7 @@ export function initMarket(savedState) {
     marketState = {
       prices: { ...BASE_PRICES, ...savedState.prices },
       priceHistory: savedState.priceHistory || { A: [], B: [], C: [], D: [] },
+      candles: savedState.candles || { A: [], B: [], C: [], D: [] },
       lastTick: savedState.lastTick || 0,
       demandPressure: savedState.demandPressure || { A: 0, B: 0, C: 0, D: 0 },
       totalMarketProfit: savedState.totalMarketProfit || 0,
@@ -65,6 +77,7 @@ export function initMarket(savedState) {
     marketState = {
       prices: { ...BASE_PRICES },
       priceHistory: { A: [], B: [], C: [], D: [] },
+      candles: { A: [], B: [], C: [], D: [] },
       lastTick: 0,
       demandPressure: { A: 0, B: 0, C: 0, D: 0 },
       totalMarketProfit: 0,
@@ -109,24 +122,37 @@ export function tickMarket(currentVirtualTime) {
       marketState.prices[r] = Math.round(newPrice * 100) / 100;
 
       // Record history every tick
-      marketState.priceHistory[r].push({
-        time: t,
-        price: marketState.prices[r],
-      });
-
-      // Trim history
+      const currentPrice = marketState.prices[r];
+      marketState.priceHistory[r].push({ time: t, price: currentPrice });
       if (marketState.priceHistory[r].length > MAX_HISTORY) {
         marketState.priceHistory[r] = marketState.priceHistory[r].slice(-MAX_HISTORY);
+      }
+
+      // Build OHLC candles
+      const candlePeriod = Math.floor(t / CANDLE_PERIOD);
+      const candles = marketState.candles[r];
+      const lastCandle = candles.length > 0 ? candles[candles.length - 1] : null;
+
+      if (lastCandle && lastCandle.period === candlePeriod) {
+        lastCandle.high = Math.max(lastCandle.high, currentPrice);
+        lastCandle.low = Math.min(lastCandle.low, currentPrice);
+        lastCandle.close = currentPrice;
+      } else {
+        candles.push({
+          period: candlePeriod,
+          open: currentPrice,
+          high: currentPrice,
+          low: currentPrice,
+          close: currentPrice,
+        });
+        if (candles.length > MAX_CANDLES) {
+          marketState.candles[r] = candles.slice(-MAX_CANDLES);
+        }
       }
     }
   }
 
   marketState.lastTick = currentVirtualTime;
-
-  // Check D unlock
-  if (!marketState.dUnlocked && marketState.totalMarketProfit >= D_UNLOCK_PROFIT) {
-    marketState.dUnlocked = true;
-  }
 }
 
 /**
@@ -196,9 +222,6 @@ export function executeSell(resource, amount) {
  */
 export function addMarketProfit(amount) {
   marketState.totalMarketProfit += amount;
-  if (!marketState.dUnlocked && marketState.totalMarketProfit >= D_UNLOCK_PROFIT) {
-    marketState.dUnlocked = true;
-  }
 }
 
 /**

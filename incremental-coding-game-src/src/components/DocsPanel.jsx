@@ -34,6 +34,9 @@ export function DocsPanel({ isOpen, onClose, scrollToSection, inline, onInsertCo
     getResourceCount: { description: "Gets count of a resource. Takes 1s.", example: "getResourceCount('A')", returns: "Returns: resource count" },
     log: { description: "Prints a message. Takes 0.5s.", example: "log('Hello!')", returns: "Returns: nothing" },
     makeResourceC: { description: "Converts 3A+1B into 1C. Takes 3s.", example: "makeResourceC()", returns: "Returns: 1", sectionId: "resource-conversion-2" },
+    getMarketValue: { description: "Gets the current market price of a resource. Takes 1s.", example: "getMarketValue('A')", returns: "Returns: current price (e.g. 1.05)", sectionId: "stock-market" },
+    buy: { description: "Buys resource from market using credits. Takes 2s.", example: "buy('A', 5)", returns: "Returns: amount bought", sectionId: "stock-market" },
+    sell: { description: "Sells resource on market for credits. Takes 2s.", example: "sell('A', 5)", returns: "Returns: credits received", sectionId: "stock-market" },
   };
 
   const content = (
@@ -90,6 +93,13 @@ export function DocsPanel({ isOpen, onClose, scrollToSection, inline, onInsertCo
           <DocCard dataSectionId="user-functions" t={t}>
             <DocText t={t}>Functions — define reusable code:</DocText>
             <CodeBlock t={t} onInsertCode={onInsertCode}>{"function harvest(n) {\n  let i = 0\n  while (i < n) {\n    produceResourceA()\n    i++\n  }\n}\nharvest(5)"}</CodeBlock>
+          </DocCard>
+        )}
+
+        {tech.stockMarketUnlocked && (
+          <DocCard dataSectionId="stock-market" t={t}>
+            <DocText t={t}>Stock Market — prices fluctuate based on supply and demand:</DocText>
+            <CodeBlock t={t} onInsertCode={onInsertCode}>{"// Check price before trading\nlet price = getMarketValue('A')\nif (price > 1.5) {\n  sell('A', 10)\n}\n// Buy low\nif (price < 0.8) {\n  buy('A', 5)\n}"}</CodeBlock>
           </DocCard>
         )}
       </Section>

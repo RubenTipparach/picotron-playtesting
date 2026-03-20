@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from "react";
+import React from "react";
 import { useGameStore } from "../gameStore.js";
 import { useTheme } from "../themes.js";
 import { RESOURCE_COLORS } from "../techTree.js";
@@ -11,57 +11,139 @@ import {
   getSellPrice,
 } from "../marketEngine.js";
 
-/**
- * Mini SVG line chart for a single resource's price history.
- * Uses viewBox for responsive sizing — fills container width.
- */
-function PriceChart({ history, color, height = 50 }) {
-  const t = useTheme();
-  const VB_W = 200;
+const GREEN = "#22cc44";
+const RED = "#ee3333";
 
-  if (history.length < 2) {
+/**
+ * Candlestick chart — OHLC candles with wicks, grid lines, and price axis.
+ */
+function CandlestickChart({ candles, color, height = 80 }) {
+  const t = useTheme();
+  const VB_W = 240;
+  const PADDING_R = 40; // right padding for price axis
+  const CHART_W = VB_W - PADDING_R;
+
+  if (!candles || candles.length < 2) {
     return (
-      <div style={{ width: "100%", height, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "10px", color: t.primaryDark }}>
-        NO DATA
+      <div style={{
+        width: "100%",
+        height,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: "10px",
+        color: t.primaryDark,
+        backgroundColor: `${t.bg}88`,
+        border: `1px solid ${t.border}`,
+      }}>
+        WAITING FOR DATA...
       </div>
     );
   }
 
-  const prices = history.map((h) => h.price);
-  const min = Math.min(...prices) * 0.95;
-  const max = Math.max(...prices) * 1.05;
-  const range = max - min || 1;
+  // Compute price range
+  let min = Infinity, max = -Infinity;
+  for (const c of candles) {
+    if (c.low < min) min = c.low;
+    if (c.high > max) max = c.high;
+  }
+  const pad = (max - min) * 0.1 || 0.5;
+  min -= pad;
+  max += pad;
+  const range = max - min;
 
-  const points = prices.map((p, i) => {
-    const x = (i / (prices.length - 1)) * VB_W;
-    const y = height - ((p - min) / range) * height;
-    return `${x},${y}`;
-  }).join(" ");
+  const candleW = Math.min(8, (CHART_W - 4) / candles.length);
+  const gap = Math.max(1, candleW * 0.3);
+  const bodyW = candleW - gap;
 
-  const fillPoints = `0,${height} ${points} ${VB_W},${height}`;
+  const toY = (price) => height - ((price - min) / range) * (height - 4) - 2;
+
+  // Grid lines (3 horizontal)
+  const gridLines = [];
+  for (let i = 0; i <= 3; i++) {
+    const price = min + (range * i) / 3;
+    gridLines.push({ y: toY(price), label: price.toFixed(2) });
+  }
+
+  // Current price line
+  const lastCandle = candles[candles.length - 1];
+  const currentY = toY(lastCandle.close);
 
   return (
-    <svg viewBox={`0 0 ${VB_W} ${height}`} preserveAspectRatio="none" style={{ display: "block", width: "100%", height }}>
-      <polygon points={fillPoints} fill={color} opacity="0.08" />
-      <polyline points={points} fill="none" stroke={color} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-      {prices.length > 0 && (() => {
-        const lastPrice = prices[prices.length - 1];
-        const cx = VB_W;
-        const cy = height - ((lastPrice - min) / range) * height;
-        return <circle cx={cx} cy={cy} r="3" fill={color} vectorEffect="non-scaling-stroke" />;
-      })()}
+    <svg
+      viewBox={`0 0 ${VB_W} ${height}`}
+      preserveAspectRatio="none"
+      style={{ display: "block", width: "100%", height, backgroundColor: `${t.bg}88` }}
+    >
+      {/* Grid lines */}
+      {gridLines.map((g, i) => (
+        <g key={i}>
+          <line
+            x1="0" y1={g.y} x2={CHART_W} y2={g.y}
+            stroke={t.border} strokeWidth="0.5" strokeDasharray="2,3"
+            vectorEffect="non-scaling-stroke"
+          />
+          <text x={CHART_W + 2} y={g.y + 1} fontSize="7" fill={t.primaryDark} dominantBaseline="middle">
+            {g.label}
+          </text>
+        </g>
+      ))}
+
+      {/* Current price horizontal line */}
+      <line
+        x1="0" y1={currentY} x2={CHART_W} y2={currentY}
+        stroke={color} strokeWidth="0.5" strokeDasharray="4,2"
+        vectorEffect="non-scaling-stroke" opacity="0.6"
+      />
+
+      {/* Candles */}
+      {candles.map((c, i) => {
+        const x = 2 + i * candleW;
+        const isGreen = c.close >= c.open;
+        const fill = isGreen ? GREEN : RED;
+        const bodyTop = toY(Math.max(c.open, c.close));
+        const bodyBot = toY(Math.min(c.open, c.close));
+        const bodyH = Math.max(0.5, bodyBot - bodyTop);
+        const wickTop = toY(c.high);
+        const wickBot = toY(c.low);
+        const cx = x + bodyW / 2;
+
+        return (
+          <g key={i}>
+            {/* Wick */}
+            <line
+              x1={cx} y1={wickTop} x2={cx} y2={wickBot}
+              stroke={fill} strokeWidth="1"
+              vectorEffect="non-scaling-stroke"
+            />
+            {/* Body */}
+            <rect
+              x={x} y={bodyTop}
+              width={bodyW} height={bodyH}
+              fill={isGreen ? fill : fill}
+              stroke={fill} strokeWidth="0.5"
+              vectorEffect="non-scaling-stroke"
+              opacity="0.9"
+            />
+          </g>
+        );
+      })}
+
+      {/* Current price label on right */}
+      <rect x={CHART_W} y={currentY - 5} width={PADDING_R} height={10} fill={color} rx="1" opacity="0.8" />
+      <text x={CHART_W + 2} y={currentY + 1} fontSize="7" fill={t.bg} fontWeight="bold" dominantBaseline="middle">
+        {lastCandle.close.toFixed(2)}
+      </text>
     </svg>
   );
 }
 
 /**
- * Emotions gauge — a horizontal bar showing fear/greed spectrum.
+ * Emotions gauge — horizontal bar showing fear/greed spectrum.
  */
 function EmotionsGauge({ emotion }) {
   const t = useTheme();
   const { label, color } = getEmotionLabel(emotion);
-
-  // Normalized 0-1 position
   const position = (emotion + 1) / 2;
 
   return (
@@ -69,13 +151,12 @@ function EmotionsGauge({ emotion }) {
       <div style={{ fontSize: "10px", color: t.primaryDark, marginBottom: "6px" }}>MARKET EMOTION</div>
       <div style={{
         position: "relative",
-        height: "16px",
+        height: "14px",
         borderRadius: "3px",
         overflow: "hidden",
         background: `linear-gradient(to right, #ff2222, #ff6644, #ffaa44, #888888, #aaff66, #88ff44, #00ff00)`,
         opacity: 0.7,
       }}>
-        {/* Indicator */}
         <div style={{
           position: "absolute",
           left: `${position * 100}%`,
@@ -87,79 +168,10 @@ function EmotionsGauge({ emotion }) {
           boxShadow: "0 0 4px rgba(255,255,255,0.8)",
         }} />
       </div>
-      <div style={{ display: "flex", justifyContent: "space-between", marginTop: "4px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: "3px" }}>
         <span style={{ fontSize: "9px", color: "#ff4444" }}>FEAR</span>
-        <span style={{ fontSize: "11px", color, fontWeight: "bold" }}>{label}</span>
+        <span style={{ fontSize: "10px", color, fontWeight: "bold" }}>{label}</span>
         <span style={{ fontSize: "9px", color: "#44ff44" }}>GREED</span>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Emotions history chart — shows emotion trend over time as a colored line.
- */
-function EmotionsChart({ height = 50 }) {
-  const t = useTheme();
-  const market = getMarketState();
-  const VB_W = 200;
-
-  const historyA = market.priceHistory.A || [];
-  if (historyA.length < 5) {
-    return (
-      <div style={{ width: "100%", height, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "10px", color: t.primaryDark }}>
-        COLLECTING DATA...
-      </div>
-    );
-  }
-
-  const emotions = [];
-  const resources = market.dUnlocked ? ["A", "B", "C", "D"] : ["A", "B", "C"];
-  const basePrices = { A: 1, B: 5, C: 25, D: 50 };
-
-  for (let i = 4; i < historyA.length; i++) {
-    let momentum = 0;
-    let count = 0;
-    for (const r of resources) {
-      const h = market.priceHistory[r];
-      if (!h || h.length <= i) continue;
-      const lookback = Math.min(10, i);
-      const first = h[i - lookback].price;
-      const last = h[i].price;
-      const base = basePrices[r];
-      const change = (last - first) / base;
-      const deviation = (last - base) / base;
-      momentum += change * 0.6 + deviation * 0.4;
-      count++;
-    }
-    if (count > 0) {
-      const raw = momentum / count;
-      emotions.push(Math.max(-1, Math.min(1, raw * 5)));
-    }
-  }
-
-  if (emotions.length < 2) return null;
-
-  const midY = height / 2;
-
-  const points = emotions.map((e, i) => {
-    const x = (i / (emotions.length - 1)) * VB_W;
-    const y = midY - (e * midY * 0.9);
-    return `${x},${y}`;
-  }).join(" ");
-
-  return (
-    <div>
-      <div style={{ fontSize: "10px", color: t.primaryDark, marginBottom: "4px" }}>EMOTION TREND</div>
-      <svg viewBox={`0 0 ${VB_W} ${height}`} preserveAspectRatio="none" style={{ display: "block", width: "100%", height }}>
-        <line x1="0" y1={midY} x2={VB_W} y2={midY} stroke={t.border} strokeWidth="1" strokeDasharray="4,4" vectorEffect="non-scaling-stroke" />
-        <rect x="0" y={midY} width={VB_W} height={midY} fill="#ff2222" opacity="0.04" />
-        <rect x="0" y="0" width={VB_W} height={midY} fill="#00ff00" opacity="0.04" />
-        <polyline points={points} fill="none" stroke="#ffcc00" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-      </svg>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "8px", color: t.primaryDark }}>
-        <span>FEAR</span>
-        <span>GREED</span>
       </div>
     </div>
   );
@@ -169,6 +181,8 @@ export function StockMarketPanel() {
   const tech = useGameStore((s) => s.tech);
   const resources = useGameStore((s) => s.resources);
   const credits = useGameStore((s) => s.credits);
+  // Subscribe to market state changes
+  useGameStore((s) => s.market);
   const t = useTheme();
 
   const market = getMarketState();
@@ -185,7 +199,7 @@ export function StockMarketPanel() {
     );
   }
 
-  const tradeableResources = market.dUnlocked ? ["A", "B", "C", "D"] : ["A", "B", "C"];
+  const tradeableResources = tech.resourceDUnlocked ? ["A", "B", "C", "D"] : ["A", "B", "C"];
 
   return (
     <div style={{
@@ -205,49 +219,67 @@ export function StockMarketPanel() {
         <EmotionsGauge emotion={emotion} />
       </div>
 
-      {/* Emotion Trend Chart */}
-      <div style={{ marginBottom: "12px", paddingBottom: "8px", borderBottom: `1px solid ${t.border}` }}>
-        <EmotionsChart height={50} />
-      </div>
-
-      {/* Price Charts + Info */}
+      {/* Resource Cards */}
       {tradeableResources.map((r) => {
-        const history = market.priceHistory[r] || [];
+        const candles = market.candles[r] || [];
         const midPrice = getMarketValue(r);
         const buyP = getBuyPrice(r);
         const sellP = getSellPrice(r);
         const color = RESOURCE_COLORS[r] || t.primary;
+        const history = market.priceHistory[r] || [];
 
-        // Price change indicator
+        // Price change from last tick
         let changeText = "";
         let changeColor = t.primaryDark;
         if (history.length >= 2) {
           const prev = history[history.length - 2].price;
           const diff = midPrice - prev;
           const pct = ((diff / prev) * 100).toFixed(1);
-          if (diff > 0) { changeText = `+${pct}%`; changeColor = "#44ff44"; }
-          else if (diff < 0) { changeText = `${pct}%`; changeColor = "#ff4444"; }
-          else { changeText = "0%"; }
+          if (diff > 0) { changeText = `+${pct}%`; changeColor = GREEN; }
+          else if (diff < 0) { changeText = `${pct}%`; changeColor = RED; }
         }
 
         return (
           <div key={r} style={{ marginBottom: "12px", paddingBottom: "8px", borderBottom: `1px solid ${t.border}` }}>
+            {/* Header: name + price */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
               <span style={{ fontSize: "13px", fontWeight: "bold", color }}>
-                {r} {r === "D" && <span style={{ fontSize: "9px", color: t.primaryDark }}>(VOLATILE)</span>}
+                {r} {r === "D" && <span style={{ fontSize: "9px", color: t.primaryDark }}>VOLATILE</span>}
               </span>
-              <span style={{ fontSize: "12px" }}>
-                <span style={{ color: t.primary }}>${midPrice.toFixed(2)}</span>
-                {changeText && <span style={{ color: changeColor, marginLeft: "6px", fontSize: "10px" }}>{changeText}</span>}
-              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <span style={{ color: t.primary, fontSize: "13px", fontWeight: "bold" }}>${midPrice.toFixed(2)}</span>
+                {changeText && <span style={{ color: changeColor, fontSize: "10px" }}>{changeText}</span>}
+              </div>
             </div>
 
-            <PriceChart history={history} color={color} height={50} />
+            {/* Candlestick Chart */}
+            <CandlestickChart candles={candles} color={color} height={80} />
 
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: "4px", fontSize: "10px" }}>
-              <span style={{ color: t.primaryDark }}>BUY: ${buyP.toFixed(2)}</span>
-              <span style={{ color: t.primaryDark }}>SELL: ${sellP.toFixed(2)}</span>
-              <span style={{ color: t.primaryDark }}>HAVE: {resources[r] || 0}</span>
+            {/* Buy / Sell labels + holdings */}
+            <div style={{ display: "flex", gap: "6px", marginTop: "6px", alignItems: "center" }}>
+              <span style={{
+                padding: "2px 6px",
+                fontSize: "10px",
+                fontWeight: "bold",
+                backgroundColor: `${GREEN}22`,
+                color: GREEN,
+                border: `1px solid ${GREEN}44`,
+              }}>
+                BUY ${buyP.toFixed(2)}
+              </span>
+              <span style={{
+                padding: "2px 6px",
+                fontSize: "10px",
+                fontWeight: "bold",
+                backgroundColor: `${RED}22`,
+                color: RED,
+                border: `1px solid ${RED}44`,
+              }}>
+                SELL ${sellP.toFixed(2)}
+              </span>
+              <span style={{ marginLeft: "auto", fontSize: "10px", color: t.primaryDim }}>
+                HOLD: {resources[r] || 0}
+              </span>
             </div>
           </div>
         );
@@ -255,10 +287,10 @@ export function StockMarketPanel() {
 
       {/* Market Profit Tracker */}
       <div style={{ fontSize: "10px", color: t.primaryDark, marginTop: "4px" }}>
-        MARKET PROFIT: ${Math.floor(market.totalMarketProfit)}
-        {!market.dUnlocked && (
+        TOTAL PROFIT: ${Math.floor(market.totalMarketProfit)}
+        {!tech.resourceDUnlocked && (
           <span style={{ marginLeft: "8px" }}>
-            (earn ${200 - Math.floor(market.totalMarketProfit)} more to unlock D)
+            (${Math.max(0, 200 - Math.floor(market.totalMarketProfit))} more to unlock D)
           </span>
         )}
       </div>

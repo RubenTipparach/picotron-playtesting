@@ -231,6 +231,16 @@ function formatLogMessage(...args) {
  * @returns {object} API object with all game functions
  */
 export function createGameApi(executionContext) {
+  /** Advance virtual time and tick the market */
+  function advanceTime(seconds) {
+    const store = useGameStore.getState();
+    store.addVirtualTime(seconds);
+    if (store.tech.stockMarketUnlocked) {
+      tickMarket(useGameStore.getState().virtualTime);
+      store.saveMarket(getMarketState());
+    }
+  }
+
   return {
     /**
      * Produce 1 unit of Resource A.
@@ -247,7 +257,7 @@ export function createGameApi(executionContext) {
       await executeWithDelay(2000, context, () => {
         if (context.isCancelled?.()) return;
         useGameStore.getState().addResource("A", 1);
-        useGameStore.getState().addVirtualTime(2);
+        advanceTime(2);
       });
 
       return context.isCancelled?.() ? 0 : 1;
@@ -272,7 +282,7 @@ export function createGameApi(executionContext) {
         const store = useGameStore.getState();
         if (store.consumeResource("A", 2)) {
           store.addResource("B", 1);
-          store.addVirtualTime(3);
+          advanceTime(3);
           success = true;
         } else {
           const available = store.resources.A;
@@ -312,7 +322,7 @@ export function createGameApi(executionContext) {
         else if (resourceName === "C") count = resources.C;
         else if (resourceName === "D") count = resources.D;
 
-        useGameStore.getState().addVirtualTime(1);
+        advanceTime(1);
       });
 
       return context.isCancelled?.() ? 0 : count;
@@ -331,7 +341,7 @@ export function createGameApi(executionContext) {
       };
 
       await executeWithDelay(500, context, () => {
-        useGameStore.getState().addVirtualTime(0.5);
+        advanceTime(0.5);
         executionContext.onLog?.(formatLogMessage(...args));
       });
     },
@@ -360,7 +370,7 @@ export function createGameApi(executionContext) {
           ])
         ) {
           store.addResource("C", 1);
-          store.addVirtualTime(3);
+          advanceTime(3);
           produced = 1;
         } else {
           const availableA = store.resources.A;
@@ -394,11 +404,8 @@ export function createGameApi(executionContext) {
 
       await executeWithDelay(1000, context, () => {
         if (context.isCancelled?.()) return;
-        const store = useGameStore.getState();
-        store.addVirtualTime(1);
-        tickMarket(store.virtualTime);
+        advanceTime(1);
         price = engineGetMarketValue(resource);
-        store.saveMarket(getMarketState());
       });
 
       return context.isCancelled?.() ? 0 : price;
@@ -421,10 +428,9 @@ export function createGameApi(executionContext) {
 
       await executeWithDelay(2000, context, () => {
         if (context.isCancelled?.()) return;
-        const store = useGameStore.getState();
-        store.addVirtualTime(2);
-        tickMarket(store.virtualTime);
+        advanceTime(2);
 
+        const store = useGameStore.getState();
         const r = String(resource).toUpperCase();
         const result = executeBuy(r, amount);
         if (!result.success) {
@@ -442,7 +448,6 @@ export function createGameApi(executionContext) {
 
         store.addResource(r, amount);
         bought = amount;
-        store.saveMarket(getMarketState());
       });
 
       return context.isCancelled?.() ? 0 : bought;
@@ -465,10 +470,9 @@ export function createGameApi(executionContext) {
 
       await executeWithDelay(2000, context, () => {
         if (context.isCancelled?.()) return;
-        const store = useGameStore.getState();
-        store.addVirtualTime(2);
-        tickMarket(store.virtualTime);
+        advanceTime(2);
 
+        const store = useGameStore.getState();
         const r = String(resource).toUpperCase();
         if (!store.consumeResource(r, amount)) {
           const available = store.resources[r] || 0;
@@ -480,7 +484,6 @@ export function createGameApi(executionContext) {
 
         const result = executeSell(r, amount);
         if (!result.success) {
-          // Refund the resource
           store.addResource(r, amount);
           const lineInfo = context.lineNumber !== undefined ? ` (line ${context.lineNumber})` : "";
           throw new Error(`sell("${resource}", ${amount}) failed${lineInfo} — invalid resource.`);
@@ -490,7 +493,6 @@ export function createGameApi(executionContext) {
         store.addCredits(earned);
         addMarketProfit(earned);
         revenue = earned;
-        store.saveMarket(getMarketState());
       });
 
       return context.isCancelled?.() ? 0 : revenue;

@@ -32,7 +32,7 @@ import { ShopPanel } from "./components/ShopPanel.jsx";
 import { StockMarketPanel } from "./components/StockMarketPanel.jsx";
 import { HintModal, HintPanel } from "./components/HintOverlay.jsx";
 import { THEMES, ThemeContext, loadThemeId, saveThemeId } from "./themes.js";
-import { initMarket } from "./marketEngine.js";
+import { initMarket, setDUnlocked } from "./marketEngine.js";
 
 const CODE_STORAGE_KEY = "incremental-coding-game-code";
 
@@ -90,7 +90,9 @@ export function App() {
   // ── Initialize ──
   useEffect(() => {
     useGameStore.getState().syncFromLocalStorage();
-    initMarket(useGameStore.getState().market);
+    const state = useGameStore.getState();
+    initMarket(state.market);
+    if (state.tech.resourceDUnlocked) setDUnlocked(true);
 
     const restored = [];
     if (hasSeenHint("first-tutorial")) {
@@ -124,6 +126,11 @@ export function App() {
   const handleSave = useCallback(() => {
     setSavedCode(code);
   }, [code]);
+
+  // ── Sync D unlock with market engine ──
+  useEffect(() => {
+    if (tech.resourceDUnlocked) setDUnlocked(true);
+  }, [tech.resourceDUnlocked]);
 
   // ── Track upgrades ──
   useEffect(() => {
