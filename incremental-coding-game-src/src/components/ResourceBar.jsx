@@ -95,7 +95,7 @@ export function ResourceBar({
 
       {/* Credits */}
       <div style={{ fontSize: "12px", color: t.primary }}>
-        <span style={{ color: t.primaryDim }}>$</span>{credits}
+        <span style={{ color: t.primaryDim }}>$</span>{credits.toFixed(2)}
       </div>
 
       {/* Spacer */}

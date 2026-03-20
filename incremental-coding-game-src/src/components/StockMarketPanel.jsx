@@ -346,7 +346,7 @@ export function StockMarketPanel() {
       store.addResource(r, actual);
       return;
     }
-    const earned = Math.floor(result.revenue);
+    const earned = result.revenue;
     store.addCredits(earned);
     addMarketProfit(earned);
   };
@@ -478,7 +478,7 @@ export function StockMarketPanel() {
             {(() => {
               const amt = getTradeAmount(r);
               const buyCost = Math.ceil(buyP * amt);
-              const sellRevenue = Math.floor(sellP * Math.min(amt, resources[r] || 0));
+              const sellRevenue = (sellP * Math.min(amt, resources[r] || 0)).toFixed(2);
               const canBuy = credits >= buyCost;
               const canSell = (resources[r] || 0) >= 1;
               return (
@@ -546,10 +546,10 @@ export function StockMarketPanel() {
       })}
 
       <div style={{ fontSize: "10px", color: t.primaryDark, marginTop: "4px" }}>
-        TRADE REVENUE: ${Math.floor(market.totalMarketProfit)}
+        TRADE REVENUE: ${market.totalMarketProfit.toFixed(2)}
         {!tech.resourceDUnlocked && (
           <span style={{ marginLeft: "8px" }}>
-            (${Math.max(0, 1000 - Math.floor(market.totalMarketProfit))} more to unlock D)
+            (${Math.max(0, 1000 - market.totalMarketProfit).toFixed(2)} more to unlock D)
           </span>
         )}
       </div>

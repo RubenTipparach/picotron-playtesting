@@ -488,7 +488,7 @@ export function createGameApi(executionContext) {
           throw new Error(`sell("${resource}", ${amount}) failed${lineInfo} — invalid resource.`);
         }
 
-        const earned = Math.floor(result.revenue);
+        const earned = result.revenue;
         store.addCredits(earned);
         addMarketProfit(earned);
         revenue = earned;

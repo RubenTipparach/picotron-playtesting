@@ -186,8 +186,8 @@ export const TECH_TREE = [
     /** Custom progress display for non-resource thresholds */
     progressInfo: () => {
       const market = getMarketState();
-      const profit = Math.floor(market.totalMarketProfit);
-      return { current: profit, target: 1000, label: `$${profit} / $1000 trade revenue` };
+      const profit = market.totalMarketProfit;
+      return { current: profit, target: 1000, label: `$${profit.toFixed(2)} / $1000 trade revenue` };
     },
   },
 ];

@@ -64,7 +64,7 @@ export function ShopPanel() {
     useGameStore.getState().consumeResource(name, actual);
     if (marketUnlocked) {
       const result = executeSell(name, actual);
-      const earned = Math.floor(result.revenue);
+      const earned = result.revenue;
       useGameStore.getState().addCredits(earned);
       addMarketProfit(earned);
     } else {
@@ -115,7 +115,7 @@ export function ShopPanel() {
       <div style={{ marginBottom: "16px", borderBottom: `1px solid ${t.border}`, paddingBottom: "8px" }}>
         <span style={{ color: t.primaryDim, fontSize: "11px" }}>BALANCE:</span>
         <span style={{ color: t.primary, fontSize: "16px", marginLeft: "8px", fontWeight: "bold" }}>
-          ${credits}
+          ${credits.toFixed(2)}
         </span>
       </div>
 
