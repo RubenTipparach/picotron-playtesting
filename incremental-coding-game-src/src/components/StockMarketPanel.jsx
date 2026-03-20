@@ -16,6 +16,15 @@ import {
 const GREEN = "#22cc44";
 const RED = "#ee3333";
 
+// Time windows: label, ticks of history, candles to show
+// 2 ticks/sec → 1min=120 ticks, 5min=600, 10min=1200
+// 1 candle = 10s → 1min=6 candles, 5min=30, 10min=60
+const TIME_WINDOWS = [
+  { label: "1m", historyTicks: 120, candles: 6 },
+  { label: "5m", historyTicks: 600, candles: 30 },
+  { label: "10m", historyTicks: 1200, candles: 60 },
+];
+
 // ─── Shared chart helpers ────────────────────────────────────────────
 
 function ChartGridAndPrice({ gridLines, currentY, color, currentPrice, chartW, paddingR, height, t }) {
@@ -33,13 +42,19 @@ function ChartGridAndPrice({ gridLines, currentY, color, currentPrice, chartW, p
           </text>
         </g>
       ))}
+      {/* Animated current price line */}
       <line
         x1="0" y1={currentY} x2={chartW} y2={currentY}
         stroke={color} strokeWidth="0.5" strokeDasharray="4,2"
         vectorEffect="non-scaling-stroke" opacity="0.6"
+        style={{ transition: "y1 0.4s ease, y2 0.4s ease" }}
       />
-      <rect x={chartW} y={currentY - 5} width={paddingR} height={10} fill={color} rx="1" opacity="0.8" />
-      <text x={chartW + 2} y={currentY + 1} fontSize="7" fill={t.bg} fontWeight="bold" dominantBaseline="middle">
+      <rect x={chartW} y={currentY - 5} width={paddingR} height={10} fill={color} rx="1" opacity="0.8"
+        style={{ transition: "y 0.4s ease" }}
+      />
+      <text x={chartW + 2} y={currentY + 1} fontSize="7" fill={t.bg} fontWeight="bold" dominantBaseline="middle"
+        style={{ transition: "y 0.4s ease" }}
+      >
         {currentPrice.toFixed(2)}
       </text>
     </>
@@ -115,13 +130,18 @@ function CandlestickChart({ candles, color, height = 80 }) {
         const bodyBot = toY(Math.min(c.open, c.close), min, range);
         const bodyH = Math.max(0.5, bodyBot - bodyTop);
         const cx = x + bodyW / 2;
+        const isLast = i === candles.length - 1;
         return (
-          <g key={i}>
+          <g key={i} style={isLast ? { transition: "opacity 0.3s" } : undefined}>
             <line x1={cx} y1={toY(c.high, min, range)} x2={cx} y2={toY(c.low, min, range)}
-              stroke={fill} strokeWidth="1" vectorEffect="non-scaling-stroke" />
+              stroke={fill} strokeWidth="1" vectorEffect="non-scaling-stroke"
+              style={isLast ? { transition: "y1 0.4s ease, y2 0.4s ease" } : undefined}
+            />
             <rect x={x} y={bodyTop} width={bodyW} height={bodyH}
               fill={fill} stroke={fill} strokeWidth="0.5"
-              vectorEffect="non-scaling-stroke" opacity="0.9" />
+              vectorEffect="non-scaling-stroke" opacity="0.9"
+              style={isLast ? { transition: "y 0.4s ease, height 0.4s ease" } : undefined}
+            />
           </g>
         );
       })}
@@ -162,8 +182,18 @@ function LineChart({ history, color, height = 80 }) {
         currentPrice={lastPrice} chartW={CHART_W} paddingR={PADDING_R} height={height} t={t}
       />
       <polygon points={fillPoints} fill={color} opacity="0.08" />
-      <polyline points={points} fill="none" stroke={color} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-      <circle cx={CHART_W} cy={currentY} r="3" fill={color} vectorEffect="non-scaling-stroke" />
+      <polyline points={points} fill="none" stroke={color} strokeWidth="1.5"
+        vectorEffect="non-scaling-stroke"
+        style={{ transition: "d 0.4s ease" }}
+      />
+      {/* Animated trailing dot */}
+      <circle cx={CHART_W} cy={currentY} r="3" fill={color}
+        vectorEffect="non-scaling-stroke"
+        style={{ transition: "cy 0.4s ease" }}
+      >
+        <animate attributeName="r" values="3;4;3" dur="2s" repeatCount="indefinite" />
+        <animate attributeName="opacity" values="1;0.6;1" dur="2s" repeatCount="indefinite" />
+      </circle>
     </svg>
   );
 }
@@ -187,13 +217,44 @@ function EmotionsGauge({ emotion }) {
           position: "absolute", left: `${position * 100}%`, top: 0, bottom: 0,
           width: "3px", backgroundColor: "#fff", transform: "translateX(-50%)",
           boxShadow: "0 0 4px rgba(255,255,255,0.8)",
+          transition: "left 0.5s ease",
         }} />
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", marginTop: "3px" }}>
         <span style={{ fontSize: "9px", color: "#ff4444" }}>FEAR</span>
-        <span style={{ fontSize: "10px", color, fontWeight: "bold" }}>{label}</span>
+        <span style={{ fontSize: "10px", color, fontWeight: "bold", transition: "color 0.5s ease" }}>{label}</span>
         <span style={{ fontSize: "9px", color: "#44ff44" }}>GREED</span>
       </div>
+    </div>
+  );
+}
+
+// ─── Time Window Selector ────────────────────────────────────────────
+
+function TimeWindowSelector({ value, onChange, t }) {
+  return (
+    <div style={{ display: "flex", gap: "2px" }}>
+      {TIME_WINDOWS.map((tw) => {
+        const active = value === tw.label;
+        return (
+          <button
+            key={tw.label}
+            onClick={() => onChange(tw.label)}
+            style={{
+              padding: "1px 6px",
+              fontSize: "9px",
+              fontFamily: t.font,
+              backgroundColor: active ? t.primary : t.bg3,
+              color: active ? t.bg : t.primaryDark,
+              border: `1px solid ${active ? t.primary : t.border}`,
+              cursor: "pointer",
+              transition: "all 0.15s",
+            }}
+          >
+            {tw.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -207,11 +268,14 @@ export function StockMarketPanel() {
   const t = useTheme();
 
   const [chartType, setChartType] = useState("candle"); // "candle" | "line"
+  const [timeWindow, setTimeWindow] = useState("1m");
 
   const market = getMarketState();
   const emotion = getMarketEmotion();
   const marketCap = getMarketCap();
   const marketUnits = getMarketUnits();
+
+  const tw = TIME_WINDOWS.find((w) => w.label === timeWindow) || TIME_WINDOWS[0];
 
   if (!tech.stockMarketUnlocked) {
     return (
@@ -226,32 +290,25 @@ export function StockMarketPanel() {
 
   const tradeableResources = tech.resourceDUnlocked ? ["A", "B", "C", "D"] : ["A", "B", "C"];
 
-  const toggleBtn = (
-    <button
-      onClick={() => setChartType((prev) => prev === "candle" ? "line" : "candle")}
-      style={{
-        padding: "2px 8px",
-        fontSize: "10px",
-        fontFamily: t.font,
-        letterSpacing: "1px",
-        backgroundColor: t.bg3,
-        color: t.primary,
-        border: `1px solid ${t.border}`,
-        cursor: "pointer",
-      }}
-    >
-      {chartType === "candle" ? "LINE" : "CANDLE"}
-    </button>
-  );
-
   return (
     <div style={{
       padding: "12px", fontFamily: t.font, color: t.primary,
       height: "100%", overflowY: "auto", boxSizing: "border-box",
     }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-        <span style={{ color: t.primaryDim, fontSize: "11px", letterSpacing: "2px" }}>[ MARKET ]</span>
-        {toggleBtn}
+      {/* Header row: title, time window, chart toggle */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "6px" }}>
+        <span style={{ color: t.primaryDim, fontSize: "11px", letterSpacing: "2px", flexShrink: 0 }}>[ MARKET ]</span>
+        <TimeWindowSelector value={timeWindow} onChange={setTimeWindow} t={t} />
+        <button
+          onClick={() => setChartType((prev) => prev === "candle" ? "line" : "candle")}
+          style={{
+            padding: "2px 8px", fontSize: "10px", fontFamily: t.font, letterSpacing: "1px",
+            backgroundColor: t.bg3, color: t.primary, border: `1px solid ${t.border}`,
+            cursor: "pointer", flexShrink: 0,
+          }}
+        >
+          {chartType === "candle" ? "LINE" : "CANDLE"}
+        </button>
       </div>
 
       {/* Market Emotion Gauge */}
@@ -264,7 +321,7 @@ export function StockMarketPanel() {
         <div style={{ fontSize: "10px", color: t.primaryDark, marginBottom: "6px" }}>MARKET OVERVIEW</div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <span style={{ fontSize: "12px", fontWeight: "bold", color: t.primary }}>
+            <span style={{ fontSize: "12px", fontWeight: "bold", color: t.primary, transition: "color 0.3s" }}>
               MKTCAP ${marketCap.toLocaleString()}
             </span>
           </div>
@@ -293,19 +350,25 @@ export function StockMarketPanel() {
 
       {/* Resource Cards */}
       {tradeableResources.map((r) => {
-        const candles = market.candles[r] || [];
-        const history = market.priceHistory[r] || [];
+        const allCandles = market.candles[r] || [];
+        const allHistory = market.priceHistory[r] || [];
+
+        // Slice to time window
+        const candles = allCandles.slice(-tw.candles);
+        const history = allHistory.slice(-tw.historyTicks);
+
         const midPrice = getMarketValue(r);
         const buyP = getBuyPrice(r);
         const sellP = getSellPrice(r);
         const color = RESOURCE_COLORS[r] || t.primary;
 
+        // % change over the visible window
         let changeText = "";
         let changeColor = t.primaryDark;
         if (history.length >= 2) {
-          const prev = history[history.length - 2].price;
-          const diff = midPrice - prev;
-          const pct = ((diff / prev) * 100).toFixed(1);
+          const firstInWindow = history[0].price;
+          const diff = midPrice - firstInWindow;
+          const pct = ((diff / firstInWindow) * 100).toFixed(1);
           if (diff > 0) { changeText = `+${pct}%`; changeColor = GREEN; }
           else if (diff < 0) { changeText = `${pct}%`; changeColor = RED; }
         }
@@ -317,8 +380,20 @@ export function StockMarketPanel() {
                 {r} {r === "D" && <span style={{ fontSize: "9px", color: t.primaryDark }}>VOLATILE</span>}
               </span>
               <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span style={{ color: t.primary, fontSize: "13px", fontWeight: "bold" }}>${midPrice.toFixed(2)}</span>
-                {changeText && <span style={{ color: changeColor, fontSize: "10px" }}>{changeText}</span>}
+                <span style={{
+                  color: t.primary, fontSize: "13px", fontWeight: "bold",
+                  transition: "color 0.3s",
+                }}>
+                  ${midPrice.toFixed(2)}
+                </span>
+                {changeText && (
+                  <span style={{
+                    color: changeColor, fontSize: "10px",
+                    transition: "color 0.3s",
+                  }}>
+                    {changeText}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -331,12 +406,14 @@ export function StockMarketPanel() {
               <span style={{
                 padding: "2px 6px", fontSize: "10px", fontWeight: "bold",
                 backgroundColor: `${GREEN}22`, color: GREEN, border: `1px solid ${GREEN}44`,
+                transition: "all 0.3s",
               }}>
                 BUY ${buyP.toFixed(2)}
               </span>
               <span style={{
                 padding: "2px 6px", fontSize: "10px", fontWeight: "bold",
                 backgroundColor: `${RED}22`, color: RED, border: `1px solid ${RED}44`,
+                transition: "all 0.3s",
               }}>
                 SELL ${sellP.toFixed(2)}
               </span>

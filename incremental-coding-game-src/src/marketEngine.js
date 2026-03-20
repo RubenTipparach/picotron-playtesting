@@ -35,9 +35,9 @@ function gaussianRandom(seed) {
   return Math.sqrt(-2 * Math.log(Math.max(u1, 0.0001))) * Math.cos(2 * Math.PI * u2);
 }
 
-const CANDLE_PERIOD = 20; // More ticks per candle since we tick 4x faster
-const MAX_CANDLES = 60;
-const MAX_HISTORY = 200;
+const CANDLE_PERIOD = 20; // 20 ticks = 10s per candle
+const MAX_CANDLES = 120; // 10 minutes of candles (6 per minute)
+const MAX_HISTORY = 1200; // 10 minutes of tick-level data (2 ticks/sec)
 
 let marketState = {
   prices: { ...BASE_PRICES },
