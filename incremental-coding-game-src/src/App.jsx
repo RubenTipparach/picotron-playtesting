@@ -32,7 +32,7 @@ import { ShopPanel } from "./components/ShopPanel.jsx";
 import { StockMarketPanel } from "./components/StockMarketPanel.jsx";
 import { HintModal, HintPanel } from "./components/HintOverlay.jsx";
 import { THEMES, ThemeContext, loadThemeId, saveThemeId } from "./themes.js";
-import { initMarket, setDUnlocked, startMarketTimer, stopMarketTimer } from "./marketEngine.js";
+import { initMarket, setDUnlocked, startMarketTimer, stopMarketTimer, setPlayerResourcesGetter } from "./marketEngine.js";
 
 const CODE_STORAGE_KEY = "incremental-coding-game-code";
 
@@ -92,6 +92,7 @@ export function App() {
     useGameStore.getState().syncFromLocalStorage();
     const state = useGameStore.getState();
     initMarket(state.market);
+    setPlayerResourcesGetter(() => useGameStore.getState().resources);
     if (state.tech.resourceDUnlocked) setDUnlocked(true);
 
     // Start market timer if stock market is unlocked

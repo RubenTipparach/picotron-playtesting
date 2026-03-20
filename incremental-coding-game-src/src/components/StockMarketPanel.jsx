@@ -9,6 +9,8 @@ import {
   getMarketValue,
   getBuyPrice,
   getSellPrice,
+  getMarketCap,
+  getMarketUnits,
 } from "../marketEngine.js";
 
 const GREEN = "#22cc44";
@@ -208,6 +210,8 @@ export function StockMarketPanel() {
 
   const market = getMarketState();
   const emotion = getMarketEmotion();
+  const marketCap = getMarketCap();
+  const marketUnits = getMarketUnits();
 
   if (!tech.stockMarketUnlocked) {
     return (
@@ -253,6 +257,38 @@ export function StockMarketPanel() {
       {/* Market Emotion Gauge */}
       <div style={{ marginBottom: "12px", paddingBottom: "8px", borderBottom: `1px solid ${t.border}` }}>
         <EmotionsGauge emotion={emotion} />
+      </div>
+
+      {/* Market Overview */}
+      <div style={{ marginBottom: "12px", paddingBottom: "8px", borderBottom: `1px solid ${t.border}` }}>
+        <div style={{ fontSize: "10px", color: t.primaryDark, marginBottom: "6px" }}>MARKET OVERVIEW</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <span style={{ fontSize: "12px", fontWeight: "bold", color: t.primary }}>
+              MKTCAP ${marketCap.toLocaleString()}
+            </span>
+          </div>
+          <div style={{ fontSize: "10px", color: t.primaryDark }}>
+            {market.agentCount} AGENTS
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: "8px", marginTop: "4px", flexWrap: "wrap" }}>
+          {tradeableResources.map((r) => {
+            const units = Math.floor(marketUnits[r] || 0);
+            const color = RESOURCE_COLORS[r] || t.primary;
+            const playerHold = resources[r] || 0;
+            const total = units + playerHold;
+            const playerPct = total > 0 ? ((playerHold / total) * 100).toFixed(1) : "0.0";
+            return (
+              <div key={r} style={{ fontSize: "10px", color }}>
+                {r}: {units} units
+                {playerHold > 0 && (
+                  <span style={{ color: t.primaryDark }}> ({playerPct}%)</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Resource Cards */}

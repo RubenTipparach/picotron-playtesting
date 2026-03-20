@@ -2,10 +2,8 @@
  * Market Engine
  *
  * Simulates a stock market with fluctuating prices for resources A, B, C, D.
- * Prices change based on supply/demand pressure from player trades
- * and random volatility. The market ticks on its own real-time clock,
- * independent of code execution.
- *
+ * Uses an agent-based simulation where virtual traders create organic volatility.
+ * The market grows alongside the player, targeting ~1% player market share.
  * D is a special volatile resource with no production — only tradeable.
  */
 
@@ -16,8 +14,14 @@ const MEAN_REVERSION = { A: 0.05, B: 0.04, C: 0.03, D: 0.01 };
 const SPREAD = 0.05;
 const TRADE_IMPACT = { A: 0.005, B: 0.01, C: 0.02, D: 0.05 };
 
-// Real-time tick interval (ms) — how often the market updates
-const TICK_INTERVAL_MS = 2000;
+// Real-time tick interval (ms) — 0.5s for responsive charts
+const TICK_INTERVAL_MS = 500;
+
+// Agent simulation constants
+const TARGET_PLAYER_SHARE = 0.01; // Target 1% player market share
+const MARKET_GROWTH_RATE = 0.02;  // How fast market adjusts per tick (lag)
+const INITIAL_MARKET_UNITS = { A: 500, B: 100, C: 20, D: 10 };
+const AGENT_TRADE_RATE = 0.03;    // Fraction of agents that trade per tick
 
 function seededRandom(seed) {
   let x = Math.sin(seed * 9301 + 49297) * 49297;
@@ -31,9 +35,9 @@ function gaussianRandom(seed) {
   return Math.sqrt(-2 * Math.log(Math.max(u1, 0.0001))) * Math.cos(2 * Math.PI * u2);
 }
 
-const CANDLE_PERIOD = 5;
+const CANDLE_PERIOD = 20; // More ticks per candle since we tick 4x faster
 const MAX_CANDLES = 60;
-const MAX_HISTORY = 100;
+const MAX_HISTORY = 200;
 
 let marketState = {
   prices: { ...BASE_PRICES },
@@ -43,6 +47,10 @@ let marketState = {
   demandPressure: { A: 0, B: 0, C: 0, D: 0 },
   totalMarketProfit: 0,
   dUnlocked: false,
+  // Agent-based simulation state
+  marketUnits: { ...INITIAL_MARKET_UNITS },  // Total units held by all AI agents
+  agentCount: 50,                             // Number of virtual agents
+  targetMarketUnits: { ...INITIAL_MARKET_UNITS }, // Target size market is growing toward
 };
 
 let timerHandle = null;
@@ -66,6 +74,9 @@ export function initMarket(savedState) {
       demandPressure: savedState.demandPressure || { A: 0, B: 0, C: 0, D: 0 },
       totalMarketProfit: savedState.totalMarketProfit || 0,
       dUnlocked: savedState.dUnlocked || false,
+      marketUnits: savedState.marketUnits || { ...INITIAL_MARKET_UNITS },
+      agentCount: savedState.agentCount || 50,
+      targetMarketUnits: savedState.targetMarketUnits || { ...INITIAL_MARKET_UNITS },
     };
   } else {
     marketState = {
@@ -76,7 +87,76 @@ export function initMarket(savedState) {
       demandPressure: { A: 0, B: 0, C: 0, D: 0 },
       totalMarketProfit: 0,
       dUnlocked: false,
+      marketUnits: { ...INITIAL_MARKET_UNITS },
+      agentCount: 50,
+      targetMarketUnits: { ...INITIAL_MARKET_UNITS },
     };
+  }
+}
+
+/**
+ * Get player resource holdings (reads from game store if available).
+ */
+let getPlayerResources = null;
+export function setPlayerResourcesGetter(fn) {
+  getPlayerResources = fn;
+}
+
+/**
+ * Simulate agent trades for one tick. Agents buy/sell randomly,
+ * creating organic demand pressure that drives price volatility.
+ */
+function simulateAgents(tick) {
+  const resources = marketState.dUnlocked ? ["A", "B", "C", "D"] : ["A", "B", "C"];
+  const agents = marketState.agentCount;
+  const tradingAgents = Math.max(1, Math.floor(agents * AGENT_TRADE_RATE));
+
+  for (const r of resources) {
+    // Each trading agent randomly buys or sells
+    let netPressure = 0;
+    for (let a = 0; a < tradingAgents; a++) {
+      const seed = tick * 137 + a * 31 + r.charCodeAt(0) * 7;
+      const rand = seededRandom(seed);
+      const direction = rand > 0.52 ? 1 : rand < 0.48 ? -1 : 0; // Slight bias varies
+      const intensity = seededRandom(seed + 0.3) * 0.5 + 0.5; // 0.5-1.0
+      netPressure += direction * intensity * TRADE_IMPACT[r] * 0.3;
+
+      // Agents adjust market units (they produce/consume)
+      const unitChange = direction * intensity * 0.1;
+      marketState.marketUnits[r] = Math.max(1, marketState.marketUnits[r] + unitChange);
+    }
+
+    marketState.demandPressure[r] += netPressure;
+  }
+
+  // Adjust market size based on player share
+  if (getPlayerResources) {
+    const playerRes = getPlayerResources();
+    for (const r of resources) {
+      const playerHolding = playerRes[r] || 0;
+      const totalUnits = marketState.marketUnits[r] + playerHolding;
+      const playerShare = totalUnits > 0 ? playerHolding / totalUnits : 0;
+
+      // If player owns too much, grow the market to dilute their share
+      if (playerShare > TARGET_PLAYER_SHARE && playerHolding > 0) {
+        const targetTotal = playerHolding / TARGET_PLAYER_SHARE;
+        marketState.targetMarketUnits[r] = Math.max(
+          marketState.targetMarketUnits[r],
+          targetTotal - playerHolding
+        );
+      }
+
+      // Gradually move market units toward target (lag)
+      const diff = marketState.targetMarketUnits[r] - marketState.marketUnits[r];
+      if (Math.abs(diff) > 0.1) {
+        marketState.marketUnits[r] += diff * MARKET_GROWTH_RATE;
+      }
+    }
+
+    // Scale agent count with market size
+    const avgUnits = resources.reduce((sum, r) => sum + marketState.marketUnits[r], 0) / resources.length;
+    const baseAvg = resources.reduce((sum, r) => sum + INITIAL_MARKET_UNITS[r], 0) / resources.length;
+    marketState.agentCount = Math.max(50, Math.floor(50 * (avgUnits / baseAvg)));
   }
 }
 
@@ -91,6 +171,10 @@ export function tickMarket(numTicks) {
 
   for (let i = 1; i <= numTicks; i++) {
     const t = startTick + i;
+
+    // Run agent simulation first to generate organic pressure
+    simulateAgents(t);
+
     for (const r of resources) {
       if (r === "D" && !marketState.dUnlocked) continue;
 
@@ -140,6 +224,25 @@ export function tickMarket(numTicks) {
 }
 
 /**
+ * Get market capitalization (total value of all units in the market).
+ */
+export function getMarketCap() {
+  const resources = marketState.dUnlocked ? ["A", "B", "C", "D"] : ["A", "B", "C"];
+  let totalCap = 0;
+  for (const r of resources) {
+    totalCap += marketState.marketUnits[r] * marketState.prices[r];
+  }
+  return Math.floor(totalCap);
+}
+
+/**
+ * Get total units in the market (AI agents only).
+ */
+export function getMarketUnits() {
+  return { ...marketState.marketUnits };
+}
+
+/**
  * Start the real-time market timer. Ticks once every TICK_INTERVAL_MS.
  * @param {Function} onTick - Called after each tick with market state (for persisting)
  */
@@ -148,7 +251,8 @@ export function startMarketTimer(onTick) {
   saveCallback = onTick;
   timerHandle = setInterval(() => {
     tickMarket(1);
-    if (saveCallback) saveCallback(marketState);
+    // Spread to create a new object reference so Zustand detects the change
+    if (saveCallback) saveCallback({ ...marketState });
   }, TICK_INTERVAL_MS);
 }
 
