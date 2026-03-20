@@ -251,10 +251,10 @@ export const CodeEditor = forwardRef(
           insert: "log('${1:message}')",
           isSnippet: true,
         },
-        makeResourceC: {
-          signature: "makeResourceC(): Promise<number>",
+        convertBToC: {
+          signature: "convertBToC(): Promise<number>",
           description: "Converts 3 A + 1 B into 1 C. Takes 3 seconds.",
-          insert: "makeResourceC()",
+          insert: "convertBToC()",
         },
       };
 

@@ -20,6 +20,7 @@ export const API_FUNCTION_NAMES = [
   "convertAToB",
   "getResourceCount",
   "log",
+  "convertBToC",
   "makeResourceC",
   "getMarketValue",
   "buy",
@@ -344,10 +345,10 @@ export function createGameApi(executionContext) {
      * Takes 3 seconds. Adds 3 virtual seconds.
      * @returns {number} 1 if successful, 0 if insufficient resources or cancelled
      */
-    async makeResourceC() {
+    async convertBToC() {
       const context = {
         ...executionContext,
-        functionName: "makeResourceC",
+        functionName: "convertBToC",
         lineNumber: executionContext.lineNumber,
       };
       let produced = 0;
@@ -373,12 +374,17 @@ export function createGameApi(executionContext) {
               ? ` (line ${context.lineNumber})`
               : "";
           throw new Error(
-            `makeResourceC() failed${lineInfo} — not enough resources. Need 3 A + 1 B, have ${availableA} A + ${availableB} B. Use if/getResourceCount to check first!`
+            `convertBToC() failed${lineInfo} — not enough resources. Need 3 A + 1 B, have ${availableA} A + ${availableB} B. Use if/getResourceCount to check first!`
           );
         }
       });
 
       return context.isCancelled?.() ? 0 : produced;
+    },
+
+    /** @deprecated Use convertBToC() instead */
+    async makeResourceC() {
+      return api.convertBToC();
     },
 
     /**

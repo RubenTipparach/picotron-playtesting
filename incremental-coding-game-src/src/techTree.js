@@ -99,14 +99,14 @@ export const TECH_TREE = [
   {
     id: "resourceCUnlocked",
     name: "Resource Conversion 2",
-    description: "Unlock makeResourceC()",
+    description: "Unlock convertBToC()",
     threshold: (resources) => resources.B >= 10,
     cost: [
       { resource: "A", amount: 20 },
       { resource: "B", amount: 10 },
     ],
     unlocked: false,
-    validationRegex: /\b(makeResourceC)\s*\(/,
+    validationRegex: /\b(convertBToC|makeResourceC)\s*\(/,
     validationErrorMessage:
       "Resource C is not unlocked yet. Produce 10 B to unlock it.",
     icon: "🟧",
@@ -228,7 +228,7 @@ export function getAvailableFunctions() {
   const functions = ["produceResourceA", "getResourceCount", "log"];
 
   if (tech.convertAToBUnlocked) functions.push("convertAToB");
-  if (tech.resourceCUnlocked) functions.push("makeResourceC");
+  if (tech.resourceCUnlocked) functions.push("convertBToC", "makeResourceC");
   if (tech.stockMarketUnlocked) functions.push("getMarketValue", "buy", "sell");
 
   return functions;
