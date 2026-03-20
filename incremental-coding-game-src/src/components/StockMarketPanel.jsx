@@ -103,9 +103,13 @@ function CandlestickChart({ candles, color, height = 80 }) {
   const VB_H = 100;
   const toY = (price) => VB_H - ((price - min) / range) * VB_H;
 
-  const candleW = Math.min(8, (VB_W - 4) / candles.length);
+  // Right-align candles to use ~80% of chart width
+  const chartUsableW = VB_W * 0.8;
+  const candleW = Math.min(8, (chartUsableW - 4) / candles.length);
   const gap = Math.max(0.5, candleW * 0.25);
   const bodyW = candleW - gap;
+  const candleBlockW = candles.length * candleW + 4;
+  const candleOffsetX = VB_W - candleBlockW;
   const lastCandle = candles[candles.length - 1];
 
   const gridLines = makeGrid(min, range);
@@ -137,7 +141,7 @@ function CandlestickChart({ candles, color, height = 80 }) {
         />
         {/* Candles */}
         {candles.map((c, i) => {
-          const x = 2 + i * candleW;
+          const x = candleOffsetX + 2 + i * candleW;
           const isGreen = c.close >= c.open;
           const fill = isGreen ? GREEN : RED;
           const bodyTop = toY(Math.max(c.open, c.close));

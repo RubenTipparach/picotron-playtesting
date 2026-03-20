@@ -132,10 +132,19 @@ export function App() {
     }
   }, [code, isRunning]);
 
-  // ── Save handler (manual, for use during execution) ──
+  // ── Save handler — stops & restarts execution so cursor stays in sync ──
+  const pendingRestartRef = useRef(false);
   const handleSave = useCallback(() => {
+    const wasRunning = isRunning;
+    if (wasRunning && executor) {
+      executor.stop();
+      setIsRunning(false);
+      setStats((prev) => ({ ...prev, isRunning: false }));
+      setExecutionEvents([]);
+      pendingRestartRef.current = true;
+    }
     setSavedCode(code);
-  }, [code]);
+  }, [code, isRunning, executor]);
 
   // ── Sync market engine with tech tree ──
   useEffect(() => {
@@ -340,6 +349,15 @@ export function App() {
     setScrollToLine(null);
     setLogs((prev) => [...prev, { type: "log", message: "--- Execution stopped ---", timestamp: Date.now() }]);
   }, [executor, isRunning]);
+
+  // ── Auto-restart after save-while-running ──
+  useEffect(() => {
+    if (pendingRestartRef.current && !isRunning && executor) {
+      pendingRestartRef.current = false;
+      const id = setTimeout(() => handleRun(), 50);
+      return () => clearTimeout(id);
+    }
+  }, [isRunning, savedCode, executor, handleRun]);
 
   const handleReset = useCallback(() => {
     if (!window.confirm("RESET ALL PROGRESS? This cannot be undone.")) return;
