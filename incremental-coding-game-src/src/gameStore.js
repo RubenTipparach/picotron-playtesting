@@ -21,6 +21,7 @@ const DEFAULT_STATE = {
     ifStatementsUnlocked: false,
     userFunctionsUnlocked: false,
     processingSpeed1Unlocked: false,
+    shopUnlocked: false,
     stockMarketUnlocked: false,
     resourceDUnlocked: false,
   },

@@ -62,7 +62,7 @@ export function App() {
   const [stats, setStats] = useState({ totalTime: 0, functionTimes: {}, isRunning: false });
 
   // ── Panel state ──
-  const [rightTab, setRightTab] = useState("shop"); // docs | profiler | hints | shop
+  const [rightTab, setRightTab] = useState("docs"); // docs | profiler | hints | shop | market
   const [isTechTreeOpen, setIsTechTreeOpen] = useState(false);
   const [techTreeSelectedId, setTechTreeSelectedId] = useState(undefined);
   const [docsScrollSection, setDocsScrollSection] = useState(undefined);
@@ -406,6 +406,21 @@ export function App() {
 
   const startDrag = (type, cursor) => { draggingRef.current = type; document.body.style.cursor = cursor; document.body.style.userSelect = "none"; };
 
+  // Build visible tabs based on tech unlocks
+  const desktopTabs = [
+    ...(tech.shopUnlocked ? ["shop"] : []),
+    ...(tech.stockMarketUnlocked ? ["market"] : []),
+    "docs", "profiler", "hints",
+  ];
+  const mobileTabs = [
+    { id: "code", label: "CODE" },
+    { id: "output", label: "LOG" },
+    ...(tech.shopUnlocked ? [{ id: "shop", label: "SHOP" }] : []),
+    ...(tech.stockMarketUnlocked ? [{ id: "market", label: "MKT" }] : []),
+    { id: "docs", label: "DOCS" },
+    { id: "profiler", label: "CPU" },
+  ];
+
   // Render the right panel tab content (shared between mobile and desktop)
   const renderTabContent = (tab) => {
     switch (tab) {
@@ -467,7 +482,7 @@ export function App() {
             <LogPanel logs={logs} />
           </div>
 
-          {["shop", "market", "docs", "profiler", "hints"].map((tab) => (
+          {desktopTabs.map((tab) => (
             <div key={tab} style={{ position: "absolute", inset: 0, display: mobilePanel === tab ? "block" : "none", overflow: "auto" }}>
               {mobilePanel === tab && renderTabContent(tab)}
             </div>
@@ -483,14 +498,7 @@ export function App() {
           backgroundColor: theme.bg,
           paddingBottom: "env(safe-area-inset-bottom, 0px)",
         }}>
-          {[
-            { id: "code", label: "CODE" },
-            { id: "output", label: "LOG" },
-            { id: "shop", label: "SHOP" },
-            { id: "market", label: "MKT" },
-            { id: "docs", label: "DOCS" },
-            { id: "profiler", label: "CPU" },
-          ].map((tab) => (
+          {mobileTabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setMobilePanel(tab.id)}
@@ -605,7 +613,7 @@ export function App() {
         {/* RIGHT PANEL: Tabbed */}
         <div style={{ width: `${rightPanelWidth}px`, display: "flex", flexDirection: "column", backgroundColor: theme.bg, flexShrink: 0 }}>
           <div style={{ display: "flex", flexWrap: "wrap", borderBottom: `1px solid ${theme.border}` }}>
-            {["shop", "market", "docs", "profiler", "hints"].map((tab) => {
+            {desktopTabs.map((tab) => {
               const isActive = rightTab === tab;
               return (
                 <button

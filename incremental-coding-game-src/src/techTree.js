@@ -52,6 +52,20 @@ export const TECH_TREE = [
     position: { row: 0, col: 1 },
   },
   {
+    id: "shopUnlocked",
+    name: "Shop",
+    description: "Unlock the Shop tab. Sell resources for credits, then buy RAM and CPU upgrades",
+    threshold: (resources) => resources.A >= 10 && resources.B >= 4,
+    cost: [
+      { resource: "A", amount: 10 },
+      { resource: "B", amount: 4 },
+    ],
+    unlocked: false,
+    icon: "🛒",
+    dependencies: ["convertAToBUnlocked"],
+    position: { row: 0, col: 2 },
+  },
+  {
     id: "varsUnlocked",
     name: "Variables",
     description:
