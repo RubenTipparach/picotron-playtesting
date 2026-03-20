@@ -1,7 +1,7 @@
 import React from "react";
 import { useGameStore } from "../gameStore.js";
 import { useTheme } from "../themes.js";
-import { getSellPrice, getBuyPrice, executeSell, executeBuy } from "../marketEngine.js";
+import { getSellPrice, getBuyPrice, executeSell, executeBuy, addMarketProfit } from "../marketEngine.js";
 
 const BASE_SELL_PRICES = { A: 1, B: 5, C: 25 };
 const BASE_BUY_PRICES = { A: 2, B: 8, C: 35 };
@@ -64,9 +64,13 @@ export function ShopPanel() {
     useGameStore.getState().consumeResource(name, actual);
     if (marketUnlocked) {
       const result = executeSell(name, actual);
-      useGameStore.getState().addCredits(Math.floor(result.revenue));
+      const earned = Math.floor(result.revenue);
+      useGameStore.getState().addCredits(earned);
+      addMarketProfit(earned);
     } else {
-      useGameStore.getState().addCredits(actual * BASE_SELL_PRICES[name]);
+      const earned = actual * BASE_SELL_PRICES[name];
+      useGameStore.getState().addCredits(earned);
+      addMarketProfit(earned);
     }
   };
 
