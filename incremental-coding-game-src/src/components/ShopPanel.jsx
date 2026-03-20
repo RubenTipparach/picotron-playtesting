@@ -1,8 +1,9 @@
 import React from "react";
 import { useGameStore } from "../gameStore.js";
 import { useTheme } from "../themes.js";
+import { getSellPrice, executeSell } from "../marketEngine.js";
 
-const SELL_PRICES = { A: 1, B: 5, C: 25 };
+const BASE_SELL_PRICES = { A: 1, B: 5, C: 25 };
 const SELL_AMOUNTS = [1, 5, 10];
 
 const RAM_UPGRADES = [
@@ -23,12 +24,26 @@ export function ShopPanel() {
   const tech = useGameStore((s) => s.tech);
   const t = useTheme();
 
+  const marketUnlocked = tech.stockMarketUnlocked;
+
+  const getPrice = (name) => {
+    if (marketUnlocked) {
+      return Math.floor(getSellPrice(name) * 100) / 100;
+    }
+    return BASE_SELL_PRICES[name];
+  };
+
   const sellResource = (name, amount) => {
     const available = resources[name];
     const actual = Math.min(amount, available);
     if (actual <= 0) return;
     useGameStore.getState().consumeResource(name, actual);
-    useGameStore.getState().addCredits(actual * SELL_PRICES[name]);
+    if (marketUnlocked) {
+      const result = executeSell(name, actual);
+      useGameStore.getState().addCredits(Math.floor(result.revenue));
+    } else {
+      useGameStore.getState().addCredits(actual * BASE_SELL_PRICES[name]);
+    }
   };
 
   const buyRam = (upgrade) => {
@@ -77,15 +92,16 @@ export function ShopPanel() {
       {/* Sell Resources */}
       <div style={{ marginBottom: "16px" }}>
         <div style={{ color: t.primaryDim, fontSize: "11px", marginBottom: "8px", letterSpacing: "2px" }}>
-          [ SELL RESOURCES ]
+          [ SELL RESOURCES {marketUnlocked ? "— MARKET PRICE" : ""} ]
         </div>
         {["A", "B", "C"].map((name) => {
           if (name === "B" && !tech.convertAToBUnlocked) return null;
           if (name === "C" && !tech.resourceCUnlocked) return null;
+          const price = getPrice(name);
           return (
             <div key={name} style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
-              <span style={{ color: t.primary, width: "80px", fontSize: "12px" }}>
-                {name} (${SELL_PRICES[name]}ea)
+              <span style={{ color: t.primary, width: "90px", fontSize: "12px" }}>
+                {name} (${marketUnlocked ? price.toFixed(2) : price}ea)
               </span>
               {SELL_AMOUNTS.map((amt) => (
                 <button
