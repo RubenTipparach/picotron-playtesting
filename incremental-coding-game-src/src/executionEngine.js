@@ -481,17 +481,43 @@ export class CodeExecutor {
         },
       });
 
+      // ── Loop tracking state ──
+      const codeLines = code.split(/\r?\n/);
+      const loopStartTimes = {}; // lineNumber -> timestamp of current iteration start
+      const loopIterationCounts = {}; // lineNumber -> count
+
       // ── Step function ──
       // Called between statements to track the current line and allow pausing
       const step = async (lineNumber) => {
         if (this.isCancelled) throw this.cancellationError;
 
-        const originalLine = code.split(/\r?\n/)[lineNumber - 1];
+        const originalLine = codeLines[lineNumber - 1];
         if (!originalLine || originalLine.trim().length === 0) return;
         if (originalLine.trim().startsWith("//")) return;
 
         this.currentLine = lineNumber;
         this.callbacks.onEvent({ type: "lineChange", lineNumber });
+
+        // Detect loop headers for loop timing
+        const trimmed = originalLine.trim();
+        const isLoopHeader = /^(?:while|for)\s*\(/.test(trimmed);
+        if (isLoopHeader) {
+          const now = performance.now();
+          if (loopStartTimes[lineNumber] != null) {
+            // End of previous iteration — emit timing
+            const iterDuration = now - loopStartTimes[lineNumber];
+            loopIterationCounts[lineNumber] = (loopIterationCounts[lineNumber] || 0) + 1;
+            this.callbacks.onEvent({
+              type: "loopIteration",
+              lineNumber,
+              codeLine: trimmed,
+              duration: iterDuration,
+              iterationCount: loopIterationCounts[lineNumber],
+            });
+          }
+          // Start timing next iteration
+          loopStartTimes[lineNumber] = now;
+        }
 
         // Brief pause between statements (250ms)
         const STEP_DELAY = 250;

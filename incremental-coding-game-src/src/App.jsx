@@ -244,11 +244,26 @@ export function App() {
         } else if (event.type === "functionStart") {
           setStats((prev) => ({ ...prev, isRunning: true }));
         } else if (event.type === "functionComplete") {
-          setStats((prev) => ({
-            ...prev,
-            functionTimes: { ...prev.functionTimes, [event.functionName]: (prev.functionTimes[event.functionName] || 0) + event.duration },
-            totalTime: prev.totalTime + event.duration,
-          }));
+          const key = `${event.functionName}:${event.lineNumber}`;
+          const codeLine = savedCode.split(/\r?\n/)[event.lineNumber - 1]?.trim() || "";
+          setStats((prev) => {
+            const detail = prev.functionDetails[key] || { calls: 0, totalTime: 0, lineNumber: event.lineNumber, functionName: event.functionName, codeLine };
+            return {
+              ...prev,
+              functionTimes: { ...prev.functionTimes, [event.functionName]: (prev.functionTimes[event.functionName] || 0) + event.duration },
+              functionDetails: { ...prev.functionDetails, [key]: { ...detail, calls: detail.calls + 1, totalTime: detail.totalTime + event.duration } },
+              totalTime: prev.totalTime + event.duration,
+            };
+          });
+        } else if (event.type === "loopIteration") {
+          const key = `loop:${event.lineNumber}`;
+          setStats((prev) => {
+            const detail = prev.loopDetails[key] || { iterations: 0, totalTime: 0, lineNumber: event.lineNumber, codeLine: event.codeLine };
+            return {
+              ...prev,
+              loopDetails: { ...prev.loopDetails, [key]: { ...detail, iterations: detail.iterations + 1, totalTime: detail.totalTime + event.duration } },
+            };
+          });
         } else if (event.type === "complete") {
           setIsRunning(false);
           setStats((prev) => ({ ...prev, isRunning: false }));
@@ -311,7 +326,7 @@ export function App() {
 
     setIsRunning(true);
     setExecutionEvents([]);
-    setStats({ totalTime: 0, functionTimes: {}, isRunning: true });
+    setStats({ totalTime: 0, functionTimes: {}, functionDetails: {}, loopDetails: {}, isRunning: true });
     setHasError(false);
     setScrollToLine(null);
     setLogs((prev) => [...prev, { type: "log", message: "--- Execution started ---", timestamp: Date.now() }]);
@@ -448,7 +463,7 @@ export function App() {
       case "market": return <StockMarketPanel />;
       case "docs": return <DocsPanel isOpen={true} onClose={() => {}} scrollToSection={docsScrollSection} inline onInsertCode={(text) => { if (editorRef.current?.insertText) editorRef.current.insertText(text); }} />;
       case "snippets": return <SnippetsPanel currentCode={code} onLoad={(snippetCode) => { setCode(snippetCode); setSavedCode(snippetCode); }} />;
-      case "profiler": return <CpuStats stats={stats} />;
+      case "profiler": return <CpuStats stats={stats} onScrollToLine={(line) => { setScrollToLine(line); if (editorRef.current?.scrollToLine) editorRef.current.scrollToLine(line); }} />;
       case "hints": return <HintPanel activeHints={activeHints} dismissedHints={dismissedHints} onHintClick={() => {}} onReopenHint={reopenHint} inline />;
       default: return null;
     }
