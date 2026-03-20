@@ -110,7 +110,14 @@ export function App() {
     localStorage.setItem(CODE_STORAGE_KEY, savedCode);
   }, [savedCode]);
 
-  // ── Save handler ──
+  // ── Auto-save when not running ──
+  useEffect(() => {
+    if (!isRunning) {
+      setSavedCode(code);
+    }
+  }, [code, isRunning]);
+
+  // ── Save handler (manual, for use during execution) ──
   const handleSave = useCallback(() => {
     setSavedCode(code);
   }, [code]);
