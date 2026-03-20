@@ -32,7 +32,7 @@ import { ShopPanel } from "./components/ShopPanel.jsx";
 import { StockMarketPanel } from "./components/StockMarketPanel.jsx";
 import { HintModal, HintPanel } from "./components/HintOverlay.jsx";
 import { THEMES, ThemeContext, loadThemeId, saveThemeId } from "./themes.js";
-import { initMarket, setDUnlocked } from "./marketEngine.js";
+import { initMarket, setDUnlocked, startMarketTimer, stopMarketTimer } from "./marketEngine.js";
 
 const CODE_STORAGE_KEY = "incremental-coding-game-code";
 
@@ -94,6 +94,13 @@ export function App() {
     initMarket(state.market);
     if (state.tech.resourceDUnlocked) setDUnlocked(true);
 
+    // Start market timer if stock market is unlocked
+    if (state.tech.stockMarketUnlocked) {
+      startMarketTimer((marketData) => {
+        useGameStore.getState().saveMarket(marketData);
+      });
+    }
+
     const restored = [];
     if (hasSeenHint("first-tutorial")) {
       restored.push({ id: "first-tutorial", title: "Welcome Tutorial", message: "Welcome! Write code in the editor and press Run to execute it.", isTutorial: true });
@@ -127,7 +134,16 @@ export function App() {
     setSavedCode(code);
   }, [code]);
 
-  // ── Sync D unlock with market engine ──
+  // ── Sync market engine with tech tree ──
+  useEffect(() => {
+    if (tech.stockMarketUnlocked) {
+      startMarketTimer((marketData) => {
+        useGameStore.getState().saveMarket(marketData);
+      });
+    }
+    return () => stopMarketTimer();
+  }, [tech.stockMarketUnlocked]);
+
   useEffect(() => {
     if (tech.resourceDUnlocked) setDUnlocked(true);
   }, [tech.resourceDUnlocked]);

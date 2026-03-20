@@ -12,8 +12,6 @@ import {
   executeBuy,
   executeSell,
   addMarketProfit,
-  tickMarket,
-  getMarketState,
 } from "./marketEngine.js";
 
 /** All API function names available in the game */
@@ -231,14 +229,9 @@ function formatLogMessage(...args) {
  * @returns {object} API object with all game functions
  */
 export function createGameApi(executionContext) {
-  /** Advance virtual time and tick the market */
+  /** Advance virtual time (market runs on its own timer now) */
   function advanceTime(seconds) {
-    const store = useGameStore.getState();
-    store.addVirtualTime(seconds);
-    if (store.tech.stockMarketUnlocked) {
-      tickMarket(useGameStore.getState().virtualTime);
-      store.saveMarket(getMarketState());
-    }
+    useGameStore.getState().addVirtualTime(seconds);
   }
 
   return {

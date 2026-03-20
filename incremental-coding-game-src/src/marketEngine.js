@@ -3,7 +3,8 @@
  *
  * Simulates a stock market with fluctuating prices for resources A, B, C, D.
  * Prices change based on supply/demand pressure from player trades
- * and random volatility driven by virtual time progression.
+ * and random volatility. The market ticks on its own real-time clock,
+ * independent of code execution.
  *
  * D is a special volatile resource with no production — only tradeable.
  */
@@ -12,13 +13,12 @@ const BASE_PRICES = { A: 1, B: 5, C: 25, D: 50 };
 const VOLATILITY = { A: 0.02, B: 0.03, C: 0.04, D: 0.12 };
 const MEAN_REVERSION = { A: 0.05, B: 0.04, C: 0.03, D: 0.01 };
 
-// Spread: buy costs more, sell gives less
-const SPREAD = 0.05; // 5% spread
-
-// How much each trade moves the price (per unit)
+const SPREAD = 0.05;
 const TRADE_IMPACT = { A: 0.005, B: 0.01, C: 0.02, D: 0.05 };
 
-// Seeded pseudo-random for deterministic price movement
+// Real-time tick interval (ms) — how often the market updates
+const TICK_INTERVAL_MS = 2000;
+
 function seededRandom(seed) {
   let x = Math.sin(seed * 9301 + 49297) * 49297;
   x = Math.sin(x) * 10000;
@@ -31,33 +31,27 @@ function gaussianRandom(seed) {
   return Math.sqrt(-2 * Math.log(Math.max(u1, 0.0001))) * Math.cos(2 * Math.PI * u2);
 }
 
-/**
- * Market state — kept in memory and synced to game store.
- * Prices update each time virtual time advances.
- */
-// Each candle covers CANDLE_PERIOD virtual seconds
 const CANDLE_PERIOD = 5;
 const MAX_CANDLES = 60;
+const MAX_HISTORY = 100;
 
 let marketState = {
   prices: { ...BASE_PRICES },
   priceHistory: { A: [], B: [], C: [], D: [] },
   candles: { A: [], B: [], C: [], D: [] },
-  lastTick: 0,
+  marketTime: 0, // independent market clock (integer ticks)
   demandPressure: { A: 0, B: 0, C: 0, D: 0 },
   totalMarketProfit: 0,
   dUnlocked: false,
 };
 
-const MAX_HISTORY = 100;
+let timerHandle = null;
+let saveCallback = null;
 
 export function getMarketState() {
   return marketState;
 }
 
-/**
- * Set whether resource D is unlocked (called when tech tree node is unlocked).
- */
 export function setDUnlocked(unlocked) {
   marketState.dUnlocked = unlocked;
 }
@@ -68,7 +62,7 @@ export function initMarket(savedState) {
       prices: { ...BASE_PRICES, ...savedState.prices },
       priceHistory: savedState.priceHistory || { A: [], B: [], C: [], D: [] },
       candles: savedState.candles || { A: [], B: [], C: [], D: [] },
-      lastTick: savedState.lastTick || 0,
+      marketTime: savedState.marketTime ?? savedState.lastTick ?? 0,
       demandPressure: savedState.demandPressure || { A: 0, B: 0, C: 0, D: 0 },
       totalMarketProfit: savedState.totalMarketProfit || 0,
       dUnlocked: savedState.dUnlocked || false,
@@ -78,7 +72,7 @@ export function initMarket(savedState) {
       prices: { ...BASE_PRICES },
       priceHistory: { A: [], B: [], C: [], D: [] },
       candles: { A: [], B: [], C: [], D: [] },
-      lastTick: 0,
+      marketTime: 0,
       demandPressure: { A: 0, B: 0, C: 0, D: 0 },
       totalMarketProfit: 0,
       dUnlocked: false,
@@ -87,18 +81,16 @@ export function initMarket(savedState) {
 }
 
 /**
- * Advance the market by ticking from lastTick to currentVirtualTime.
- * Each integer second is one tick.
+ * Advance the market by N ticks from current marketTime.
  */
-export function tickMarket(currentVirtualTime) {
-  const startTick = Math.floor(marketState.lastTick);
-  const endTick = Math.floor(currentVirtualTime);
+export function tickMarket(numTicks) {
+  if (numTicks <= 0) return;
 
-  if (endTick <= startTick) return;
-
+  const startTick = marketState.marketTime;
   const resources = ["A", "B", "C", "D"];
 
-  for (let t = startTick + 1; t <= endTick; t++) {
+  for (let i = 1; i <= numTicks; i++) {
+    const t = startTick + i;
     for (const r of resources) {
       if (r === "D" && !marketState.dUnlocked) continue;
 
@@ -107,28 +99,20 @@ export function tickMarket(currentVirtualTime) {
       const vol = VOLATILITY[r];
       const revert = MEAN_REVERSION[r];
 
-      // Random component
       const noise = gaussianRandom(t * 7 + r.charCodeAt(0)) * vol * base;
-
-      // Mean reversion toward base price
       const reversion = (base - price) * revert;
-
-      // Demand pressure decays
       const pressure = marketState.demandPressure[r] * base;
       marketState.demandPressure[r] *= 0.9;
 
-      // New price
       const newPrice = Math.max(base * 0.1, price + noise + reversion + pressure);
       marketState.prices[r] = Math.round(newPrice * 100) / 100;
 
-      // Record history every tick
       const currentPrice = marketState.prices[r];
       marketState.priceHistory[r].push({ time: t, price: currentPrice });
       if (marketState.priceHistory[r].length > MAX_HISTORY) {
         marketState.priceHistory[r] = marketState.priceHistory[r].slice(-MAX_HISTORY);
       }
 
-      // Build OHLC candles
       const candlePeriod = Math.floor(t / CANDLE_PERIOD);
       const candles = marketState.candles[r];
       const lastCandle = candles.length > 0 ? candles[candles.length - 1] : null;
@@ -152,7 +136,31 @@ export function tickMarket(currentVirtualTime) {
     }
   }
 
-  marketState.lastTick = currentVirtualTime;
+  marketState.marketTime = startTick + numTicks;
+}
+
+/**
+ * Start the real-time market timer. Ticks once every TICK_INTERVAL_MS.
+ * @param {Function} onTick - Called after each tick with market state (for persisting)
+ */
+export function startMarketTimer(onTick) {
+  stopMarketTimer();
+  saveCallback = onTick;
+  timerHandle = setInterval(() => {
+    tickMarket(1);
+    if (saveCallback) saveCallback(marketState);
+  }, TICK_INTERVAL_MS);
+}
+
+/**
+ * Stop the real-time market timer.
+ */
+export function stopMarketTimer() {
+  if (timerHandle) {
+    clearInterval(timerHandle);
+    timerHandle = null;
+  }
+  saveCallback = null;
 }
 
 /**
