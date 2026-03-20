@@ -17,47 +17,56 @@ const GREEN = "#22cc44";
 const RED = "#ee3333";
 
 // Time windows: label, ticks of history, candles to show
-// 2 ticks/sec → 1min=120 ticks, 5min=600, 10min=1200
-// 1 candle = 10s → 1min=6 candles, 5min=30, 10min=60
 const TIME_WINDOWS = [
   { label: "1m", historyTicks: 120, candles: 6 },
   { label: "5m", historyTicks: 600, candles: 30 },
   { label: "10m", historyTicks: 1200, candles: 60 },
 ];
 
-// ─── Shared chart helpers ────────────────────────────────────────────
+// Price axis label width in pixels (HTML overlay)
+const PRICE_AXIS_W = 42;
 
-function ChartGridAndPrice({ gridLines, currentY, color, currentPrice, chartW, paddingR, height, t }) {
+// ─── Shared helpers ──────────────────────────────────────────────────
+
+function toYPct(price, min, range) {
+  // Returns percentage from top (0% = top, 100% = bottom)
+  return 100 - ((price - min) / range) * 100;
+}
+
+function makeGrid(min, range) {
+  const lines = [];
+  for (let i = 0; i <= 3; i++) {
+    const price = min + (range * i) / 3;
+    lines.push({ pct: toYPct(price, min, range), label: price.toFixed(2) });
+  }
+  return lines;
+}
+
+/** HTML overlay for price axis labels — not affected by SVG stretching */
+function PriceAxis({ gridLines, currentPct, currentPrice, color, t, height }) {
   return (
-    <>
+    <div style={{
+      position: "absolute", top: 0, right: 0, bottom: 0,
+      width: `${PRICE_AXIS_W}px`, pointerEvents: "none",
+    }}>
       {gridLines.map((g, i) => (
-        <g key={i}>
-          <line
-            x1="0" y1={g.y} x2={chartW} y2={g.y}
-            stroke={t.border} strokeWidth="0.5" strokeDasharray="2,3"
-            vectorEffect="non-scaling-stroke"
-          />
-          <text x={chartW + 2} y={g.y + 1} fontSize="7" fill={t.primaryDark} dominantBaseline="middle">
-            {g.label}
-          </text>
-        </g>
+        <div key={i} style={{
+          position: "absolute", top: `${g.pct}%`, right: "2px", transform: "translateY(-50%)",
+          fontSize: "9px", fontFamily: t.font, color: t.primaryDark, whiteSpace: "nowrap",
+        }}>
+          {g.label}
+        </div>
       ))}
-      {/* Animated current price line */}
-      <line
-        x1="0" y1={currentY} x2={chartW} y2={currentY}
-        stroke={color} strokeWidth="0.5" strokeDasharray="4,2"
-        vectorEffect="non-scaling-stroke" opacity="0.6"
-        style={{ transition: "y1 0.4s ease, y2 0.4s ease" }}
-      />
-      <rect x={chartW} y={currentY - 5} width={paddingR} height={10} fill={color} rx="1" opacity="0.8"
-        style={{ transition: "y 0.4s ease" }}
-      />
-      <text x={chartW + 2} y={currentY + 1} fontSize="7" fill={t.bg} fontWeight="bold" dominantBaseline="middle"
-        style={{ transition: "y 0.4s ease" }}
-      >
+      {/* Current price badge */}
+      <div style={{
+        position: "absolute", top: `${currentPct}%`, right: 0, transform: "translateY(-50%)",
+        padding: "1px 4px", fontSize: "9px", fontFamily: t.font, fontWeight: "bold",
+        backgroundColor: color, color: t.bg, whiteSpace: "nowrap",
+        transition: "top 0.4s ease",
+      }}>
         {currentPrice.toFixed(2)}
-      </text>
-    </>
+      </div>
+    </div>
   );
 }
 
@@ -74,29 +83,10 @@ function NoData({ height, t }) {
   );
 }
 
-function useChartLayout(height) {
-  const VB_W = 240;
-  const PADDING_R = 40;
-  const CHART_W = VB_W - PADDING_R;
-  const toY = (price, min, range) => height - ((price - min) / range) * (height - 4) - 2;
-
-  const makeGrid = (min, range) => {
-    const lines = [];
-    for (let i = 0; i <= 3; i++) {
-      const price = min + (range * i) / 3;
-      lines.push({ y: toY(price, min, range), label: price.toFixed(2) });
-    }
-    return lines;
-  };
-
-  return { VB_W, PADDING_R, CHART_W, toY, makeGrid };
-}
-
 // ─── Candlestick Chart ───────────────────────────────────────────────
 
 function CandlestickChart({ candles, color, height = 80 }) {
   const t = useTheme();
-  const { VB_W, PADDING_R, CHART_W, toY, makeGrid } = useChartLayout(height);
 
   if (!candles || candles.length < 2) return <NoData height={height} t={t} />;
 
@@ -109,43 +99,74 @@ function CandlestickChart({ candles, color, height = 80 }) {
   min -= pad; max += pad;
   const range = max - min;
 
-  const candleW = Math.min(8, (CHART_W - 4) / candles.length);
-  const gap = Math.max(1, candleW * 0.3);
+  const VB_W = 200;
+  const VB_H = 100;
+  const toY = (price) => VB_H - ((price - min) / range) * VB_H;
+
+  const candleW = Math.min(8, (VB_W - 4) / candles.length);
+  const gap = Math.max(0.5, candleW * 0.25);
   const bodyW = candleW - gap;
   const lastCandle = candles[candles.length - 1];
-  const currentY = toY(lastCandle.close, min, range);
+
+  const gridLines = makeGrid(min, range);
+  const currentPct = toYPct(lastCandle.close, min, range);
 
   return (
-    <svg viewBox={`0 0 ${VB_W} ${height}`} preserveAspectRatio="none"
-      style={{ display: "block", width: "100%", height, backgroundColor: `${t.bg}88` }}>
-      <ChartGridAndPrice
-        gridLines={makeGrid(min, range)} currentY={currentY} color={color}
-        currentPrice={lastCandle.close} chartW={CHART_W} paddingR={PADDING_R} height={height} t={t}
+    <div style={{ position: "relative", width: "100%", height, backgroundColor: `${t.bg}88` }}>
+      {/* SVG chart area — stretched, no text */}
+      <svg
+        viewBox={`0 0 ${VB_W} ${VB_H}`}
+        preserveAspectRatio="none"
+        style={{ display: "block", width: `calc(100% - ${PRICE_AXIS_W}px)`, height: "100%" }}
+      >
+        {/* Grid lines */}
+        {gridLines.map((g, i) => {
+          const y = VB_H - (g.pct / 100) * VB_H;
+          return (
+            <line key={i} x1="0" y1={y} x2={VB_W} y2={y}
+              stroke={t.border} strokeWidth="0.5" strokeDasharray="2,3"
+              vectorEffect="non-scaling-stroke"
+            />
+          );
+        })}
+        {/* Current price line */}
+        <line
+          x1="0" y1={toY(lastCandle.close)} x2={VB_W} y2={toY(lastCandle.close)}
+          stroke={color} strokeWidth="0.5" strokeDasharray="4,2"
+          vectorEffect="non-scaling-stroke" opacity="0.6"
+        />
+        {/* Candles */}
+        {candles.map((c, i) => {
+          const x = 2 + i * candleW;
+          const isGreen = c.close >= c.open;
+          const fill = isGreen ? GREEN : RED;
+          const bodyTop = toY(Math.max(c.open, c.close));
+          const bodyBot = toY(Math.min(c.open, c.close));
+          const bodyH = Math.max(0.5, bodyBot - bodyTop);
+          const cx = x + bodyW / 2;
+          const isLast = i === candles.length - 1;
+          return (
+            <g key={i}>
+              <line x1={cx} y1={toY(c.high)} x2={cx} y2={toY(c.low)}
+                stroke={fill} strokeWidth="1" vectorEffect="non-scaling-stroke"
+                style={isLast ? { transition: "y1 0.4s ease, y2 0.4s ease" } : undefined}
+              />
+              <rect x={x} y={bodyTop} width={bodyW} height={bodyH}
+                fill={fill} stroke={fill} strokeWidth="0.5"
+                vectorEffect="non-scaling-stroke" opacity="0.9"
+                style={isLast ? { transition: "y 0.4s ease, height 0.4s ease" } : undefined}
+              />
+            </g>
+          );
+        })}
+      </svg>
+
+      {/* HTML price labels */}
+      <PriceAxis
+        gridLines={gridLines} currentPct={currentPct}
+        currentPrice={lastCandle.close} color={color} t={t} height={height}
       />
-      {candles.map((c, i) => {
-        const x = 2 + i * candleW;
-        const isGreen = c.close >= c.open;
-        const fill = isGreen ? GREEN : RED;
-        const bodyTop = toY(Math.max(c.open, c.close), min, range);
-        const bodyBot = toY(Math.min(c.open, c.close), min, range);
-        const bodyH = Math.max(0.5, bodyBot - bodyTop);
-        const cx = x + bodyW / 2;
-        const isLast = i === candles.length - 1;
-        return (
-          <g key={i} style={isLast ? { transition: "opacity 0.3s" } : undefined}>
-            <line x1={cx} y1={toY(c.high, min, range)} x2={cx} y2={toY(c.low, min, range)}
-              stroke={fill} strokeWidth="1" vectorEffect="non-scaling-stroke"
-              style={isLast ? { transition: "y1 0.4s ease, y2 0.4s ease" } : undefined}
-            />
-            <rect x={x} y={bodyTop} width={bodyW} height={bodyH}
-              fill={fill} stroke={fill} strokeWidth="0.5"
-              vectorEffect="non-scaling-stroke" opacity="0.9"
-              style={isLast ? { transition: "y 0.4s ease, height 0.4s ease" } : undefined}
-            />
-          </g>
-        );
-      })}
-    </svg>
+    </div>
   );
 }
 
@@ -153,7 +174,6 @@ function CandlestickChart({ candles, color, height = 80 }) {
 
 function LineChart({ history, color, height = 80 }) {
   const t = useTheme();
-  const { VB_W, PADDING_R, CHART_W, toY, makeGrid } = useChartLayout(height);
 
   if (!history || history.length < 2) return <NoData height={height} t={t} />;
 
@@ -164,37 +184,65 @@ function LineChart({ history, color, height = 80 }) {
   min -= pad; max += pad;
   const range = max - min;
 
+  const VB_W = 200;
+  const VB_H = 100;
+  const toY = (price) => VB_H - ((price - min) / range) * VB_H;
+
   const points = prices.map((p, i) => {
-    const x = (i / (prices.length - 1)) * CHART_W;
-    const y = toY(p, min, range);
+    const x = (i / (prices.length - 1)) * VB_W;
+    const y = toY(p);
     return `${x},${y}`;
   }).join(" ");
 
-  const fillPoints = `0,${height} ${points} ${CHART_W},${height}`;
+  const fillPoints = `0,${VB_H} ${points} ${VB_W},${VB_H}`;
   const lastPrice = prices[prices.length - 1];
-  const currentY = toY(lastPrice, min, range);
+
+  const gridLines = makeGrid(min, range);
+  const currentPct = toYPct(lastPrice, min, range);
 
   return (
-    <svg viewBox={`0 0 ${VB_W} ${height}`} preserveAspectRatio="none"
-      style={{ display: "block", width: "100%", height, backgroundColor: `${t.bg}88` }}>
-      <ChartGridAndPrice
-        gridLines={makeGrid(min, range)} currentY={currentY} color={color}
-        currentPrice={lastPrice} chartW={CHART_W} paddingR={PADDING_R} height={height} t={t}
-      />
-      <polygon points={fillPoints} fill={color} opacity="0.08" />
-      <polyline points={points} fill="none" stroke={color} strokeWidth="1.5"
-        vectorEffect="non-scaling-stroke"
-        style={{ transition: "d 0.4s ease" }}
-      />
-      {/* Animated trailing dot */}
-      <circle cx={CHART_W} cy={currentY} r="3" fill={color}
-        vectorEffect="non-scaling-stroke"
-        style={{ transition: "cy 0.4s ease" }}
+    <div style={{ position: "relative", width: "100%", height, backgroundColor: `${t.bg}88` }}>
+      <svg
+        viewBox={`0 0 ${VB_W} ${VB_H}`}
+        preserveAspectRatio="none"
+        style={{ display: "block", width: `calc(100% - ${PRICE_AXIS_W}px)`, height: "100%" }}
       >
-        <animate attributeName="r" values="3;4;3" dur="2s" repeatCount="indefinite" />
-        <animate attributeName="opacity" values="1;0.6;1" dur="2s" repeatCount="indefinite" />
-      </circle>
-    </svg>
+        {/* Grid lines */}
+        {gridLines.map((g, i) => {
+          const y = VB_H - (g.pct / 100) * VB_H;
+          return (
+            <line key={i} x1="0" y1={y} x2={VB_W} y2={y}
+              stroke={t.border} strokeWidth="0.5" strokeDasharray="2,3"
+              vectorEffect="non-scaling-stroke"
+            />
+          );
+        })}
+        {/* Current price line */}
+        <line
+          x1="0" y1={toY(lastPrice)} x2={VB_W} y2={toY(lastPrice)}
+          stroke={color} strokeWidth="0.5" strokeDasharray="4,2"
+          vectorEffect="non-scaling-stroke" opacity="0.6"
+        />
+        {/* Area fill + line */}
+        <polygon points={fillPoints} fill={color} opacity="0.08" />
+        <polyline points={points} fill="none" stroke={color} strokeWidth="1.5"
+          vectorEffect="non-scaling-stroke"
+        />
+        {/* Trailing dot */}
+        <circle cx={VB_W} cy={toY(lastPrice)} r="2" fill={color}
+          vectorEffect="non-scaling-stroke"
+        >
+          <animate attributeName="r" values="2;3;2" dur="2s" repeatCount="indefinite" />
+          <animate attributeName="opacity" values="1;0.6;1" dur="2s" repeatCount="indefinite" />
+        </circle>
+      </svg>
+
+      {/* HTML price labels */}
+      <PriceAxis
+        gridLines={gridLines} currentPct={currentPct}
+        currentPrice={lastPrice} color={color} t={t} height={height}
+      />
+    </div>
   );
 }
 
@@ -267,7 +315,7 @@ export function StockMarketPanel() {
   useGameStore((s) => s.market);
   const t = useTheme();
 
-  const [chartType, setChartType] = useState("candle"); // "candle" | "line"
+  const [chartType, setChartType] = useState("candle");
   const [timeWindow, setTimeWindow] = useState("1m");
 
   const market = getMarketState();
@@ -295,7 +343,7 @@ export function StockMarketPanel() {
       padding: "12px", fontFamily: t.font, color: t.primary,
       height: "100%", overflowY: "auto", boxSizing: "border-box",
     }}>
-      {/* Header row: title, time window, chart toggle */}
+      {/* Header row */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "6px" }}>
         <span style={{ color: t.primaryDim, fontSize: "11px", letterSpacing: "2px", flexShrink: 0 }}>[ MARKET ]</span>
         <TimeWindowSelector value={timeWindow} onChange={setTimeWindow} t={t} />
@@ -321,7 +369,7 @@ export function StockMarketPanel() {
         <div style={{ fontSize: "10px", color: t.primaryDark, marginBottom: "6px" }}>MARKET OVERVIEW</div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <span style={{ fontSize: "12px", fontWeight: "bold", color: t.primary, transition: "color 0.3s" }}>
+            <span style={{ fontSize: "12px", fontWeight: "bold", color: t.primary }}>
               MKTCAP ${marketCap.toLocaleString()}
             </span>
           </div>
@@ -332,12 +380,12 @@ export function StockMarketPanel() {
         <div style={{ display: "flex", gap: "8px", marginTop: "4px", flexWrap: "wrap" }}>
           {tradeableResources.map((r) => {
             const units = Math.floor(marketUnits[r] || 0);
-            const color = RESOURCE_COLORS[r] || t.primary;
+            const clr = RESOURCE_COLORS[r] || t.primary;
             const playerHold = resources[r] || 0;
             const total = units + playerHold;
             const playerPct = total > 0 ? ((playerHold / total) * 100).toFixed(1) : "0.0";
             return (
-              <div key={r} style={{ fontSize: "10px", color }}>
+              <div key={r} style={{ fontSize: "10px", color: clr }}>
                 {r}: {units} units
                 {playerHold > 0 && (
                   <span style={{ color: t.primaryDark }}> ({playerPct}%)</span>
@@ -352,17 +400,14 @@ export function StockMarketPanel() {
       {tradeableResources.map((r) => {
         const allCandles = market.candles[r] || [];
         const allHistory = market.priceHistory[r] || [];
-
-        // Slice to time window
         const candles = allCandles.slice(-tw.candles);
         const history = allHistory.slice(-tw.historyTicks);
 
         const midPrice = getMarketValue(r);
         const buyP = getBuyPrice(r);
         const sellP = getSellPrice(r);
-        const color = RESOURCE_COLORS[r] || t.primary;
+        const clr = RESOURCE_COLORS[r] || t.primary;
 
-        // % change over the visible window
         let changeText = "";
         let changeColor = t.primaryDark;
         if (history.length >= 2) {
@@ -376,21 +421,15 @@ export function StockMarketPanel() {
         return (
           <div key={r} style={{ marginBottom: "12px", paddingBottom: "8px", borderBottom: `1px solid ${t.border}` }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-              <span style={{ fontSize: "13px", fontWeight: "bold", color }}>
+              <span style={{ fontSize: "13px", fontWeight: "bold", color: clr }}>
                 {r} {r === "D" && <span style={{ fontSize: "9px", color: t.primaryDark }}>VOLATILE</span>}
               </span>
               <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span style={{
-                  color: t.primary, fontSize: "13px", fontWeight: "bold",
-                  transition: "color 0.3s",
-                }}>
+                <span style={{ color: t.primary, fontSize: "13px", fontWeight: "bold", transition: "color 0.3s" }}>
                   ${midPrice.toFixed(2)}
                 </span>
                 {changeText && (
-                  <span style={{
-                    color: changeColor, fontSize: "10px",
-                    transition: "color 0.3s",
-                  }}>
+                  <span style={{ color: changeColor, fontSize: "10px", transition: "color 0.3s" }}>
                     {changeText}
                   </span>
                 )}
@@ -398,8 +437,8 @@ export function StockMarketPanel() {
             </div>
 
             {chartType === "candle"
-              ? <CandlestickChart candles={candles} color={color} height={80} />
-              : <LineChart history={history} color={color} height={80} />
+              ? <CandlestickChart candles={candles} color={clr} height={80} />
+              : <LineChart history={history} color={clr} height={80} />
             }
 
             <div style={{ display: "flex", gap: "6px", marginTop: "6px", alignItems: "center" }}>

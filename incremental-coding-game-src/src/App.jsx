@@ -30,6 +30,7 @@ import { TechTreePanel } from "./components/TechTreePanel.jsx";
 import { DocsPanel } from "./components/DocsPanel.jsx";
 import { ShopPanel } from "./components/ShopPanel.jsx";
 import { StockMarketPanel } from "./components/StockMarketPanel.jsx";
+import { SnippetsPanel } from "./components/SnippetsPanel.jsx";
 import { HintModal, HintPanel } from "./components/HintOverlay.jsx";
 import { THEMES, ThemeContext, loadThemeId, saveThemeId } from "./themes.js";
 import { initMarket, setDUnlocked, startMarketTimer, stopMarketTimer, setPlayerResourcesGetter } from "./marketEngine.js";
@@ -410,7 +411,7 @@ export function App() {
   const desktopTabs = [
     ...(tech.shopUnlocked ? ["shop"] : []),
     ...(tech.stockMarketUnlocked ? ["market"] : []),
-    "docs", "profiler", "hints",
+    "docs", "snippets", "profiler", "hints",
   ];
   const mobileTabs = [
     { id: "code", label: "CODE" },
@@ -418,6 +419,7 @@ export function App() {
     ...(tech.shopUnlocked ? [{ id: "shop", label: "SHOP" }] : []),
     ...(tech.stockMarketUnlocked ? [{ id: "market", label: "MKT" }] : []),
     { id: "docs", label: "DOCS" },
+    { id: "snippets", label: "SNIP" },
     { id: "profiler", label: "CPU" },
   ];
 
@@ -427,6 +429,7 @@ export function App() {
       case "shop": return <ShopPanel />;
       case "market": return <StockMarketPanel />;
       case "docs": return <DocsPanel isOpen={true} onClose={() => {}} scrollToSection={docsScrollSection} inline onInsertCode={(text) => { if (editorRef.current?.insertText) editorRef.current.insertText(text); }} />;
+      case "snippets": return <SnippetsPanel currentCode={code} onLoad={(snippetCode) => { setCode(snippetCode); setSavedCode(snippetCode); }} />;
       case "profiler": return <CpuStats stats={stats} />;
       case "hints": return <HintPanel activeHints={activeHints} dismissedHints={dismissedHints} onHintClick={() => {}} onReopenHint={reopenHint} inline />;
       default: return null;
