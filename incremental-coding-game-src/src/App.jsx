@@ -358,7 +358,7 @@ export function App() {
         setConsoleHeight(Math.max(60, Math.min(rect.height - 120, rect.bottom - pos.y)));
       } else if (draggingRef.current === "horizontal" && mainContentRef.current) {
         const rect = mainContentRef.current.getBoundingClientRect();
-        setRightPanelWidth(Math.max(200, Math.min(rect.width - 300, rect.right - pos.x)));
+        setRightPanelWidth(Math.max(260, Math.min(rect.width - 300, rect.right - pos.x)));
       }
     };
     const onEnd = () => { draggingRef.current = null; document.body.style.cursor = ""; document.body.style.userSelect = ""; };
@@ -578,7 +578,7 @@ export function App() {
 
         {/* RIGHT PANEL: Tabbed */}
         <div style={{ width: `${rightPanelWidth}px`, display: "flex", flexDirection: "column", backgroundColor: theme.bg, flexShrink: 0 }}>
-          <div style={{ display: "flex", borderBottom: `1px solid ${theme.border}` }}>
+          <div style={{ display: "flex", flexWrap: "wrap", borderBottom: `1px solid ${theme.border}` }}>
             {["shop", "market", "docs", "profiler", "hints"].map((tab) => {
               const isActive = rightTab === tab;
               return (
@@ -586,7 +586,7 @@ export function App() {
                   key={tab}
                   onClick={() => setRightTab(tab)}
                   style={{
-                    padding: "6px 14px",
+                    padding: "6px 10px",
                     fontFamily: theme.font,
                     fontSize: "11px",
                     letterSpacing: "1px",
@@ -597,6 +597,7 @@ export function App() {
                     borderBottom: isActive ? `1px solid ${theme.bg2}` : `1px solid ${theme.border}`,
                     cursor: "pointer",
                     transition: "all 0.15s",
+                    flexShrink: 0,
                   }}
                 >
                   {tab}

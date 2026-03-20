@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import { useGameStore } from "../gameStore.js";
 import { useTheme } from "../themes.js";
 import { RESOURCE_COLORS } from "../techTree.js";
@@ -13,13 +13,15 @@ import {
 
 /**
  * Mini SVG line chart for a single resource's price history.
+ * Uses viewBox for responsive sizing — fills container width.
  */
-function PriceChart({ history, color, width = 200, height = 60 }) {
+function PriceChart({ history, color, height = 50 }) {
   const t = useTheme();
+  const VB_W = 200;
 
   if (history.length < 2) {
     return (
-      <div style={{ width, height, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "10px", color: t.primaryDark }}>
+      <div style={{ width: "100%", height, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "10px", color: t.primaryDark }}>
         NO DATA
       </div>
     );
@@ -31,24 +33,22 @@ function PriceChart({ history, color, width = 200, height = 60 }) {
   const range = max - min || 1;
 
   const points = prices.map((p, i) => {
-    const x = (i / (prices.length - 1)) * width;
+    const x = (i / (prices.length - 1)) * VB_W;
     const y = height - ((p - min) / range) * height;
     return `${x},${y}`;
   }).join(" ");
 
-  // Fill area under the line
-  const fillPoints = `0,${height} ${points} ${width},${height}`;
+  const fillPoints = `0,${height} ${points} ${VB_W},${height}`;
 
   return (
-    <svg width={width} height={height} style={{ display: "block" }}>
+    <svg viewBox={`0 0 ${VB_W} ${height}`} preserveAspectRatio="none" style={{ display: "block", width: "100%", height }}>
       <polygon points={fillPoints} fill={color} opacity="0.08" />
-      <polyline points={points} fill="none" stroke={color} strokeWidth="1.5" />
-      {/* Current price dot */}
+      <polyline points={points} fill="none" stroke={color} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
       {prices.length > 0 && (() => {
         const lastPrice = prices[prices.length - 1];
-        const cx = width;
+        const cx = VB_W;
         const cy = height - ((lastPrice - min) / range) * height;
-        return <circle cx={cx} cy={cy} r="2.5" fill={color} />;
+        return <circle cx={cx} cy={cy} r="3" fill={color} vectorEffect="non-scaling-stroke" />;
       })()}
     </svg>
   );
@@ -99,21 +99,20 @@ function EmotionsGauge({ emotion }) {
 /**
  * Emotions history chart — shows emotion trend over time as a colored line.
  */
-function EmotionsChart({ width = 200, height = 50 }) {
+function EmotionsChart({ height = 50 }) {
   const t = useTheme();
   const market = getMarketState();
+  const VB_W = 200;
 
-  // Compute emotion at each time point using A's history as time reference
   const historyA = market.priceHistory.A || [];
   if (historyA.length < 5) {
     return (
-      <div style={{ width, height, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "10px", color: t.primaryDark }}>
+      <div style={{ width: "100%", height, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "10px", color: t.primaryDark }}>
         COLLECTING DATA...
       </div>
     );
   }
 
-  // Sample emotion at intervals from history
   const emotions = [];
   const resources = market.dUnlocked ? ["A", "B", "C", "D"] : ["A", "B", "C"];
   const basePrices = { A: 1, B: 5, C: 25, D: 50 };
@@ -144,7 +143,7 @@ function EmotionsChart({ width = 200, height = 50 }) {
   const midY = height / 2;
 
   const points = emotions.map((e, i) => {
-    const x = (i / (emotions.length - 1)) * width;
+    const x = (i / (emotions.length - 1)) * VB_W;
     const y = midY - (e * midY * 0.9);
     return `${x},${y}`;
   }).join(" ");
@@ -152,14 +151,11 @@ function EmotionsChart({ width = 200, height = 50 }) {
   return (
     <div>
       <div style={{ fontSize: "10px", color: t.primaryDark, marginBottom: "4px" }}>EMOTION TREND</div>
-      <svg width={width} height={height} style={{ display: "block" }}>
-        {/* Center line (neutral) */}
-        <line x1="0" y1={midY} x2={width} y2={midY} stroke={t.border} strokeWidth="1" strokeDasharray="4,4" />
-        {/* Fear zone fill */}
-        <rect x="0" y={midY} width={width} height={midY} fill="#ff2222" opacity="0.04" />
-        {/* Greed zone fill */}
-        <rect x="0" y="0" width={width} height={midY} fill="#00ff00" opacity="0.04" />
-        <polyline points={points} fill="none" stroke="#ffcc00" strokeWidth="1.5" />
+      <svg viewBox={`0 0 ${VB_W} ${height}`} preserveAspectRatio="none" style={{ display: "block", width: "100%", height }}>
+        <line x1="0" y1={midY} x2={VB_W} y2={midY} stroke={t.border} strokeWidth="1" strokeDasharray="4,4" vectorEffect="non-scaling-stroke" />
+        <rect x="0" y={midY} width={VB_W} height={midY} fill="#ff2222" opacity="0.04" />
+        <rect x="0" y="0" width={VB_W} height={midY} fill="#00ff00" opacity="0.04" />
+        <polyline points={points} fill="none" stroke="#ffcc00" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
       </svg>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: "8px", color: t.primaryDark }}>
         <span>FEAR</span>
@@ -211,7 +207,7 @@ export function StockMarketPanel() {
 
       {/* Emotion Trend Chart */}
       <div style={{ marginBottom: "12px", paddingBottom: "8px", borderBottom: `1px solid ${t.border}` }}>
-        <EmotionsChart width={280} height={50} />
+        <EmotionsChart height={50} />
       </div>
 
       {/* Price Charts + Info */}
@@ -246,7 +242,7 @@ export function StockMarketPanel() {
               </span>
             </div>
 
-            <PriceChart history={history} color={color} width={280} height={50} />
+            <PriceChart history={history} color={color} height={50} />
 
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: "4px", fontSize: "10px" }}>
               <span style={{ color: t.primaryDark }}>BUY: ${buyP.toFixed(2)}</span>
