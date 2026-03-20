@@ -99,6 +99,8 @@ export function transformCode(code, insertSteps = true) {
 
   // ── Phase 2: Add `await` before API function calls ──
   lines = lines.map((line) => {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*")) return line;
     let result = line;
     for (const funcName of API_FUNCTION_NAMES) {
       const pattern = new RegExp(
@@ -252,6 +254,8 @@ export function buildLineMap(transformedCode) {
 
   transformedCode.split("\n").forEach((line, index) => {
     const lineNumber = index + 1;
+    const trimmed = line.trim();
+    if (trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*")) return;
     const calls = [];
 
     API_FUNCTION_NAMES.forEach((funcName) => {
@@ -484,6 +488,7 @@ export class CodeExecutor {
 
         const originalLine = code.split(/\r?\n/)[lineNumber - 1];
         if (!originalLine || originalLine.trim().length === 0) return;
+        if (originalLine.trim().startsWith("//")) return;
 
         this.currentLine = lineNumber;
         this.callbacks.onEvent({ type: "lineChange", lineNumber });
