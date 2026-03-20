@@ -162,7 +162,7 @@ export const TECH_TREE = [
     description: "Unlock volatile Resource D on the market. Trade the most volatile asset for big profits (or losses)",
     threshold: () => {
       const market = getMarketState();
-      return market.totalMarketProfit >= 200;
+      return market.totalMarketProfit >= 1000;
     },
     cost: [],
     unlocked: false,
