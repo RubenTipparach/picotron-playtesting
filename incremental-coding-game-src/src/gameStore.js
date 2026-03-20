@@ -200,8 +200,13 @@ export const useGameStore = create((set, get) => {
       set({ ram: newRam });
     },
 
-    /** Save market state */
-    saveMarket: (marketData) => {
+    /** Update market state in Zustand (fast, no localStorage) */
+    setMarket: (marketData) => {
+      set({ market: marketData });
+    },
+
+    /** Persist market state to localStorage (called less frequently) */
+    persistMarket: (marketData) => {
       const current = get();
       const state = { ...current, market: marketData };
       saveGameState(state);

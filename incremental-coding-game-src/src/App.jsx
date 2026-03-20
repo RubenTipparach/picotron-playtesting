@@ -97,9 +97,10 @@ export function App() {
 
     // Start market timer if stock market is unlocked
     if (state.tech.stockMarketUnlocked) {
-      startMarketTimer((marketData) => {
-        useGameStore.getState().saveMarket(marketData);
-      });
+      startMarketTimer(
+        (marketData) => useGameStore.getState().setMarket(marketData),
+        (marketData) => useGameStore.getState().persistMarket(marketData),
+      );
     }
 
     const restored = [];
@@ -138,9 +139,10 @@ export function App() {
   // ── Sync market engine with tech tree ──
   useEffect(() => {
     if (tech.stockMarketUnlocked) {
-      startMarketTimer((marketData) => {
-        useGameStore.getState().saveMarket(marketData);
-      });
+      startMarketTimer(
+        (marketData) => useGameStore.getState().setMarket(marketData),
+        (marketData) => useGameStore.getState().persistMarket(marketData),
+      );
     }
     return () => stopMarketTimer();
   }, [tech.stockMarketUnlocked]);

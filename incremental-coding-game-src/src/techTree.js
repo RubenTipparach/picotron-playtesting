@@ -169,6 +169,12 @@ export const TECH_TREE = [
     icon: "D",
     dependencies: ["stockMarketUnlocked"],
     position: { row: 3, col: 2 },
+    /** Custom progress display for non-resource thresholds */
+    progressInfo: () => {
+      const market = getMarketState();
+      const profit = Math.floor(market.totalMarketProfit);
+      return { current: profit, target: 1000, label: `$${profit} / $1000 trade revenue` };
+    },
   },
 ];
 

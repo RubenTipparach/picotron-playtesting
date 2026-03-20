@@ -44,14 +44,28 @@ function TechNode({ tech, isUnlocked, isAvailable, isSelected, resources, onClic
       </div>
       {!isUnlocked && (
         <div style={{ position: "absolute", bottom: "3px", display: "flex", gap: "2px" }}>
-          {tech.cost.slice(0, 2).map((cost, i) => (
-            <div key={i} style={{
-              fontSize: size > 60 ? "8px" : "7px", fontFamily: t.font,
-              color: resources[cost.resource] >= cost.amount ? t.primary : t.textMuted,
-            }}>
-              {cost.amount}{cost.resource}
-            </div>
-          ))}
+          {tech.cost.length > 0
+            ? tech.cost.slice(0, 2).map((cost, i) => (
+                <div key={i} style={{
+                  fontSize: size > 60 ? "8px" : "7px", fontFamily: t.font,
+                  color: resources[cost.resource] >= cost.amount ? t.primary : t.textMuted,
+                }}>
+                  {cost.amount}{cost.resource}
+                </div>
+              ))
+            : tech.progressInfo && (() => {
+                const info = tech.progressInfo();
+                const pct = Math.min(100, Math.floor((info.current / info.target) * 100));
+                return (
+                  <div style={{
+                    fontSize: size > 60 ? "8px" : "7px", fontFamily: t.font,
+                    color: pct >= 100 ? t.primary : t.yellow,
+                  }}>
+                    ${info.current}/${info.target}
+                  </div>
+                );
+              })()
+          }
         </div>
       )}
       {isUnlocked && (
@@ -123,7 +137,7 @@ export function TechTreePanel({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
       </div>
       <p style={{ margin: 0, color: t.primaryDim, fontSize: "11px", lineHeight: 1.5 }}>{selectedTech.description}</p>
 
-      {!techState[selectedTech.id] && (
+      {!techState[selectedTech.id] && selectedTech.cost.length > 0 && (
         <div style={{ padding: "8px", backgroundColor: t.bg3, border: `1px solid ${t.border}` }}>
           <div style={{ color: t.textDim, fontSize: "10px", marginBottom: "6px", letterSpacing: "1px" }}>COST</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
@@ -133,6 +147,27 @@ export function TechTreePanel({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
           </div>
         </div>
       )}
+
+      {!techState[selectedTech.id] && selectedTech.progressInfo && (() => {
+        const info = selectedTech.progressInfo();
+        const pct = Math.min(100, (info.current / info.target) * 100);
+        return (
+          <div style={{ padding: "8px", backgroundColor: t.bg3, border: `1px solid ${t.border}` }}>
+            <div style={{ color: t.textDim, fontSize: "10px", marginBottom: "6px", letterSpacing: "1px" }}>OBJECTIVE</div>
+            <div style={{ fontSize: "11px", color: pct >= 100 ? t.primary : t.primaryDim, marginBottom: "4px" }}>
+              {info.label}
+            </div>
+            <div style={{ height: "6px", backgroundColor: t.bg, border: `1px solid ${t.border}`, overflow: "hidden" }}>
+              <div style={{
+                height: "100%",
+                width: `${pct}%`,
+                backgroundColor: pct >= 100 ? t.primary : t.yellow,
+                transition: "width 0.3s",
+              }} />
+            </div>
+          </div>
+        );
+      })()}
 
       {techState[selectedTech.id] ? (
         <div>
@@ -220,7 +255,13 @@ export function TechTreePanel({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
                       {node.name}
                     </div>
                     <div style={{ color: t.primaryDark, fontSize: "10px", marginTop: "2px" }}>
-                      {status === "unlocked" ? "UNLOCKED" : node.cost.map((c) => `${c.amount}${c.resource}`).join(" + ")}
+                      {status === "unlocked"
+                        ? "UNLOCKED"
+                        : node.cost.length > 0
+                          ? node.cost.map((c) => `${c.amount}${c.resource}`).join(" + ")
+                          : node.progressInfo
+                            ? node.progressInfo().label
+                            : ""}
                     </div>
                   </div>
                   {status === "unlocked" && <span style={{ color: t.primaryDim, fontSize: "12px" }}>+</span>}

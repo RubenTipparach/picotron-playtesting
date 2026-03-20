@@ -55,6 +55,9 @@ let marketState = {
 
 let timerHandle = null;
 let saveCallback = null;
+let persistCallback = null;
+let ticksSinceLastPersist = 0;
+const PERSIST_EVERY_N_TICKS = 10; // Save to localStorage every 5s (10 ticks * 500ms)
 
 export function getMarketState() {
   return marketState;
@@ -244,15 +247,25 @@ export function getMarketUnits() {
 
 /**
  * Start the real-time market timer. Ticks once every TICK_INTERVAL_MS.
- * @param {Function} onTick - Called after each tick with market state (for persisting)
+ * @param {Function} onTick - Called every tick to update React state (Zustand set only, no localStorage)
+ * @param {Function} onPersist - Called periodically to persist to localStorage
  */
-export function startMarketTimer(onTick) {
+export function startMarketTimer(onTick, onPersist) {
   stopMarketTimer();
   saveCallback = onTick;
+  persistCallback = onPersist;
+  ticksSinceLastPersist = 0;
   timerHandle = setInterval(() => {
     tickMarket(1);
     // Spread to create a new object reference so Zustand detects the change
     if (saveCallback) saveCallback({ ...marketState });
+
+    // Persist to localStorage less frequently
+    ticksSinceLastPersist++;
+    if (ticksSinceLastPersist >= PERSIST_EVERY_N_TICKS && persistCallback) {
+      ticksSinceLastPersist = 0;
+      persistCallback({ ...marketState });
+    }
   }, TICK_INTERVAL_MS);
 }
 
@@ -264,7 +277,12 @@ export function stopMarketTimer() {
     clearInterval(timerHandle);
     timerHandle = null;
   }
+  // Persist on stop so we don't lose recent ticks
+  if (persistCallback && marketState.marketTime > 0) {
+    persistCallback({ ...marketState });
+  }
   saveCallback = null;
+  persistCallback = null;
 }
 
 /**
