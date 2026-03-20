@@ -695,6 +695,7 @@ export function App() {
         onStop={handleStop}
         onSave={handleSave}
         hasUnsavedChanges={hasUnsavedChanges}
+        onOpenSnippets={() => setIsSnippetsOpen(true)}
         onOpenTechTree={() => { setIsTechTreeOpen(true); setTechTreeSelectedId(undefined); }}
         onReset={handleReset}
         availableUpgradeCount={availableUpgradeCount}
