@@ -11,10 +11,14 @@ import {
   getSellPrice,
   getMarketCap,
   getMarketUnits,
+  executeBuy,
+  executeSell,
+  addMarketProfit,
 } from "../marketEngine.js";
 
 const GREEN = "#22cc44";
 const RED = "#ee3333";
+const TRADE_AMOUNTS = [1, 5, 10];
 
 // Time windows: label, ticks of history, candles to show
 const TIME_WINDOWS = [
@@ -312,11 +316,40 @@ function TimeWindowSelector({ value, onChange, t }) {
 export function StockMarketPanel() {
   const tech = useGameStore((s) => s.tech);
   const resources = useGameStore((s) => s.resources);
+  const credits = useGameStore((s) => s.credits);
   useGameStore((s) => s.market);
   const t = useTheme();
 
   const [chartType, setChartType] = useState("candle");
   const [timeWindow, setTimeWindow] = useState("1m");
+  const [tradeAmounts, setTradeAmounts] = useState({});
+
+  const getTradeAmount = (r) => tradeAmounts[r] || 1;
+  const setTradeAmount = (r, amt) => setTradeAmounts((prev) => ({ ...prev, [r]: amt }));
+
+  const handleBuy = (r, amount) => {
+    const result = executeBuy(r, amount);
+    if (!result.success) return;
+    const cost = Math.ceil(result.cost);
+    if (!useGameStore.getState().spendCredits(cost)) return;
+    useGameStore.getState().addResource(r, amount);
+  };
+
+  const handleSell = (r, amount) => {
+    const store = useGameStore.getState();
+    const available = store.resources[r] || 0;
+    const actual = Math.min(amount, available);
+    if (actual <= 0) return;
+    if (!store.consumeResource(r, actual)) return;
+    const result = executeSell(r, actual);
+    if (!result.success) {
+      store.addResource(r, actual);
+      return;
+    }
+    const earned = Math.floor(result.revenue);
+    store.addCredits(earned);
+    addMarketProfit(earned);
+  };
 
   const market = getMarketState();
   const emotion = getMarketEmotion();
@@ -441,25 +474,73 @@ export function StockMarketPanel() {
               : <LineChart history={history} color={clr} height={80} />
             }
 
-            <div style={{ display: "flex", gap: "6px", marginTop: "6px", alignItems: "center" }}>
-              <span style={{
-                padding: "2px 6px", fontSize: "10px", fontWeight: "bold",
-                backgroundColor: `${GREEN}22`, color: GREEN, border: `1px solid ${GREEN}44`,
-                transition: "all 0.3s",
-              }}>
-                BUY ${buyP.toFixed(2)}
-              </span>
-              <span style={{
-                padding: "2px 6px", fontSize: "10px", fontWeight: "bold",
-                backgroundColor: `${RED}22`, color: RED, border: `1px solid ${RED}44`,
-                transition: "all 0.3s",
-              }}>
-                SELL ${sellP.toFixed(2)}
-              </span>
-              <span style={{ marginLeft: "auto", fontSize: "10px", color: t.primaryDim }}>
-                HOLD: {resources[r] || 0}
-              </span>
-            </div>
+            {/* Trade controls */}
+            {(() => {
+              const amt = getTradeAmount(r);
+              const buyCost = Math.ceil(buyP * amt);
+              const sellRevenue = Math.floor(sellP * Math.min(amt, resources[r] || 0));
+              const canBuy = credits >= buyCost;
+              const canSell = (resources[r] || 0) >= 1;
+              return (
+                <div style={{ marginTop: "6px" }}>
+                  {/* Amount selector */}
+                  <div style={{ display: "flex", gap: "2px", marginBottom: "4px", alignItems: "center" }}>
+                    <span style={{ fontSize: "9px", color: t.primaryDark, marginRight: "4px" }}>QTY</span>
+                    {TRADE_AMOUNTS.map((a) => (
+                      <button
+                        key={a}
+                        onClick={() => setTradeAmount(r, a)}
+                        style={{
+                          padding: "1px 6px", fontSize: "9px", fontFamily: t.font,
+                          backgroundColor: amt === a ? t.primary : t.bg3,
+                          color: amt === a ? t.bg : t.primaryDark,
+                          border: `1px solid ${amt === a ? t.primary : t.border}`,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {a}x
+                      </button>
+                    ))}
+                    <span style={{ marginLeft: "auto", fontSize: "10px", color: t.primaryDim }}>
+                      HOLD: {resources[r] || 0}
+                    </span>
+                  </div>
+                  {/* Buy / Sell buttons with cost preview */}
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <button
+                      onClick={() => handleBuy(r, amt)}
+                      disabled={!canBuy}
+                      style={{
+                        flex: 1, padding: "4px 6px", fontSize: "10px", fontWeight: "bold",
+                        fontFamily: t.font,
+                        backgroundColor: canBuy ? `${GREEN}22` : `${GREEN}0a`,
+                        color: canBuy ? GREEN : `${GREEN}66`,
+                        border: `1px solid ${canBuy ? `${GREEN}66` : `${GREEN}22`}`,
+                        cursor: canBuy ? "pointer" : "default",
+                        textAlign: "center",
+                      }}
+                    >
+                      BUY {amt}x — ${buyCost}
+                    </button>
+                    <button
+                      onClick={() => handleSell(r, amt)}
+                      disabled={!canSell}
+                      style={{
+                        flex: 1, padding: "4px 6px", fontSize: "10px", fontWeight: "bold",
+                        fontFamily: t.font,
+                        backgroundColor: canSell ? `${RED}22` : `${RED}0a`,
+                        color: canSell ? RED : `${RED}66`,
+                        border: `1px solid ${canSell ? `${RED}66` : `${RED}22`}`,
+                        cursor: canSell ? "pointer" : "default",
+                        textAlign: "center",
+                      }}
+                    >
+                      SELL {Math.min(amt, resources[r] || 0)}x — ${sellRevenue}
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         );
       })}
