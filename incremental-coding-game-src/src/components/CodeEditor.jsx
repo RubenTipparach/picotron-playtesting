@@ -36,7 +36,6 @@ export const CodeEditor = forwardRef(
       scrollToLine: (line) => {
         if (editorRef.current) {
           editorRef.current.revealLineInCenter(line);
-          editorRef.current.setPosition({ lineNumber: line, column: 1 });
         }
       },
       insertText: (text) => {
@@ -60,7 +59,7 @@ export const CodeEditor = forwardRef(
       },
     }));
 
-    // Handle external scroll requests
+    // Handle external scroll requests — only scroll, never move cursor
     useEffect(() => {
       if (scrollToLineNumber != null && editorRef.current) {
         const editor = editorRef.current;
@@ -73,7 +72,6 @@ export const CodeEditor = forwardRef(
         if (!isVisible) {
           editor.revealLineInCenter(scrollToLineNumber);
         }
-        editor.setPosition({ lineNumber: scrollToLineNumber, column: 1 });
       }
     }, [scrollToLineNumber]);
 
