@@ -4,7 +4,8 @@ import { useTheme } from "../themes.js";
 
 export function CpuStats({ stats }) {
   const cpuLevel = useGameStore((s) => s.cpuLevel);
-  const speedBoost = Math.round((1 - Math.pow(0.5, cpuLevel)) * 100);
+  const BASE_IPS = 10;
+  const currentIps = BASE_IPS * Math.pow(1.5, cpuLevel);
   const t = useTheme();
 
   return (
@@ -24,7 +25,7 @@ export function CpuStats({ stats }) {
       <div style={{ marginBottom: "12px", paddingBottom: "8px", borderBottom: `1px solid ${t.border}` }}>
         <div style={{ fontSize: "10px", color: t.primaryDark, marginBottom: "4px" }}>CPU</div>
         <div style={{ fontSize: "12px" }}>
-          Level {cpuLevel}{speedBoost > 0 && <span style={{ color: t.primaryDim }}> (+{speedBoost}%)</span>}
+          Level {cpuLevel} <span style={{ color: t.primaryDim }}>— {currentIps.toFixed(1)} IPS</span>
         </div>
       </div>
 

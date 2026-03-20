@@ -49,7 +49,10 @@ export function ShopPanel() {
   };
 
   const nextRam = RAM_UPGRADES.find((u) => u.ram > ram);
-  const cpuSpeedPercent = Math.round((1 - Math.pow(0.5, cpuLevel)) * 100);
+  const BASE_IPS = 10;
+  const currentIps = BASE_IPS * Math.pow(1.5, cpuLevel);
+  const nextIps = BASE_IPS * Math.pow(1.5, cpuLevel + 1);
+  const ipsGain = nextIps - currentIps;
 
   const btnStyle = (canAfford) => ({
     padding: "2px 8px",
@@ -133,7 +136,7 @@ export function ShopPanel() {
         </div>
         <div style={{ fontSize: "12px", marginBottom: "6px" }}>
           Level: <span style={{ color: t.primary }}>{cpuLevel}</span>
-          {cpuLevel > 0 && <span style={{ color: t.primaryDim }}> (+{cpuSpeedPercent}% speed)</span>}
+          <span style={{ color: t.primaryDim }}> — {currentIps.toFixed(1)} IPS</span>
         </div>
         <button
           onClick={buyCpu}
@@ -146,7 +149,7 @@ export function ShopPanel() {
             textAlign: "left",
           }}
         >
-          Level {cpuLevel + 1} — ${nextCpuCost}
+          +{ipsGain.toFixed(1)} IPS — ${nextCpuCost}
         </button>
       </div>
     </div>

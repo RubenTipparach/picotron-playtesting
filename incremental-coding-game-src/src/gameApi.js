@@ -75,10 +75,11 @@ function getProcessingSpeed() {
     speed *= 0.8;
   }
 
-  // CPU upgrades: each level = 50% faster (halves remaining time)
+  // CPU upgrades: each level adds 50% more IPS (cumulative)
+  // IPS = 1.5^cpuLevel, so time multiplier = 1 / 1.5^cpuLevel
   const cpuLevel = useGameStore.getState().cpuLevel;
   if (cpuLevel > 0) {
-    speed *= Math.pow(0.5, cpuLevel);
+    speed /= Math.pow(1.5, cpuLevel);
   }
 
   return speed;
