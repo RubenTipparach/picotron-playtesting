@@ -84,6 +84,7 @@ export function ResourceBar({
         <ResCount label="A" count={resources.A} color={t.resourceA} t={t} />
         {tech.convertAToBUnlocked && <ResCount label="B" count={resources.B} color={t.resourceB} t={t} />}
         {tech.resourceCUnlocked && <ResCount label="C" count={resources.C} color={t.resourceC} t={t} />}
+        {resources.D > 0 && <ResCount label="D" count={resources.D} color={t.resourceD} t={t} />}
       </div>
 
       {/* Credits */}

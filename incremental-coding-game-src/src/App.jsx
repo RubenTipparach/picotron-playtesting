@@ -29,8 +29,10 @@ import { LogPanel } from "./components/LogPanel.jsx";
 import { TechTreePanel } from "./components/TechTreePanel.jsx";
 import { DocsPanel } from "./components/DocsPanel.jsx";
 import { ShopPanel } from "./components/ShopPanel.jsx";
+import { StockMarketPanel } from "./components/StockMarketPanel.jsx";
 import { HintModal, HintPanel } from "./components/HintOverlay.jsx";
 import { THEMES, ThemeContext, loadThemeId, saveThemeId } from "./themes.js";
+import { initMarket } from "./marketEngine.js";
 
 const CODE_STORAGE_KEY = "incremental-coding-game-code";
 
@@ -88,6 +90,7 @@ export function App() {
   // ── Initialize ──
   useEffect(() => {
     useGameStore.getState().syncFromLocalStorage();
+    initMarket(useGameStore.getState().market);
 
     const restored = [];
     if (hasSeenHint("first-tutorial")) {
@@ -381,6 +384,7 @@ export function App() {
   const renderTabContent = (tab) => {
     switch (tab) {
       case "shop": return <ShopPanel />;
+      case "market": return <StockMarketPanel />;
       case "docs": return <DocsPanel isOpen={true} onClose={() => {}} scrollToSection={docsScrollSection} inline onInsertCode={(text) => { if (editorRef.current?.insertText) editorRef.current.insertText(text); }} />;
       case "profiler": return <CpuStats stats={stats} />;
       case "hints": return <HintPanel activeHints={activeHints} dismissedHints={dismissedHints} onHintClick={() => {}} onReopenHint={reopenHint} inline />;
@@ -437,7 +441,7 @@ export function App() {
             <LogPanel logs={logs} />
           </div>
 
-          {["shop", "docs", "profiler", "hints"].map((tab) => (
+          {["shop", "market", "docs", "profiler", "hints"].map((tab) => (
             <div key={tab} style={{ position: "absolute", inset: 0, display: mobilePanel === tab ? "block" : "none", overflow: "auto" }}>
               {mobilePanel === tab && renderTabContent(tab)}
             </div>
@@ -457,6 +461,7 @@ export function App() {
             { id: "code", label: "CODE" },
             { id: "output", label: "LOG" },
             { id: "shop", label: "SHOP" },
+            { id: "market", label: "MKT" },
             { id: "docs", label: "DOCS" },
             { id: "profiler", label: "CPU" },
           ].map((tab) => (
@@ -574,7 +579,7 @@ export function App() {
         {/* RIGHT PANEL: Tabbed */}
         <div style={{ width: `${rightPanelWidth}px`, display: "flex", flexDirection: "column", backgroundColor: theme.bg, flexShrink: 0 }}>
           <div style={{ display: "flex", borderBottom: `1px solid ${theme.border}` }}>
-            {["shop", "docs", "profiler", "hints"].map((tab) => {
+            {["shop", "market", "docs", "profiler", "hints"].map((tab) => {
               const isActive = rightTab === tab;
               return (
                 <button

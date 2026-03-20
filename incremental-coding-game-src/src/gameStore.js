@@ -11,7 +11,7 @@ const LOCAL_STORAGE_KEY = "incremental-coding-game-state";
 
 // Default initial state
 const DEFAULT_STATE = {
-  resources: { A: 0, B: 0, C: 0 },
+  resources: { A: 0, B: 0, C: 0, D: 0 },
   tech: {
     whileUnlocked: false,
     convertAToBUnlocked: false,
@@ -21,12 +21,15 @@ const DEFAULT_STATE = {
     ifStatementsUnlocked: false,
     userFunctionsUnlocked: false,
     processingSpeed1Unlocked: false,
+    stockMarketUnlocked: false,
   },
   virtualTime: 0,
   // Shop system
   credits: 0,
   ram: 256,       // max characters allowed in editor
   cpuLevel: 0,    // each level = 50% faster, cost doubles each level
+  // Market state (persisted separately from live engine)
+  market: null,
 };
 
 /**
@@ -45,6 +48,7 @@ function loadGameState() {
         credits: parsed.credits ?? DEFAULT_STATE.credits,
         ram: parsed.ram ?? DEFAULT_STATE.ram,
         cpuLevel: parsed.cpuLevel ?? DEFAULT_STATE.cpuLevel,
+        market: parsed.market ?? DEFAULT_STATE.market,
       };
     }
   } catch (error) {
@@ -84,6 +88,7 @@ export const useGameStore = create((set, get) => {
     credits: initial.credits,
     ram: initial.ram,
     cpuLevel: initial.cpuLevel,
+    market: initial.market,
 
     /** Replace all resources */
     setResources: (resources) => {
@@ -194,6 +199,14 @@ export const useGameStore = create((set, get) => {
       set({ ram: newRam });
     },
 
+    /** Save market state */
+    saveMarket: (marketData) => {
+      const current = get();
+      const state = { ...current, market: marketData };
+      saveGameState(state);
+      set({ market: marketData });
+    },
+
     /** Upgrade CPU level */
     upgradeCpu: () => {
       const current = get();
@@ -213,6 +226,7 @@ export const useGameStore = create((set, get) => {
         credits: loaded.credits,
         ram: loaded.ram,
         cpuLevel: loaded.cpuLevel,
+        market: loaded.market,
       });
     },
 
@@ -226,6 +240,7 @@ export const useGameStore = create((set, get) => {
         credits: DEFAULT_STATE.credits,
         ram: DEFAULT_STATE.ram,
         cpuLevel: DEFAULT_STATE.cpuLevel,
+        market: DEFAULT_STATE.market,
       });
     },
   };

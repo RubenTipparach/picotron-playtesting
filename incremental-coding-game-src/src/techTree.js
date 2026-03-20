@@ -138,6 +138,23 @@ export const TECH_TREE = [
     dependencies: ["mathFunctionsUnlocked"],
     position: { row: 3, col: 1 },
   },
+  {
+    id: "stockMarketUnlocked",
+    name: "Stock Market",
+    description: "Unlock the market. Trade resources with fluctuating prices using getMarketValue(), buy(), and sell()",
+    threshold: (resources) => resources.C >= 3 && resources.B >= 15,
+    cost: [
+      { resource: "B", amount: 15 },
+      { resource: "C", amount: 3 },
+    ],
+    unlocked: false,
+    validationRegex: /\b(getMarketValue|buy|sell)\s*\(/,
+    validationErrorMessage:
+      "Market functions are not unlocked yet. Produce 15 B + 3 C to unlock the Stock Market.",
+    icon: "$",
+    dependencies: ["resourceCUnlocked", "ifStatementsUnlocked"],
+    position: { row: 2, col: 2 },
+  },
 ];
 
 /**
@@ -177,6 +194,7 @@ export function getAvailableFunctions() {
 
   if (tech.convertAToBUnlocked) functions.push("convertAToB");
   if (tech.resourceCUnlocked) functions.push("makeResourceC");
+  if (tech.stockMarketUnlocked) functions.push("getMarketValue", "buy", "sell");
 
   return functions;
 }
@@ -235,6 +253,7 @@ export const TECH_TO_DOCS_SECTION = {
   resourceCUnlocked: "resource-conversion-2",
   ifStatementsUnlocked: "if-statements",
   userFunctionsUnlocked: "user-functions",
+  stockMarketUnlocked: "stock-market",
 };
 
 /** Resource colors used throughout the UI */
@@ -242,4 +261,5 @@ export const RESOURCE_COLORS = {
   A: "#4a9eff", // Blue
   B: "#9d4edd", // Purple
   C: "#ff6b35", // Orange
+  D: "#ffcc00", // Gold
 };

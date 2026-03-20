@@ -7,6 +7,14 @@
  */
 
 import { useGameStore } from "./gameStore.js";
+import {
+  getMarketValue as engineGetMarketValue,
+  executeBuy,
+  executeSell,
+  addMarketProfit,
+  tickMarket,
+  getMarketState,
+} from "./marketEngine.js";
 
 /** All API function names available in the game */
 export const API_FUNCTION_NAMES = [
@@ -15,6 +23,9 @@ export const API_FUNCTION_NAMES = [
   "getResourceCount",
   "log",
   "makeResourceC",
+  "getMarketValue",
+  "buy",
+  "sell",
 ];
 
 // ─── Speed Configuration ──────────────────────────────────────────────
@@ -299,6 +310,7 @@ export function createGameApi(executionContext) {
         if (resourceName === "A") count = resources.A;
         else if (resourceName === "B") count = resources.B;
         else if (resourceName === "C") count = resources.C;
+        else if (resourceName === "D") count = resources.D;
 
         useGameStore.getState().addVirtualTime(1);
       });
@@ -364,6 +376,124 @@ export function createGameApi(executionContext) {
       });
 
       return context.isCancelled?.() ? 0 : produced;
+    },
+
+    /**
+     * Get the current market value of a resource.
+     * Takes 1 second. Adds 1 virtual second.
+     * @param {string} resource - "A", "B", "C", or "D"
+     * @returns {number} Current market price
+     */
+    async getMarketValue(resource) {
+      const context = {
+        ...executionContext,
+        functionName: "getMarketValue",
+        lineNumber: executionContext.lineNumber,
+      };
+      let price = 0;
+
+      await executeWithDelay(1000, context, () => {
+        if (context.isCancelled?.()) return;
+        const store = useGameStore.getState();
+        store.addVirtualTime(1);
+        tickMarket(store.virtualTime);
+        price = engineGetMarketValue(resource);
+        store.saveMarket(getMarketState());
+      });
+
+      return context.isCancelled?.() ? 0 : price;
+    },
+
+    /**
+     * Buy a resource from the market using credits.
+     * Takes 2 seconds. Adds 2 virtual seconds.
+     * @param {string} resource - "A", "B", "C", or "D"
+     * @param {number} amount - How many to buy (default 1)
+     * @returns {number} Amount bought, or 0 on failure
+     */
+    async buy(resource, amount = 1) {
+      const context = {
+        ...executionContext,
+        functionName: "buy",
+        lineNumber: executionContext.lineNumber,
+      };
+      let bought = 0;
+
+      await executeWithDelay(2000, context, () => {
+        if (context.isCancelled?.()) return;
+        const store = useGameStore.getState();
+        store.addVirtualTime(2);
+        tickMarket(store.virtualTime);
+
+        const r = String(resource).toUpperCase();
+        const result = executeBuy(r, amount);
+        if (!result.success) {
+          const lineInfo = context.lineNumber !== undefined ? ` (line ${context.lineNumber})` : "";
+          throw new Error(`buy("${resource}", ${amount}) failed${lineInfo} — invalid resource.`);
+        }
+
+        const cost = Math.ceil(result.cost);
+        if (!store.spendCredits(cost)) {
+          const lineInfo = context.lineNumber !== undefined ? ` (line ${context.lineNumber})` : "";
+          throw new Error(
+            `buy("${resource}", ${amount}) failed${lineInfo} — not enough credits. Need $${cost}, have $${store.credits}. Sell resources in Shop first!`
+          );
+        }
+
+        store.addResource(r, amount);
+        bought = amount;
+        store.saveMarket(getMarketState());
+      });
+
+      return context.isCancelled?.() ? 0 : bought;
+    },
+
+    /**
+     * Sell a resource on the market for credits.
+     * Takes 2 seconds. Adds 2 virtual seconds.
+     * @param {string} resource - "A", "B", "C", or "D"
+     * @param {number} amount - How many to sell (default 1)
+     * @returns {number} Credits received, or 0 on failure
+     */
+    async sell(resource, amount = 1) {
+      const context = {
+        ...executionContext,
+        functionName: "sell",
+        lineNumber: executionContext.lineNumber,
+      };
+      let revenue = 0;
+
+      await executeWithDelay(2000, context, () => {
+        if (context.isCancelled?.()) return;
+        const store = useGameStore.getState();
+        store.addVirtualTime(2);
+        tickMarket(store.virtualTime);
+
+        const r = String(resource).toUpperCase();
+        if (!store.consumeResource(r, amount)) {
+          const available = store.resources[r] || 0;
+          const lineInfo = context.lineNumber !== undefined ? ` (line ${context.lineNumber})` : "";
+          throw new Error(
+            `sell("${resource}", ${amount}) failed${lineInfo} — not enough ${r}. Need ${amount}, have ${available}.`
+          );
+        }
+
+        const result = executeSell(r, amount);
+        if (!result.success) {
+          // Refund the resource
+          store.addResource(r, amount);
+          const lineInfo = context.lineNumber !== undefined ? ` (line ${context.lineNumber})` : "";
+          throw new Error(`sell("${resource}", ${amount}) failed${lineInfo} — invalid resource.`);
+        }
+
+        const earned = Math.floor(result.revenue);
+        store.addCredits(earned);
+        addMarketProfit(earned);
+        revenue = earned;
+        store.saveMarket(getMarketState());
+      });
+
+      return context.isCancelled?.() ? 0 : revenue;
     },
   };
 }
