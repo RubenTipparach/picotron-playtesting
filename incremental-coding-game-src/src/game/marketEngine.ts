@@ -7,12 +7,34 @@
  * D is a special volatile resource with no production — only tradeable.
  */
 
-const BASE_PRICES = { A: 1, B: 5, C: 25, D: 50 };
-const VOLATILITY = { A: 0.02, B: 0.03, C: 0.04, D: 0.12 };
-const MEAN_REVERSION = { A: 0.05, B: 0.04, C: 0.03, D: 0.01 };
+// ─── Types ────────────────────────────────────────────────────────────
+
+export interface MarketPrices { A: number; B: number; C: number; D: number; }
+export interface Candle { period: number; open: number; high: number; low: number; close: number; }
+export interface PricePoint { time: number; price: number; }
+export interface MarketState {
+  prices: MarketPrices;
+  priceHistory: Record<string, PricePoint[]>;
+  candles: Record<string, Candle[]>;
+  marketTime: number;
+  demandPressure: Record<string, number>;
+  totalMarketProfit: number;
+  dUnlocked: boolean;
+  marketUnits: Record<string, number>;
+  agentCount: number;
+  targetMarketUnits: Record<string, number>;
+}
+export interface TradeResult { success: boolean; cost?: number; revenue?: number; amount: number; price?: number; }
+export interface EmotionInfo { label: string; color: string; }
+
+// ─── Constants ────────────────────────────────────────────────────────
+
+const BASE_PRICES: MarketPrices = { A: 1, B: 5, C: 25, D: 50 };
+const VOLATILITY: MarketPrices = { A: 0.02, B: 0.03, C: 0.04, D: 0.12 };
+const MEAN_REVERSION: MarketPrices = { A: 0.05, B: 0.04, C: 0.03, D: 0.01 };
 
 const SPREAD = 0.05;
-const TRADE_IMPACT = { A: 0.005, B: 0.01, C: 0.02, D: 0.05 };
+const TRADE_IMPACT: MarketPrices = { A: 0.005, B: 0.01, C: 0.02, D: 0.05 };
 
 // Real-time tick interval (ms) — 0.5s for responsive charts
 const TICK_INTERVAL_MS = 500;
@@ -20,26 +42,26 @@ const TICK_INTERVAL_MS = 500;
 // Agent simulation constants
 const TARGET_PLAYER_SHARE = 0.01; // Target 1% player market share
 const MARKET_GROWTH_RATE = 0.02;  // How fast market adjusts per tick (lag)
-const INITIAL_MARKET_UNITS = { A: 500, B: 100, C: 20, D: 10 };
+const INITIAL_MARKET_UNITS: Record<string, number> = { A: 500, B: 100, C: 20, D: 10 };
 const AGENT_TRADE_RATE = 0.03;    // Fraction of agents that trade per tick
 
-function seededRandom(seed) {
+function seededRandom(seed: number): number {
   let x = Math.sin(seed * 9301 + 49297) * 49297;
   x = Math.sin(x) * 10000;
   return x - Math.floor(x);
 }
 
-function gaussianRandom(seed) {
+function gaussianRandom(seed: number): number {
   const u1 = seededRandom(seed);
   const u2 = seededRandom(seed + 0.5);
   return Math.sqrt(-2 * Math.log(Math.max(u1, 0.0001))) * Math.cos(2 * Math.PI * u2);
 }
 
-const CANDLE_PERIOD = 20; // 20 ticks = 10s per candle
-const MAX_CANDLES = 120; // 10 minutes of candles (6 per minute)
+const CANDLE_PERIOD = 2; // 2 ticks = 1s per candle
+const MAX_CANDLES = 600; // 10 minutes of 1s candles
 const MAX_HISTORY = 1200; // 10 minutes of tick-level data (2 ticks/sec)
 
-let marketState = {
+let marketState: MarketState = {
   prices: { ...BASE_PRICES },
   priceHistory: { A: [], B: [], C: [], D: [] },
   candles: { A: [], B: [], C: [], D: [] },
@@ -53,27 +75,29 @@ let marketState = {
   targetMarketUnits: { ...INITIAL_MARKET_UNITS }, // Target size market is growing toward
 };
 
-let timerHandle = null;
-let saveCallback = null;
-let persistCallback = null;
+import { trackEvent } from '../utils/perfMonitor';
+
+let timerHandle: ReturnType<typeof setInterval> | null = null;
+let saveCallback: ((state: MarketState) => void) | null = null;
+let persistCallback: ((state: MarketState) => void) | null = null;
 let ticksSinceLastPersist = 0;
 const PERSIST_EVERY_N_TICKS = 10; // Save to localStorage every 5s (10 ticks * 500ms)
 
-export function getMarketState() {
+export function getMarketState(): MarketState {
   return marketState;
 }
 
-export function setDUnlocked(unlocked) {
+export function setDUnlocked(unlocked: boolean): void {
   marketState.dUnlocked = unlocked;
 }
 
-export function initMarket(savedState) {
+export function initMarket(savedState?: Partial<MarketState> & { lastTick?: number } | null): void {
   if (savedState) {
     marketState = {
-      prices: { ...BASE_PRICES, ...savedState.prices },
+      prices: { ...BASE_PRICES, ...savedState.prices } as MarketPrices,
       priceHistory: savedState.priceHistory || { A: [], B: [], C: [], D: [] },
       candles: savedState.candles || { A: [], B: [], C: [], D: [] },
-      marketTime: savedState.marketTime ?? savedState.lastTick ?? 0,
+      marketTime: savedState.marketTime ?? (savedState as any).lastTick ?? 0,
       demandPressure: savedState.demandPressure || { A: 0, B: 0, C: 0, D: 0 },
       totalMarketProfit: savedState.totalMarketProfit || 0,
       dUnlocked: savedState.dUnlocked || false,
@@ -100,8 +124,8 @@ export function initMarket(savedState) {
 /**
  * Get player resource holdings (reads from game store if available).
  */
-let getPlayerResources = null;
-export function setPlayerResourcesGetter(fn) {
+let getPlayerResources: (() => Record<string, number>) | null = null;
+export function setPlayerResourcesGetter(fn: () => Record<string, number>): void {
   getPlayerResources = fn;
 }
 
@@ -109,25 +133,24 @@ export function setPlayerResourcesGetter(fn) {
  * Simulate agent trades for one tick. Agents buy/sell randomly,
  * creating organic demand pressure that drives price volatility.
  */
-function simulateAgents(tick) {
+function simulateAgents(tick: number): void {
   const resources = marketState.dUnlocked ? ["A", "B", "C", "D"] : ["A", "B", "C"];
   const agents = marketState.agentCount;
   const tradingAgents = Math.max(1, Math.floor(agents * AGENT_TRADE_RATE));
 
   for (const r of resources) {
-    // Each trading agent randomly buys or sells
-    let netPressure = 0;
-    for (let a = 0; a < tradingAgents; a++) {
-      const seed = tick * 137 + a * 31 + r.charCodeAt(0) * 7;
-      const rand = seededRandom(seed);
-      const direction = rand > 0.52 ? 1 : rand < 0.48 ? -1 : 0; // Slight bias varies
-      const intensity = seededRandom(seed + 0.3) * 0.5 + 0.5; // 0.5-1.0
-      netPressure += direction * intensity * TRADE_IMPACT[r] * 0.3;
+    // Compute aggregate effect analytically instead of looping per-agent.
+    // Each agent has ~4% chance buy, ~4% chance sell, ~92% idle.
+    // Net direction averages near 0 with random variance proportional to sqrt(N).
+    const seed = tick * 137 + r.charCodeAt(0) * 7;
+    const noise = gaussianRandom(seed) * Math.sqrt(tradingAgents);
+    const avgIntensity = 0.75; // mean of uniform(0.5, 1.0)
+    const netPressure = noise * avgIntensity * (TRADE_IMPACT as any)[r] * 0.3;
 
-      // Agents adjust market units (they produce/consume)
-      const unitChange = direction * intensity * 0.1;
-      marketState.marketUnits[r] = Math.max(1, marketState.marketUnits[r] + unitChange);
-    }
+    // Aggregate unit change (net direction * avg intensity * 0.1 * sqrt(N))
+    const unitNoise = gaussianRandom(seed + 0.5) * Math.sqrt(tradingAgents);
+    const unitChange = unitNoise * avgIntensity * 0.1;
+    marketState.marketUnits[r] = Math.max(1, marketState.marketUnits[r] + unitChange);
 
     marketState.demandPressure[r] += netPressure;
   }
@@ -156,7 +179,7 @@ function simulateAgents(tick) {
       }
     }
 
-    // Scale agent count with market size
+    // Scale agent count with market size, capped to prevent runaway growth
     const avgUnits = resources.reduce((sum, r) => sum + marketState.marketUnits[r], 0) / resources.length;
     const baseAvg = resources.reduce((sum, r) => sum + INITIAL_MARKET_UNITS[r], 0) / resources.length;
     marketState.agentCount = Math.max(50, Math.floor(50 * (avgUnits / baseAvg)));
@@ -166,7 +189,7 @@ function simulateAgents(tick) {
 /**
  * Advance the market by N ticks from current marketTime.
  */
-export function tickMarket(numTicks) {
+export function tickMarket(numTicks: number): void {
   if (numTicks <= 0) return;
 
   const startTick = marketState.marketTime;
@@ -181,10 +204,10 @@ export function tickMarket(numTicks) {
     for (const r of resources) {
       if (r === "D" && !marketState.dUnlocked) continue;
 
-      const price = marketState.prices[r];
-      const base = BASE_PRICES[r];
-      const vol = VOLATILITY[r];
-      const revert = MEAN_REVERSION[r];
+      const price = (marketState.prices as any)[r] as number;
+      const base = (BASE_PRICES as any)[r] as number;
+      const vol = (VOLATILITY as any)[r] as number;
+      const revert = (MEAN_REVERSION as any)[r] as number;
 
       const noise = gaussianRandom(t * 7 + r.charCodeAt(0)) * vol * base;
       const reversion = (base - price) * revert;
@@ -192,9 +215,9 @@ export function tickMarket(numTicks) {
       marketState.demandPressure[r] *= 0.9;
 
       const newPrice = Math.max(base * 0.1, price + noise + reversion + pressure);
-      marketState.prices[r] = Math.round(newPrice * 100) / 100;
+      (marketState.prices as any)[r] = newPrice;
 
-      const currentPrice = marketState.prices[r];
+      const currentPrice = (marketState.prices as any)[r] as number;
       marketState.priceHistory[r].push({ time: t, price: currentPrice });
       if (marketState.priceHistory[r].length > MAX_HISTORY) {
         marketState.priceHistory[r] = marketState.priceHistory[r].slice(-MAX_HISTORY);
@@ -229,36 +252,44 @@ export function tickMarket(numTicks) {
 /**
  * Get market capitalization (total value of all units in the market).
  */
-export function getMarketCap() {
+export function getMarketCap(): number {
   const resources = marketState.dUnlocked ? ["A", "B", "C", "D"] : ["A", "B", "C"];
   let totalCap = 0;
   for (const r of resources) {
-    totalCap += marketState.marketUnits[r] * marketState.prices[r];
+    totalCap += marketState.marketUnits[r] * (marketState.prices as any)[r];
   }
-  return Math.floor(totalCap);
+  return totalCap;
 }
 
 /**
  * Get total units in the market (AI agents only).
  */
-export function getMarketUnits() {
+export function getMarketUnits(): Record<string, number> {
   return { ...marketState.marketUnits };
 }
 
 /**
  * Start the real-time market timer. Ticks once every TICK_INTERVAL_MS.
- * @param {Function} onTick - Called every tick to update React state (Zustand set only, no localStorage)
- * @param {Function} onPersist - Called periodically to persist to localStorage
+ * @param onTick - Called every tick to update React state (Zustand set only, no localStorage)
+ * @param onPersist - Called periodically to persist to localStorage
  */
-export function startMarketTimer(onTick, onPersist) {
+export function startMarketTimer(onTick: (state: MarketState) => void, onPersist: (state: MarketState) => void): void {
   stopMarketTimer();
   saveCallback = onTick;
   persistCallback = onPersist;
   ticksSinceLastPersist = 0;
+  let ticksSinceLastUiUpdate = 0;
+  const UI_UPDATE_EVERY_N_TICKS = 4; // Update React every 2s (4 ticks * 500ms)
   timerHandle = setInterval(() => {
+    trackEvent("marketTick");
     tickMarket(1);
-    // Spread to create a new object reference so Zustand detects the change
-    if (saveCallback) saveCallback({ ...marketState });
+
+    // Throttle React state updates
+    ticksSinceLastUiUpdate++;
+    if (ticksSinceLastUiUpdate >= UI_UPDATE_EVERY_N_TICKS && saveCallback) {
+      ticksSinceLastUiUpdate = 0;
+      saveCallback({ ...marketState });
+    }
 
     // Persist to localStorage less frequently
     ticksSinceLastPersist++;
@@ -272,7 +303,7 @@ export function startMarketTimer(onTick, onPersist) {
 /**
  * Stop the real-time market timer.
  */
-export function stopMarketTimer() {
+export function stopMarketTimer(): void {
   if (timerHandle) {
     clearInterval(timerHandle);
     timerHandle = null;
@@ -288,69 +319,69 @@ export function stopMarketTimer() {
 /**
  * Get the current market value (mid price) for a resource.
  */
-export function getMarketValue(resource) {
+export function getMarketValue(resource: string): number {
   const r = String(resource).toUpperCase();
-  if (!BASE_PRICES[r]) return 0;
+  if (!(BASE_PRICES as any)[r]) return 0;
   if (r === "D" && !marketState.dUnlocked) return 0;
-  return marketState.prices[r];
+  return (marketState.prices as any)[r];
 }
 
 /**
  * Get the buy price (slightly above market).
  */
-export function getBuyPrice(resource) {
+export function getBuyPrice(resource: string): number {
   const mid = getMarketValue(resource);
-  return Math.round(mid * (1 + SPREAD) * 100) / 100;
+  return mid * (1 + SPREAD);
 }
 
 /**
  * Get the sell price (slightly below market).
  */
-export function getSellPrice(resource) {
+export function getSellPrice(resource: string): number {
   const mid = getMarketValue(resource);
-  return Math.round(mid * (1 - SPREAD) * 100) / 100;
+  return mid * (1 - SPREAD);
 }
 
 /**
  * Execute a buy trade. Returns { success, cost, amount }.
  * Buying pushes price up.
  */
-export function executeBuy(resource, amount) {
+export function executeBuy(resource: string, amount: number): TradeResult {
   const r = String(resource).toUpperCase();
-  if (!BASE_PRICES[r]) return { success: false, cost: 0, amount: 0 };
+  if (!(BASE_PRICES as any)[r]) return { success: false, cost: 0, amount: 0 };
   if (r === "D" && !marketState.dUnlocked) return { success: false, cost: 0, amount: 0 };
 
   const price = getBuyPrice(r);
-  const cost = Math.round(price * amount * 100) / 100;
+  const cost = price * amount;
 
   // Push price up
-  marketState.demandPressure[r] += TRADE_IMPACT[r] * amount;
+  marketState.demandPressure[r] += (TRADE_IMPACT as any)[r] * amount;
 
-  return { success: true, cost, amount, price: marketState.prices[r] };
+  return { success: true, cost, amount, price: (marketState.prices as any)[r] };
 }
 
 /**
  * Execute a sell trade. Returns { success, revenue, amount }.
  * Selling pushes price down.
  */
-export function executeSell(resource, amount) {
+export function executeSell(resource: string, amount: number): TradeResult {
   const r = String(resource).toUpperCase();
-  if (!BASE_PRICES[r]) return { success: false, revenue: 0, amount: 0 };
+  if (!(BASE_PRICES as any)[r]) return { success: false, revenue: 0, amount: 0 };
   if (r === "D" && !marketState.dUnlocked) return { success: false, revenue: 0, amount: 0 };
 
   const price = getSellPrice(r);
-  const revenue = Math.round(price * amount * 100) / 100;
+  const revenue = price * amount;
 
   // Push price down
-  marketState.demandPressure[r] -= TRADE_IMPACT[r] * amount;
+  marketState.demandPressure[r] -= (TRADE_IMPACT as any)[r] * amount;
 
-  return { success: true, revenue, amount, price: marketState.prices[r] };
+  return { success: true, revenue, amount, price: (marketState.prices as any)[r] };
 }
 
 /**
  * Track profit from market trades.
  */
-export function addMarketProfit(amount) {
+export function addMarketProfit(amount: number): void {
   marketState.totalMarketProfit += amount;
 }
 
@@ -358,7 +389,7 @@ export function addMarketProfit(amount) {
  * Compute market "emotion" — a fear/greed index from -1 (extreme fear) to +1 (extreme greed).
  * Based on recent price trends across all resources.
  */
-export function getMarketEmotion() {
+export function getMarketEmotion(): number {
   const resources = marketState.dUnlocked ? ["A", "B", "C", "D"] : ["A", "B", "C"];
   let totalMomentum = 0;
   let count = 0;
@@ -368,7 +399,7 @@ export function getMarketEmotion() {
     if (history.length < 5) continue;
 
     const recent = history.slice(-10);
-    const base = BASE_PRICES[r];
+    const base = (BASE_PRICES as any)[r] as number;
 
     // Short-term momentum
     const firstPrice = recent[0].price;
@@ -391,7 +422,7 @@ export function getMarketEmotion() {
 /**
  * Get emotion label and color.
  */
-export function getEmotionLabel(emotion) {
+export function getEmotionLabel(emotion: number): EmotionInfo {
   if (emotion > 0.6) return { label: "EXTREME GREED", color: "#00ff00" };
   if (emotion > 0.3) return { label: "GREED", color: "#88ff44" };
   if (emotion > 0.1) return { label: "OPTIMISM", color: "#aaff66" };

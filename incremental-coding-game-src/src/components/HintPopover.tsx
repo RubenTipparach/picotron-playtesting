@@ -1,7 +1,21 @@
 import React from "react";
-import { useTheme } from "../themes.js";
+import { useTheme } from "../themes";
 
-export function HintModal({ hint, onDismiss, onHintClick }) {
+export interface Hint {
+  id: string;
+  message: string;
+  title?: string;
+  codeExample?: string;
+  lineNumber?: number;
+}
+
+interface HintPopoverProps {
+  hint: Hint;
+  onDismiss: () => void;
+  onHintClick?: (hint: Hint) => void;
+}
+
+export function HintPopover({ hint, onDismiss, onHintClick }: HintPopoverProps) {
   const t = useTheme();
   return (
     <div
@@ -67,11 +81,18 @@ export function HintModal({ hint, onDismiss, onHintClick }) {
   );
 }
 
-export function HintPanel({ activeHints, dismissedHints, onReopenHint, inline }) {
+interface HintsPanelProps {
+  activeHints: Hint[];
+  dismissedHints: Hint[];
+  onReopenHint?: (hint: Hint) => void;
+  inline?: boolean;
+}
+
+export function HintsPanel({ activeHints, dismissedHints, onReopenHint, inline }: HintsPanelProps) {
   const t = useTheme();
   const hasHints = [...activeHints, ...dismissedHints].length > 0;
 
-  const containerStyle = inline
+  const containerStyle: React.CSSProperties = inline
     ? { padding: "12px", fontFamily: t.font, color: t.primary, height: "100%", overflowY: "auto", boxSizing: "border-box" }
     : { position: "fixed", right: "16px", bottom: "16px", width: "280px", maxHeight: "300px", backgroundColor: t.bg, border: `1px solid ${t.border}`, zIndex: 9999, fontFamily: t.font };
 

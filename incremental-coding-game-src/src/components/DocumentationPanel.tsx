@@ -1,12 +1,20 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useGameStore } from "../gameStore.js";
-import { getAvailableFunctions } from "../techTree.js";
-import { useTheme } from "../themes.js";
+import { useGameStore } from "../store/gameStore";
+import { getAvailableFunctions } from "../game/tech";
+import { useTheme } from "../themes";
 
-export function DocsPanel({ isOpen, onClose, scrollToSection, inline, onInsertCode }) {
+interface DocumentationPanelProps {
+  isOpen: boolean;
+  onClose?: () => void;
+  scrollToSection?: string;
+  inline?: boolean;
+  onInsertCode?: (code: string) => void;
+}
+
+export function DocumentationPanel({ isOpen, onClose, scrollToSection, inline, onInsertCode }: DocumentationPanelProps) {
   const tech = useGameStore((state) => state.tech);
   const [availableFunctions, setAvailableFunctions] = useState(getAvailableFunctions());
-  const contentRef = useRef(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const t = useTheme();
 
   useEffect(() => {
@@ -15,7 +23,7 @@ export function DocsPanel({ isOpen, onClose, scrollToSection, inline, onInsertCo
 
   useEffect(() => {
     if (isOpen && scrollToSection && contentRef.current) {
-      const el = contentRef.current.querySelector(`[data-section-id="${scrollToSection}"]`);
+      const el = contentRef.current.querySelector(`[data-section-id="${scrollToSection}"]`) as HTMLElement | null;
       if (el) {
         setTimeout(() => {
           el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -28,15 +36,19 @@ export function DocsPanel({ isOpen, onClose, scrollToSection, inline, onInsertCo
 
   if (!isOpen) return null;
 
-  const functionDocs = {
+  const functionDocs: Record<string, { description: string; example: string; returns: string; sectionId?: string }> = {
     produceResourceA: { description: "Produces 1 unit of resource A. Takes 2s.", example: "produceResourceA()", returns: "Returns: 1" },
     convertAToB: { description: "Converts 2A into 1B. Takes 3s.", example: "convertAToB()", returns: "Returns: 1 if ok, 0 if not enough A" },
     getResourceCount: { description: "Gets count of a resource. Takes 1s.", example: "getResourceCount('A')", returns: "Returns: resource count" },
+    getBalance: { description: "Gets your current credit balance. Takes 1s.", example: "getBalance()", returns: "Returns: credits (e.g. 42.50)" },
     log: { description: "Prints a message. Takes 0.5s.", example: "log('Hello!')", returns: "Returns: nothing" },
-    convertBToC: { description: "Converts 3A+1B into 1C. Takes 3s.", example: "convertBToC()", returns: "Returns: 1", sectionId: "resource-conversion-2" },
+    convertABToC: { description: "Converts 3 A + 1 B into 1 C. Takes 3s.", example: "convertABToC()", returns: "Returns: 1 if ok, 0 if not enough A or B", sectionId: "resource-conversion-2" },
     getMarketValue: { description: "Gets the current market price of a resource. Takes 1s.", example: "getMarketValue('A')", returns: "Returns: current price (e.g. 1.05)", sectionId: "stock-market" },
     buy: { description: "Buys resource from market using credits. Takes 2s.", example: "buy('A', 5)", returns: "Returns: amount bought", sectionId: "stock-market" },
     sell: { description: "Sells resource on market for credits. Takes 2s.", example: "sell('A', 5)", returns: "Returns: credits received", sectionId: "stock-market" },
+    wait: { description: "Sleeps for ms milliseconds. wait() or wait(0) sleeps for 1 CPU cycle.", example: "wait(1000)", returns: "Returns: nothing" },
+    send: { description: "Queue a message at a named sync point.", example: "send('data', 42)", returns: "Returns: nothing", sectionId: "sync" },
+    sync: { description: "Block until n messages arrive at syncId. Returns all messages.", example: "sync('data', 2)", returns: "Returns: array of messages", sectionId: "sync" },
   };
 
   const content = (
@@ -102,6 +114,13 @@ export function DocsPanel({ isOpen, onClose, scrollToSection, inline, onInsertCo
             <CodeBlock t={t} onInsertCode={onInsertCode}>{"// Check price before trading\nlet price = getMarketValue('A')\nif (price > 1.5) {\n  sell('A', 10)\n}\n// Buy low\nif (price < 0.8) {\n  buy('A', 5)\n}"}</CodeBlock>
           </DocCard>
         )}
+
+        {tech.syncFunctionUnlocked && (
+          <DocCard dataSectionId="sync" t={t}>
+            <DocText t={t}>Sync — coordinate between CPU cores:</DocText>
+            <CodeBlock t={t} onInsertCode={onInsertCode}>{"// Core 1:\nsend('data', 42)\n\n// Core 2:\nlet msgs = sync('data', 1)\nlog(msgs[0]) // 42"}</CodeBlock>
+          </DocCard>
+        )}
       </Section>
 
       {/* Functions */}
@@ -154,7 +173,13 @@ export function DocsPanel({ isOpen, onClose, scrollToSection, inline, onInsertCo
   );
 }
 
-function Section({ title, children, t }) {
+interface SectionProps {
+  title: string;
+  children: React.ReactNode;
+  t: any;
+}
+
+function Section({ title, children, t }: SectionProps) {
   return (
     <div style={{ marginBottom: "16px" }}>
       <div style={{ color: t.primaryDim, fontSize: "11px", letterSpacing: "2px", marginBottom: "8px" }}>[ {title} ]</div>
@@ -163,7 +188,13 @@ function Section({ title, children, t }) {
   );
 }
 
-function DocCard({ children, dataSectionId, t }) {
+interface DocCardProps {
+  children: React.ReactNode;
+  dataSectionId?: string;
+  t: any;
+}
+
+function DocCard({ children, dataSectionId, t }: DocCardProps) {
   return (
     <div data-section-id={dataSectionId} style={{ padding: "8px", backgroundColor: t.bg3, border: `1px solid ${t.border}`, transition: "background-color 0.3s" }}>
       {children}
@@ -171,11 +202,23 @@ function DocCard({ children, dataSectionId, t }) {
   );
 }
 
-function DocText({ children, t }) {
+interface DocTextProps {
+  children: React.ReactNode;
+  t: any;
+}
+
+function DocText({ children, t }: DocTextProps) {
   return <div style={{ color: t.primaryDim, fontSize: "11px", marginBottom: "4px" }}>{children}</div>;
 }
 
-function ClickableCode({ text, onInsertCode, children, t }) {
+interface ClickableCodeProps {
+  text: string;
+  onInsertCode?: (code: string) => void;
+  children: React.ReactNode;
+  t: any;
+}
+
+function ClickableCode({ text, onInsertCode, children, t }: ClickableCodeProps) {
   if (!onInsertCode || !text) return <div style={{ marginBottom: "4px" }}>{children}</div>;
   return (
     <div
@@ -198,7 +241,13 @@ function ClickableCode({ text, onInsertCode, children, t }) {
   );
 }
 
-function CodeBlock({ children, onInsertCode, t }) {
+interface CodeBlockProps {
+  children: React.ReactNode;
+  onInsertCode?: (code: string) => void;
+  t: any;
+}
+
+function CodeBlock({ children, onInsertCode, t }: CodeBlockProps) {
   const text = typeof children === "string" ? children : "";
   const lines = text.split("\n");
 

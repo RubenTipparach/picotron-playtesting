@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { useGameStore } from "../gameStore.js";
-import { useTheme } from "../themes.js";
-import { RESOURCE_COLORS } from "../techTree.js";
+import { useGameStore } from "../store/gameStore";
+import { useTheme } from "../themes";
+import { RESOURCE_COLORS } from "../game/tech";
 import {
   getMarketState,
   getMarketEmotion,
@@ -14,40 +14,53 @@ import {
   executeBuy,
   executeSell,
   addMarketProfit,
-} from "../marketEngine.js";
+} from "../game/marketEngine";
+import { trackRender } from "../utils/perfMonitor";
+import { formatMoney, formatPrice, formatNumber } from "../utils/format";
+import { getMaxTradeVolume } from "../game/hardware";
 
 const GREEN = "#22cc44";
 const RED = "#ee3333";
 const TRADE_AMOUNTS = [1, 5, 10];
 
 // Time windows: label, ticks of history, candles to show
+// Each candle = 1s (2 ticks). Tick rate = 2/sec (500ms).
 const TIME_WINDOWS = [
-  { label: "1m", historyTicks: 120, candles: 30 },
-  { label: "5m", historyTicks: 600, candles: 60 },
-  { label: "10m", historyTicks: 1200, candles: 120 },
+  { label: "1m", historyTicks: 120, candles: 60 },
+  { label: "5m", historyTicks: 600, candles: 300 },
+  { label: "10m", historyTicks: 1200, candles: 600 },
 ];
 
 // Price axis label width in pixels (HTML overlay)
 const PRICE_AXIS_W = 42;
 
-// ─── Shared helpers ──────────────────────────────────────────────────
+// --- Shared helpers ---
 
-function toYPct(price, min, range) {
+function toYPct(price: number, min: number, range: number) {
   // Returns percentage from top (0% = top, 100% = bottom)
   return 100 - ((price - min) / range) * 100;
 }
 
-function makeGrid(min, range) {
-  const lines = [];
+function makeGrid(min: number, range: number) {
+  const lines: { pct: number; label: string }[] = [];
   for (let i = 0; i <= 3; i++) {
     const price = min + (range * i) / 3;
-    lines.push({ pct: toYPct(price, min, range), label: price.toFixed(2) });
+    lines.push({ pct: toYPct(price, min, range), label: formatPrice(price) });
   }
   return lines;
 }
 
-/** HTML overlay for price axis labels — not affected by SVG stretching */
-function PriceAxis({ gridLines, currentPct, currentPrice, color, t, height }) {
+interface PriceAxisProps {
+  gridLines: { pct: number; label: string }[];
+  currentPct: number;
+  currentPrice: number;
+  color: string;
+  t: any;
+  height: number;
+}
+
+/** HTML overlay for price axis labels -- not affected by SVG stretching */
+function PriceAxis({ gridLines, currentPct, currentPrice, color, t, height }: PriceAxisProps) {
   return (
     <div style={{
       position: "absolute", top: 0, right: 0, bottom: 0,
@@ -68,13 +81,18 @@ function PriceAxis({ gridLines, currentPct, currentPrice, color, t, height }) {
         backgroundColor: color, color: t.bg, whiteSpace: "nowrap",
         transition: "top 0.4s ease",
       }}>
-        {currentPrice.toFixed(2)}
+        {formatPrice(currentPrice)}
       </div>
     </div>
   );
 }
 
-function NoData({ height, t }) {
+interface NoDataProps {
+  height: number;
+  t: any;
+}
+
+function NoData({ height, t }: NoDataProps) {
   return (
     <div style={{
       width: "100%", height,
@@ -87,9 +105,23 @@ function NoData({ height, t }) {
   );
 }
 
-// ─── Candlestick Chart ───────────────────────────────────────────────
+// --- Candlestick Chart ---
 
-function CandlestickChart({ candles, color, height = 80 }) {
+interface Candle {
+  open: number;
+  close: number;
+  high: number;
+  low: number;
+}
+
+interface CandlestickChartProps {
+  candles: Candle[];
+  color: string;
+  height?: number;
+  maxCandles?: number;
+}
+
+function CandlestickChart({ candles, color, height = 80, maxCandles }: CandlestickChartProps) {
   const t = useTheme();
 
   if (!candles || candles.length < 2) return <NoData height={height} t={t} />;
@@ -105,11 +137,15 @@ function CandlestickChart({ candles, color, height = 80 }) {
 
   const VB_W = 200;
   const VB_H = 100;
-  const toY = (price) => VB_H - ((price - min) / range) * VB_H;
+  const toY = (price: number) => VB_H - ((price - min) / range) * VB_H;
 
-  const candleW = (VB_W - 4) / candles.length;
-  const gap = Math.max(0.5, candleW * 0.25);
-  const bodyW = candleW - gap;
+  // Always allocate slots for maxCandles so sizing stays consistent
+  const slots = maxCandles || candles.length;
+  const candleW = (VB_W - 4) / slots;
+  const gap = Math.min(candleW * 0.25, candleW * 0.5);
+  const bodyW = Math.max(0.1, candleW - gap);
+  // Offset so candles are right-aligned in the chart
+  const offset = (slots - candles.length) * candleW;
   const lastCandle = candles[candles.length - 1];
 
   const gridLines = makeGrid(min, range);
@@ -117,7 +153,7 @@ function CandlestickChart({ candles, color, height = 80 }) {
 
   return (
     <div style={{ position: "relative", width: "100%", height, backgroundColor: `${t.bg}88` }}>
-      {/* SVG chart area — stretched, no text */}
+      {/* SVG chart area -- stretched, no text */}
       <svg
         viewBox={`0 0 ${VB_W} ${VB_H}`}
         preserveAspectRatio="none"
@@ -141,7 +177,7 @@ function CandlestickChart({ candles, color, height = 80 }) {
         />
         {/* Candles */}
         {candles.map((c, i) => {
-          const x = 2 + i * candleW;
+          const x = 2 + offset + i * candleW;
           const isGreen = c.close >= c.open;
           const fill = isGreen ? GREEN : RED;
           const bodyTop = toY(Math.max(c.open, c.close));
@@ -174,9 +210,19 @@ function CandlestickChart({ candles, color, height = 80 }) {
   );
 }
 
-// ─── Line Chart ──────────────────────────────────────────────────────
+// --- Line Chart ---
 
-function LineChart({ history, color, height = 80 }) {
+interface HistoryPoint {
+  price: number;
+}
+
+interface LineChartProps {
+  history: HistoryPoint[];
+  color: string;
+  height?: number;
+}
+
+function LineChart({ history, color, height = 80 }: LineChartProps) {
   const t = useTheme();
 
   if (!history || history.length < 2) return <NoData height={height} t={t} />;
@@ -190,7 +236,7 @@ function LineChart({ history, color, height = 80 }) {
 
   const VB_W = 200;
   const VB_H = 100;
-  const toY = (price) => VB_H - ((price - min) / range) * VB_H;
+  const toY = (price: number) => VB_H - ((price - min) / range) * VB_H;
 
   const points = prices.map((p, i) => {
     const x = (i / (prices.length - 1)) * VB_W;
@@ -250,9 +296,13 @@ function LineChart({ history, color, height = 80 }) {
   );
 }
 
-// ─── Emotions Gauge ──────────────────────────────────────────────────
+// --- Emotions Gauge ---
 
-function EmotionsGauge({ emotion }) {
+interface EmotionsGaugeProps {
+  emotion: number;
+}
+
+function EmotionsGauge({ emotion }: EmotionsGaugeProps) {
   const t = useTheme();
   const { label, color } = getEmotionLabel(emotion);
   const position = (emotion + 1) / 2;
@@ -281,9 +331,15 @@ function EmotionsGauge({ emotion }) {
   );
 }
 
-// ─── Time Window Selector ────────────────────────────────────────────
+// --- Time Window Selector ---
 
-function TimeWindowSelector({ value, onChange, t }) {
+interface TimeWindowSelectorProps {
+  value: string;
+  onChange: (label: string) => void;
+  t: any;
+}
+
+function TimeWindowSelector({ value, onChange, t }: TimeWindowSelectorProps) {
   return (
     <div style={{ display: "flex", gap: "2px" }}>
       {TIME_WINDOWS.map((tw) => {
@@ -311,39 +367,44 @@ function TimeWindowSelector({ value, onChange, t }) {
   );
 }
 
-// ─── Main Panel ──────────────────────────────────────────────────────
+// --- Main Panel ---
 
-export function StockMarketPanel() {
+export const StockMarketPanel = React.memo(function StockMarketPanel() {
+  trackRender("StockMarketPanel")();
   const tech = useGameStore((s) => s.tech);
   const resources = useGameStore((s) => s.resources);
   const credits = useGameStore((s) => s.credits);
+  const internetLevel = useGameStore((s) => s.internetLevel);
   useGameStore((s) => s.market);
   const t = useTheme();
 
-  const [chartType, setChartType] = useState("candle");
+  const maxVolume = getMaxTradeVolume(internetLevel);
+  const availableTradeAmounts = TRADE_AMOUNTS.filter((a) => a <= maxVolume);
+
+  const [chartType, setChartType] = useState<"candle" | "line">("candle");
   const [timeWindow, setTimeWindow] = useState("1m");
-  const [tradeAmounts, setTradeAmounts] = useState({});
+  const [tradeAmounts, setTradeAmounts] = useState<Record<string, number>>({});
 
-  const getTradeAmount = (r) => tradeAmounts[r] || 1;
-  const setTradeAmount = (r, amt) => setTradeAmounts((prev) => ({ ...prev, [r]: amt }));
+  const getTradeAmount = (r: string) => tradeAmounts[r] || 1;
+  const setTradeAmount = (r: string, amt: number) => setTradeAmounts((prev) => ({ ...prev, [r]: amt }));
 
-  const handleBuy = (r, amount) => {
+  const handleBuy = (r: string, amount: number) => {
     const result = executeBuy(r, amount);
     if (!result.success) return;
-    const cost = Math.ceil(result.cost);
+    const cost = result.cost;
     if (!useGameStore.getState().spendCredits(cost)) return;
-    useGameStore.getState().addResource(r, amount);
+    useGameStore.getState().addResource(r as any, amount);
   };
 
-  const handleSell = (r, amount) => {
+  const handleSell = (r: string, amount: number) => {
     const store = useGameStore.getState();
-    const available = store.resources[r] || 0;
+    const available = (store.resources as any)[r] || 0;
     const actual = Math.min(amount, available);
     if (actual <= 0) return;
-    if (!store.consumeResource(r, actual)) return;
+    if (!store.consumeResource(r as any, actual)) return;
     const result = executeSell(r, actual);
     if (!result.success) {
-      store.addResource(r, actual);
+      store.addResource(r as any, actual);
       return;
     }
     const earned = result.revenue;
@@ -403,7 +464,7 @@ export function StockMarketPanel() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <span style={{ fontSize: "12px", fontWeight: "bold", color: t.primary }}>
-              MKTCAP ${marketCap.toLocaleString()}
+              MKTCAP {formatMoney(marketCap)}
             </span>
           </div>
           <div style={{ fontSize: "10px", color: t.primaryDark }}>
@@ -414,12 +475,12 @@ export function StockMarketPanel() {
           {tradeableResources.map((r) => {
             const units = Math.floor(marketUnits[r] || 0);
             const clr = RESOURCE_COLORS[r] || t.primary;
-            const playerHold = resources[r] || 0;
+            const playerHold = (resources as any)[r] || 0;
             const total = units + playerHold;
             const playerPct = total > 0 ? ((playerHold / total) * 100).toFixed(1) : "0.0";
             return (
               <div key={r} style={{ fontSize: "10px", color: clr }}>
-                {r}: {units} units
+                {r}: {formatNumber(units)} units
                 {playerHold > 0 && (
                   <span style={{ color: t.primaryDark }}> ({playerPct}%)</span>
                 )}
@@ -459,7 +520,7 @@ export function StockMarketPanel() {
               </span>
               <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                 <span style={{ color: t.primary, fontSize: "13px", fontWeight: "bold", transition: "color 0.3s" }}>
-                  ${midPrice.toFixed(2)}
+                  ${formatPrice(midPrice)}
                 </span>
                 {changeText && (
                   <span style={{ color: changeColor, fontSize: "10px", transition: "color 0.3s" }}>
@@ -470,45 +531,64 @@ export function StockMarketPanel() {
             </div>
 
             {chartType === "candle"
-              ? <CandlestickChart candles={candles} color={clr} height={80} />
+              ? <CandlestickChart candles={candles} color={clr} height={80} maxCandles={tw.candles} />
               : <LineChart history={history} color={clr} height={80} />
             }
 
             {/* Trade controls */}
             {(() => {
-              const amt = getTradeAmount(r);
-              const buyCost = Math.ceil(buyP * amt);
-              const sellRevenue = (sellP * Math.min(amt, resources[r] || 0)).toFixed(2);
-              const canBuy = credits >= buyCost;
-              const canSell = (resources[r] || 0) >= 1;
+              const selectedAmt = getTradeAmount(r);
+              const maxBuyAmt = Math.min(maxVolume, buyP > 0 ? Math.floor(credits / buyP) : 0);
+              const maxSellAmt = Math.min(maxVolume, (resources as any)[r] || 0);
+              const isMax = selectedAmt === -1;
+              const buyAmt = isMax ? maxBuyAmt : selectedAmt;
+              const sellAmt = isMax ? maxSellAmt : Math.min(selectedAmt, maxSellAmt);
+              const buyCost = buyP * buyAmt;
+              const sellRevenue = sellP * sellAmt;
+              const canBuy = buyAmt > 0 && credits >= buyCost;
+              const canSell = sellAmt >= 1;
               return (
                 <div style={{ marginTop: "6px" }}>
                   {/* Amount selector */}
                   <div style={{ display: "flex", gap: "2px", marginBottom: "4px", alignItems: "center" }}>
                     <span style={{ fontSize: "9px", color: t.primaryDark, marginRight: "4px" }}>QTY</span>
-                    {TRADE_AMOUNTS.map((a) => (
+                    {availableTradeAmounts.map((a) => (
                       <button
                         key={a}
                         onClick={() => setTradeAmount(r, a)}
                         style={{
                           padding: "1px 6px", fontSize: "9px", fontFamily: t.font,
-                          backgroundColor: amt === a ? t.primary : t.bg3,
-                          color: amt === a ? t.bg : t.primaryDark,
-                          border: `1px solid ${amt === a ? t.primary : t.border}`,
+                          backgroundColor: selectedAmt === a ? t.primary : t.bg3,
+                          color: selectedAmt === a ? t.bg : t.primaryDark,
+                          border: `1px solid ${selectedAmt === a ? t.primary : t.border}`,
                           cursor: "pointer",
                         }}
                       >
                         {a}x
                       </button>
                     ))}
+                    {tech.maxTradeUnlocked && (
+                      <button
+                        onClick={() => setTradeAmount(r, -1)}
+                        style={{
+                          padding: "1px 6px", fontSize: "9px", fontFamily: t.font,
+                          backgroundColor: isMax ? t.primary : t.bg3,
+                          color: isMax ? t.bg : t.primaryDark,
+                          border: `1px solid ${isMax ? t.primary : t.border}`,
+                          cursor: "pointer",
+                        }}
+                      >
+                        MAX
+                      </button>
+                    )}
                     <span style={{ marginLeft: "auto", fontSize: "10px", color: t.primaryDim }}>
-                      HOLD: {resources[r] || 0}
+                      HOLD: {(resources as any)[r] || 0}
                     </span>
                   </div>
                   {/* Buy / Sell buttons with cost preview */}
                   <div style={{ display: "flex", gap: "6px" }}>
                     <button
-                      onClick={() => handleBuy(r, amt)}
+                      onClick={() => handleBuy(r, buyAmt)}
                       disabled={!canBuy}
                       style={{
                         flex: 1, padding: "4px 6px", fontSize: "10px", fontWeight: "bold",
@@ -520,10 +600,10 @@ export function StockMarketPanel() {
                         textAlign: "center",
                       }}
                     >
-                      BUY {amt}x — ${buyCost}
+                      BUY {formatNumber(buyAmt)}x — {formatMoney(buyCost)}
                     </button>
                     <button
-                      onClick={() => handleSell(r, amt)}
+                      onClick={() => handleSell(r, sellAmt)}
                       disabled={!canSell}
                       style={{
                         flex: 1, padding: "4px 6px", fontSize: "10px", fontWeight: "bold",
@@ -535,7 +615,7 @@ export function StockMarketPanel() {
                         textAlign: "center",
                       }}
                     >
-                      SELL {Math.min(amt, resources[r] || 0)}x — ${sellRevenue}
+                      SELL {formatNumber(sellAmt)}x — {formatMoney(sellRevenue)}
                     </button>
                   </div>
                 </div>
@@ -546,13 +626,13 @@ export function StockMarketPanel() {
       })}
 
       <div style={{ fontSize: "10px", color: t.primaryDark, marginTop: "4px" }}>
-        TRADE REVENUE: ${market.totalMarketProfit.toFixed(2)}
+        TRADE REVENUE: {formatMoney(market.totalMarketProfit)}
         {!tech.resourceDUnlocked && (
           <span style={{ marginLeft: "8px" }}>
-            (${Math.max(0, 1000 - market.totalMarketProfit).toFixed(2)} more to unlock D)
+            ({formatMoney(Math.max(0, 1000 - market.totalMarketProfit))} more to unlock D)
           </span>
         )}
       </div>
     </div>
   );
-}
+});

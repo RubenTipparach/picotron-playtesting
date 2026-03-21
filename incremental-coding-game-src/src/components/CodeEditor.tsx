@@ -17,139 +17,130 @@ import React, {
   useContext,
 } from "react";
 import Editor from "@monaco-editor/react";
-import { API_FUNCTION_NAMES } from "../gameApi.js";
-import { getAvailableFunctions, validateCode } from "../techTree.js";
-import { ThemeContext, THEMES } from "../themes.js";
+import { ALL_API_FUNCTIONS } from "../game/api";
+import { getAvailableFunctions } from "../game/tech";
+import { validateCode } from "../game/codeValidator";
+import { ThemeContext, THEMES } from "../themes";
 
-export const CodeEditor = forwardRef(
-  ({ code, onCodeChange, executionEvents, onOpenTechTree, scrollToLineNumber }, ref) => {
+interface ExecutionEvent {
+  type: string;
+  lineNumber?: number;
+  progress?: number;
+  [key: string]: any;
+}
+
+const CORE_COLORS = ["#22cc44", "#4499ff", "#aa55ff", "#ff8833"];
+
+interface CodeEditorProps {
+  code: string;
+  onCodeChange: (code: string) => void;
+  onOpenTechTree?: (techId?: string) => void;
+  coreId?: number;
+}
+
+export interface CodeEditorHandle {
+  scrollToLine: (line: number) => void;
+  insertText: (text: string) => void;
+  pushEvent: (event: ExecutionEvent) => void;
+  clearDecorations: () => void;
+}
+
+export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(
+  ({ code, onCodeChange, onOpenTechTree, coreId = 0 }, ref) => {
     const theme = useContext(ThemeContext);
-    const editorRef = useRef(null);
-    const monacoRef = useRef(null);
-    const decorationsRef = useRef([]);
-    const markersRef = useRef([]);
+    const editorRef = useRef<any>(null);
+    const monacoRef = useRef<any>(null);
+    const decorationsRef = useRef<string[]>([]);
+    const markersRef = useRef<any[]>([]);
     const onOpenTechTreeRef = useRef(onOpenTechTree);
-    const validationInfoRef = useRef([]);
+    const validationInfoRef = useRef<Array<{ lineNumber: number; feature: string }>>([]);
 
-    // Expose scrollToLine and insertText to parent
+    const applyEvent = (event: ExecutionEvent) => {
+      if (!editorRef.current) return;
+      const editor = editorRef.current;
+      if (!editor.getModel()) return;
+
+      if (event.type === "lineChange") {
+        decorationsRef.current = editor.deltaDecorations(decorationsRef.current, [
+          {
+            range: { startLineNumber: event.lineNumber, startColumn: 1, endLineNumber: event.lineNumber, endColumn: 1 },
+            options: { isWholeLine: true, className: "executing-line" },
+          },
+        ]);
+        // Auto-scroll if line not visible
+        const visibleRanges = editor.getVisibleRanges();
+        const isVisible = visibleRanges.some(
+          (range: any) => event.lineNumber >= range.startLineNumber && event.lineNumber <= range.endLineNumber
+        );
+        if (!isVisible) {
+          editor.revealLineInCenter(event.lineNumber);
+        }
+      } else if (event.type === "functionProgress") {
+        const progress = event.progress!;
+        const element = document.querySelector(".executing-line") as HTMLElement | null;
+        if (element) {
+          element.style.setProperty("--progress", `${progress}%`);
+        }
+        decorationsRef.current = editor.deltaDecorations(decorationsRef.current, [
+          {
+            range: { startLineNumber: event.lineNumber, startColumn: 1, endLineNumber: event.lineNumber, endColumn: 1 },
+            options: {
+              isWholeLine: true, className: "executing-line",
+              after: { content: ` ${Math.round(progress)}%`, inlineClassName: "progress-text" },
+            },
+          },
+        ]);
+      } else if (event.type === "functionComplete" || event.type === "complete") {
+        decorationsRef.current = editor.deltaDecorations(decorationsRef.current, []);
+      }
+    };
+
+    // Expose imperative methods to parent
     useImperativeHandle(ref, () => ({
-      scrollToLine: (line) => {
+      scrollToLine: (line: number) => {
         if (editorRef.current) {
           editorRef.current.revealLineInCenter(line);
         }
       },
-      insertText: (text) => {
+      insertText: (text: string) => {
         if (editorRef.current) {
           const editor = editorRef.current;
           editor.focus();
           const position = editor.getPosition();
           if (position) {
+            const model = editor.getModel();
+            const currentLineContent = model?.getLineContent(position.lineNumber) || "";
+            const isLineEmpty = currentLineContent.trim() === "";
+            const insertText = isLineEmpty ? text : "\n" + text;
             const range = {
               startLineNumber: position.lineNumber,
-              startColumn: position.column,
+              startColumn: isLineEmpty ? 1 : currentLineContent.length + 1,
               endLineNumber: position.lineNumber,
-              endColumn: position.column,
+              endColumn: isLineEmpty ? 1 : currentLineContent.length + 1,
             };
-            editor.executeEdits("docs-insert", [{ range, text }]);
-            // Move cursor to end of inserted text
-            const newCol = position.column + text.length;
-            editor.setPosition({ lineNumber: position.lineNumber, column: newCol });
+            editor.executeEdits("docs-insert", [{ range, text: insertText }]);
+            const lines = insertText.split("\n");
+            const lastLine = lines[lines.length - 1];
+            const newLineNumber = position.lineNumber + lines.length - 1;
+            editor.setPosition({ lineNumber: newLineNumber, column: lastLine.length + 1 });
           }
         }
       },
-    }));
-
-    // Handle external scroll requests — only scroll, never move cursor
-    useEffect(() => {
-      if (scrollToLineNumber != null && editorRef.current) {
-        const editor = editorRef.current;
-        const visibleRanges = editor.getVisibleRanges();
-        const isVisible = visibleRanges.some(
-          (range) =>
-            scrollToLineNumber >= range.startLineNumber &&
-            scrollToLineNumber <= range.endLineNumber
-        );
-        if (!isVisible) {
-          editor.revealLineInCenter(scrollToLineNumber);
+      pushEvent: applyEvent,
+      clearDecorations: () => {
+        if (editorRef.current) {
+          decorationsRef.current = editorRef.current.deltaDecorations(decorationsRef.current, []);
         }
-      }
-    }, [scrollToLineNumber]);
+      },
+    }));
 
     // Keep onOpenTechTree ref current
     useEffect(() => {
       onOpenTechTreeRef.current = onOpenTechTree;
     }, [onOpenTechTree]);
 
-    // ── Handle execution events (line highlighting, progress) ──
-    useEffect(() => {
-      if (!editorRef.current) return;
-      const editor = editorRef.current;
-      if (!editor.getModel()) return;
-
-      // Clear existing decorations
-      decorationsRef.current = editor.deltaDecorations(decorationsRef.current, []);
-
-      let currentLine = null;
-      let completedDecorations = [];
-
-      executionEvents.forEach((event) => {
-        if (event.type === "lineChange") {
-          // Clear old decorations on line change
-          if (currentLine !== null) {
-            decorationsRef.current = editor.deltaDecorations(decorationsRef.current, []);
-            completedDecorations = [];
-          }
-          currentLine = event.lineNumber;
-
-          // Highlight the executing line
-          decorationsRef.current = editor.deltaDecorations(decorationsRef.current, [
-            {
-              range: {
-                startLineNumber: event.lineNumber,
-                startColumn: 1,
-                endLineNumber: event.lineNumber,
-                endColumn: 1,
-              },
-              options: { isWholeLine: true, className: "executing-line" },
-            },
-          ]);
-        } else if (event.type === "functionProgress" && currentLine === event.lineNumber) {
-          // Update progress bar
-          const progress = event.progress;
-          const element = document.querySelector(".executing-line");
-          if (element) {
-            element.style.setProperty("--progress", `${progress}%`);
-          }
-
-          decorationsRef.current = editor.deltaDecorations(decorationsRef.current, [
-            {
-              range: {
-                startLineNumber: event.lineNumber,
-                startColumn: 1,
-                endLineNumber: event.lineNumber,
-                endColumn: 1,
-              },
-              options: {
-                isWholeLine: true,
-                className: "executing-line",
-                after: {
-                  content: ` ${Math.round(progress)}%`,
-                  inlineClassName: "progress-text",
-                },
-              },
-            },
-          ]);
-        } else if (event.type === "functionComplete" || event.type === "complete") {
-          // Clear all decorations on completion
-          decorationsRef.current = editor.deltaDecorations(decorationsRef.current, []);
-          completedDecorations = editor.deltaDecorations(completedDecorations, []);
-          currentLine = null;
-        }
-      });
-    }, [executionEvents]);
-
-    // ── Editor mount handler ──
-    const handleEditorMount = (editor, monaco) => {
+    // -- Editor mount handler --
+    const handleEditorMount = (editor: any, monaco: any) => {
       editorRef.current = editor;
       monacoRef.current = monaco;
 
@@ -182,7 +173,7 @@ export const CodeEditor = forwardRef(
       });
 
       // Syntax highlighting with Monarch tokenizer
-      const apiFunctionPattern = new RegExp(`\\b(${API_FUNCTION_NAMES.join("|")})\\b`);
+      const apiFunctionPattern = new RegExp(`\\b(${ALL_API_FUNCTIONS.join("|")})\\b`);
 
       monaco.languages.setMonarchTokensProvider("game-script", {
         tokenizer: {
@@ -227,8 +218,8 @@ export const CodeEditor = forwardRef(
         ],
       });
 
-      // ── Autocomplete provider ──
-      const functionDocs = {
+      // -- Autocomplete provider --
+      const functionDocs: Record<string, { signature: string; description: string; insert: string; isSnippet?: boolean }> = {
         produceResourceA: {
           signature: "produceResourceA(): Promise<number>",
           description: "Produces 1 unit of resource A. Takes 2 seconds.",
@@ -251,18 +242,18 @@ export const CodeEditor = forwardRef(
           insert: "log('${1:message}')",
           isSnippet: true,
         },
-        convertBToC: {
-          signature: "convertBToC(): Promise<number>",
+        convertABToC: {
+          signature: "convertABToC(): Promise<number>",
           description: "Converts 3 A + 1 B into 1 C. Takes 3 seconds.",
-          insert: "convertBToC()",
+          insert: "convertABToC()",
         },
       };
 
       // Extract user-defined variables and functions from code
-      function extractUserSymbols(model) {
+      function extractUserSymbols(model: any) {
         const text = model.getValue();
-        const symbols = [];
-        const seen = new Set();
+        const symbols: Array<{ label: string; kind: number; detail: string; insert?: string }> = [];
+        const seen = new Set<string>();
 
         // Variables: let/const/var name
         const varRegex = /\b(?:let|const|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g;
@@ -299,7 +290,7 @@ export const CodeEditor = forwardRef(
       ];
 
       const completionProvider = {
-        provideCompletionItems: (model, position) => {
+        provideCompletionItems: (model: any, position: any) => {
           const availableFunctions = getAvailableFunctions();
           const word = model.getWordUntilPosition(position);
           const range = {
@@ -309,11 +300,11 @@ export const CodeEditor = forwardRef(
             endColumn: word.endColumn,
           };
 
-          const suggestions = [];
+          const suggestions: any[] = [];
           let sortIndex = 0;
 
           // API functions (highest priority)
-          availableFunctions.forEach((funcName) => {
+          availableFunctions.forEach((funcName: string) => {
             const doc = functionDocs[funcName];
             if (!doc) return;
             suggestions.push({
@@ -357,17 +348,17 @@ export const CodeEditor = forwardRef(
 
           return { suggestions };
         },
-        triggerCharacters: [],
+        triggerCharacters: [] as string[],
       };
 
       monaco.languages.registerCompletionItemProvider("game-script", completionProvider);
 
-      // ── Code action provider (quick-fix to open tech tree) ──
+      // -- Code action provider (quick-fix to open tech tree) --
       monaco.languages.registerCodeActionProvider("game-script", {
-        provideCodeActions: (model, range, context) => {
-          const actions = [];
+        provideCodeActions: (model: any, range: any, context: any) => {
+          const actions: any[] = [];
 
-          context.markers.forEach((marker) => {
+          context.markers.forEach((marker: any) => {
             if (
               marker.source === "Validation" &&
               marker.message.includes("not unlocked yet")
@@ -407,12 +398,12 @@ export const CodeEditor = forwardRef(
         },
       });
 
-      // ── Listen for tech tree quick-fix trigger ──
-      editor.onDidChangeModelContent((changeEvent) => {
+      // -- Listen for tech tree quick-fix trigger --
+      editor.onDidChangeModelContent((changeEvent: any) => {
         const model = editor.getModel();
         if (!model) return;
 
-        changeEvent.changes.forEach((change) => {
+        changeEvent.changes.forEach((change: any) => {
           if (change.text.includes("__OPEN_TECH_TREE__")) {
             setTimeout(() => {
               const content = model.getValue();
@@ -430,8 +421,8 @@ export const CodeEditor = forwardRef(
         });
       });
 
-      // ── Register all themes ──
-      Object.values(THEMES).forEach((t) => {
+      // -- Register all themes --
+      Object.values(THEMES).forEach((t: any) => {
         monaco.editor.defineTheme(`game-script-${t.id}`, {
           base: t.monacoBase,
           inherit: true,
@@ -449,12 +440,12 @@ export const CodeEditor = forwardRef(
         // Initial validation
         setTimeout(() => {
           const errors = validateCode(code);
-          validationInfoRef.current = errors.map((e) => ({
+          validationInfoRef.current = errors.map((e: any) => ({
             lineNumber: e.lineNumber,
             feature: e.feature,
           }));
 
-          const markers = errors.map((e) => {
+          const markers = errors.map((e: any) => {
             const lineLength = model.getLineContent(e.lineNumber).length;
             return {
               severity: monaco.MarkerSeverity.Error,
@@ -473,7 +464,7 @@ export const CodeEditor = forwardRef(
       }
     };
 
-    // ── Re-validate on code changes ──
+    // -- Re-validate on code changes --
     useEffect(() => {
       if (!editorRef.current || !monacoRef.current) return;
       const model = editorRef.current.getModel();
@@ -481,12 +472,12 @@ export const CodeEditor = forwardRef(
 
       const timeout = setTimeout(() => {
         const errors = validateCode(code);
-        validationInfoRef.current = errors.map((e) => ({
+        validationInfoRef.current = errors.map((e: any) => ({
           lineNumber: e.lineNumber,
           feature: e.feature,
         }));
 
-        const markers = errors.map((e) => {
+        const markers = errors.map((e: any) => {
           const lineLength = model.getLineContent(e.lineNumber).length;
           return {
             severity: monacoRef.current.MarkerSeverity.Error,

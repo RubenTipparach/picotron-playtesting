@@ -1,21 +1,48 @@
 import React from "react";
-import { useGameStore } from "../gameStore.js";
-import { useTheme } from "../themes.js";
+import { useGameStore } from "../store/gameStore";
+import { useTheme } from "../themes";
 
-/** Map 0-100% to a green→yellow→red heat color */
-function heatColor(pctValue) {
+/** Map 0-100% to a green->yellow->red heat color */
+function heatColor(pctValue: number): string {
   const p = Math.max(0, Math.min(100, pctValue));
   if (p < 50) {
-    // green → yellow
+    // green -> yellow
     const r = Math.round((p / 50) * 255);
     return `rgb(${r}, 200, 60)`;
   }
-  // yellow → red
+  // yellow -> red
   const g = Math.round(200 - ((p - 50) / 50) * 160);
   return `rgb(255, ${g}, 60)`;
 }
 
-export function CpuStats({ stats, onScrollToLine }) {
+interface FunctionDetail {
+  functionName: string;
+  lineNumber: number;
+  codeLine: string;
+  calls: number;
+  totalTime: number;
+}
+
+interface LoopDetail {
+  lineNumber: number;
+  codeLine: string;
+  iterations: number;
+  totalTime: number;
+}
+
+interface Stats {
+  isRunning: boolean;
+  totalTime: number;
+  functionDetails?: Record<string, FunctionDetail>;
+  loopDetails?: Record<string, LoopDetail>;
+}
+
+interface CPUPanelProps {
+  stats: Stats;
+  onScrollToLine?: (lineNumber: number) => void;
+}
+
+export function CPUPanel({ stats, onScrollToLine }: CPUPanelProps) {
   const cpuLevel = useGameStore((s) => s.cpuLevel);
   const BASE_IPS = 10;
   const currentIps = BASE_IPS * Math.pow(1.5, cpuLevel);
@@ -31,17 +58,17 @@ export function CpuStats({ stats, onScrollToLine }) {
   const sortedFunctions = Object.entries(functionDetails).sort((a, b) => b[1].totalTime - a[1].totalTime);
   const sortedLoops = Object.entries(loopDetails).sort((a, b) => b[1].totalTime - a[1].totalTime);
 
-  const clickable = (lineNumber) => ({
-    cursor: "pointer",
-    textDecoration: "underline",
-    textDecorationStyle: "dotted",
+  const clickable = (lineNumber: number) => ({
+    cursor: "pointer" as const,
+    textDecoration: "underline" as const,
+    textDecorationStyle: "dotted" as const,
     textUnderlineOffset: "2px",
     onClick: () => onScrollToLine?.(lineNumber),
   });
 
-  const pctVal = (ms) => totalTime > 0 ? (ms / totalTime) * 100 : 0;
-  const pct = (ms) => pctVal(ms).toFixed(1);
-  const loopPct = (ms) => totalLoopTime > 0 ? ((ms / totalLoopTime) * 100).toFixed(1) : "0.0";
+  const pctVal = (ms: number): number => totalTime > 0 ? (ms / totalTime) * 100 : 0;
+  const pct = (ms: number): string => pctVal(ms).toFixed(1);
+  const loopPct = (ms: number): string => totalLoopTime > 0 ? ((ms / totalLoopTime) * 100).toFixed(1) : "0.0";
 
   return (
     <div style={{
@@ -108,7 +135,7 @@ export function CpuStats({ stats, onScrollToLine }) {
                   transition: "width 0.3s ease",
                 }} />
 
-                {/* Function name + line — clickable */}
+                {/* Function name + line -- clickable */}
                 <div
                   style={{ position: "relative", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "3px", cursor, textDecoration, textDecorationStyle, textUnderlineOffset }}
                   onClick={onClick}
@@ -181,7 +208,7 @@ export function CpuStats({ stats, onScrollToLine }) {
                   transition: "width 0.3s ease",
                 }} />
 
-                {/* Loop header — clickable */}
+                {/* Loop header -- clickable */}
                 <div
                   style={{ position: "relative", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "3px", cursor, textDecoration, textDecorationStyle, textUnderlineOffset }}
                   onClick={onClick}
