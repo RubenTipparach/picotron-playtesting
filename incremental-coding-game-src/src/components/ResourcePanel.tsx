@@ -2,6 +2,7 @@ import React from "react";
 import { useGameStore } from "../store/gameStore";
 import { useTheme } from "../themes";
 import { trackRender } from "../utils/perfMonitor";
+import { formatNumber, formatMoney } from "../utils/format";
 
 interface ResourcePanelProps {
   isRunning: boolean;
@@ -112,7 +113,7 @@ export function ResourcePanel({
 
       {/* Credits */}
       <div style={{ fontSize: "12px", color: t.primary }}>
-        <span style={{ color: t.primaryDim }}>$</span>{credits.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        {formatMoney(credits)}
       </div>
 
       {/* Spacer */}
@@ -176,7 +177,7 @@ function ResCount({ label, count, color, t }: ResCountProps) {
     <span style={{ fontSize: "12px", fontFamily: t.font }}>
       <span style={{ color, fontWeight: "bold" }}>{label}</span>
       <span style={{ color: t.primaryDim }}>:</span>
-      <span style={{ color: t.primary }}>{count}</span>
+      <span style={{ color: t.primary }}>{formatNumber(count)}</span>
     </span>
   );
 }

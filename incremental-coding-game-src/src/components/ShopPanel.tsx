@@ -2,22 +2,14 @@ import React from "react";
 import { useGameStore } from "../store/gameStore";
 import { useTheme } from "../themes";
 import { trackRender } from "../utils/perfMonitor";
+import { formatMoney, formatPrice } from "../utils/format";
 import { getSellPrice, getBuyPrice, executeSell, executeBuy, addMarketProfit } from "../game/marketEngine";
+import { getEffectiveCpuSpeed, getCpuUpgradeCost, getMotherboardSpec, RAM_TIER_COSTS } from "../game/hardware";
 
 const BASE_SELL_PRICES: Record<string, number> = { A: 1, B: 5, C: 25 };
 const BASE_BUY_PRICES: Record<string, number> = { A: 2, B: 8, C: 35 };
 const SELL_AMOUNTS = [1, 5, 10];
 const BUY_AMOUNTS = [1, 5, 10];
-
-const RAM_UPGRADES = [
-  { ram: 256, cost: 50 },
-  { ram: 512, cost: 200 },
-  { ram: 1024, cost: 800 },
-  { ram: 2048, cost: 3000 },
-  { ram: 4096, cost: 10000 },
-];
-
-const CPU_BASE_COST = 30;
 
 export const ShopPanel = React.memo(function ShopPanel() {
   trackRender("ShopPanel")();
@@ -26,6 +18,10 @@ export const ShopPanel = React.memo(function ShopPanel() {
   const ram = useGameStore((s) => s.ram);
   const cpuLevel = useGameStore((s) => s.cpuLevel);
   const tech = useGameStore((s) => s.tech);
+  const ramModules = useGameStore((s) => s.ramModules);
+  const motherboardLevel = useGameStore((s) => s.motherboardLevel);
+  const internetLevel = useGameStore((s) => s.internetLevel);
+  const cpuCores = useGameStore((s) => s.cpuCores);
   const t = useTheme();
 
   const marketUnlocked = tech.stockMarketUnlocked;
@@ -81,15 +77,30 @@ export const ShopPanel = React.memo(function ShopPanel() {
 
   const getPrice = getSellPriceDisplay;
 
-  const buyRam = (upgrade: { ram: number; cost: number }) => {
-    if (credits >= upgrade.cost && ram < upgrade.ram) {
-      if (useGameStore.getState().spendCredits(upgrade.cost)) {
-        useGameStore.getState().upgradeRam(upgrade.ram);
+  const mbSpec = getMotherboardSpec(motherboardLevel);
+  const slotsUsed = ramModules.length;
+  const slotsFull = slotsUsed >= mbSpec.maxRamSlots;
+
+  // Get highest unlocked RAM tier
+  const getMaxRamTier = () => {
+    if (tech.ramTier5Unlocked) return 5;
+    if (tech.ramTier4Unlocked) return 4;
+    if (tech.ramTier3Unlocked) return 3;
+    if (tech.ramTier2Unlocked) return 2;
+    return 1;
+  };
+  const maxTier = getMaxRamTier();
+
+  const buyRamModule = (tier: number) => {
+    const cost = RAM_TIER_COSTS[tier] || 10;
+    if (credits >= cost && !slotsFull) {
+      if (useGameStore.getState().spendCredits(cost)) {
+        useGameStore.getState().installRamModule(tier);
       }
     }
   };
 
-  const nextCpuCost = Math.round(CPU_BASE_COST * Math.pow(2, cpuLevel));
+  const nextCpuCost = getCpuUpgradeCost(cpuLevel);
   const buyCpu = () => {
     if (credits >= nextCpuCost) {
       if (useGameStore.getState().spendCredits(nextCpuCost)) {
@@ -98,10 +109,9 @@ export const ShopPanel = React.memo(function ShopPanel() {
     }
   };
 
-  const nextRam = RAM_UPGRADES.find((u) => u.ram > ram);
   const BASE_IPS = 10;
-  const currentIps = BASE_IPS * Math.pow(1.5, cpuLevel);
-  const nextIps = BASE_IPS * Math.pow(1.5, cpuLevel + 1);
+  const currentIps = BASE_IPS * getEffectiveCpuSpeed(cpuLevel);
+  const nextIps = BASE_IPS * getEffectiveCpuSpeed(cpuLevel + 1);
   const ipsGain = nextIps - currentIps;
 
   const btnStyle = (canAfford: boolean): React.CSSProperties => ({
@@ -120,7 +130,7 @@ export const ShopPanel = React.memo(function ShopPanel() {
       <div style={{ marginBottom: "16px", borderBottom: `1px solid ${t.border}`, paddingBottom: "8px" }}>
         <span style={{ color: t.primaryDim, fontSize: "11px" }}>BALANCE:</span>
         <span style={{ color: t.primary, fontSize: "16px", marginLeft: "8px", fontWeight: "bold" }}>
-          ${credits.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          {formatMoney(credits)}
         </span>
       </div>
 
@@ -136,7 +146,7 @@ export const ShopPanel = React.memo(function ShopPanel() {
           return (
             <div key={name} style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
               <span style={{ color: t.primary, width: "90px", fontSize: "12px" }}>
-                {name} (${marketUnlocked ? price.toFixed(2) : price}ea)
+                {name} (${formatPrice(marketUnlocked ? price : price)}ea)
               </span>
               {SELL_AMOUNTS.map((amt) => (
                 <button
@@ -165,7 +175,7 @@ export const ShopPanel = React.memo(function ShopPanel() {
           return (
             <div key={name} style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
               <span style={{ color: t.primary, width: "90px", fontSize: "12px" }}>
-                {name} (${marketUnlocked ? price.toFixed(2) : price}ea)
+                {name} (${formatPrice(marketUnlocked ? price : price)}ea)
               </span>
               {BUY_AMOUNTS.map((amt) => {
                 const totalCost = price * amt;
@@ -185,30 +195,53 @@ export const ShopPanel = React.memo(function ShopPanel() {
         })}
       </div>
 
-      {/* RAM Upgrade */}
+      {/* Motherboard Status */}
       <div style={{ marginBottom: "16px" }}>
         <div style={{ color: t.primaryDim, fontSize: "11px", marginBottom: "8px", letterSpacing: "2px" }}>
-          [ RAM UPGRADE ]
+          [ MOTHERBOARD: {mbSpec.name} ]
         </div>
-        <div style={{ fontSize: "12px", marginBottom: "6px" }}>
-          Current: <span style={{ color: t.primary }}>{ram}</span> tokens
+        <div style={{ fontSize: "11px", color: t.primaryDim, display: "flex", gap: "12px" }}>
+          <span>RAM: {slotsUsed}/{mbSpec.maxRamSlots} slots</span>
+          <span>CPU: {cpuCores}/{mbSpec.maxCpuCores} cores</span>
+          <span>NET: Lv{internetLevel}</span>
         </div>
-        {nextRam ? (
-          <button
-            onClick={() => buyRam(nextRam)}
-            disabled={credits < nextRam.cost}
-            style={{
-              ...btnStyle(credits >= nextRam.cost),
-              padding: "4px 12px",
-              fontSize: "12px",
-              width: "100%",
-              textAlign: "left",
-            }}
-          >
-            Upgrade to {nextRam.ram} tokens — ${nextRam.cost}
-          </button>
+      </div>
+
+      {/* RAM Modules */}
+      <div style={{ marginBottom: "16px" }}>
+        <div style={{ color: t.primaryDim, fontSize: "11px", marginBottom: "8px", letterSpacing: "2px" }}>
+          [ RAM — {ram} TOKENS ]
+        </div>
+        <div style={{ fontSize: "11px", color: t.primaryDim, marginBottom: "6px" }}>
+          {slotsUsed}/{mbSpec.maxRamSlots} modules installed (+8 tokens each)
+        </div>
+        {slotsFull ? (
+          <div style={{ color: t.primaryDark, fontSize: "11px" }}>
+            {motherboardLevel < 3 ? "SLOTS FULL — Research next motherboard" : "ALL SLOTS FULL"}
+          </div>
         ) : (
-          <div style={{ color: t.primaryDark, fontSize: "11px" }}>MAX CAPACITY</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+            {Array.from({ length: maxTier }, (_, i) => i + 1).map((tier) => {
+              const cost = RAM_TIER_COSTS[tier];
+              const canAfford = credits >= cost;
+              return (
+                <button
+                  key={tier}
+                  onClick={() => buyRamModule(tier)}
+                  disabled={!canAfford}
+                  style={{
+                    ...btnStyle(canAfford),
+                    padding: "4px 12px",
+                    fontSize: "11px",
+                    width: "100%",
+                    textAlign: "left",
+                  }}
+                >
+                  T{tier} Module (+8 tokens) — {formatMoney(cost)}
+                </button>
+              );
+            })}
+          </div>
         )}
       </div>
 

@@ -33,8 +33,23 @@ export interface TechUnlocks {
   shopUnlocked: boolean;
   getBalanceUnlocked: boolean;
   stockMarketUnlocked: boolean;
+  waitUnlocked: boolean;
   maxTradeUnlocked: boolean;
   resourceDUnlocked: boolean;
+  // Hardware
+  motherboard2Unlocked: boolean;
+  motherboard3Unlocked: boolean;
+  ramTier2Unlocked: boolean;
+  ramTier3Unlocked: boolean;
+  ramTier4Unlocked: boolean;
+  ramTier5Unlocked: boolean;
+  internet1Unlocked: boolean;
+  internet2Unlocked: boolean;
+  internet3Unlocked: boolean;
+  cpuCore2Unlocked: boolean;
+  cpuCore3Unlocked: boolean;
+  cpuCore4Unlocked: boolean;
+  syncFunctionUnlocked: boolean;
 }
 
 export interface GameState {
@@ -46,6 +61,11 @@ export interface GameState {
   cpuLevel: number;
   market: Record<string, unknown> | null;
   shopBSold: number;
+  // Hardware
+  ramModules: number[];
+  motherboardLevel: number;
+  cpuCores: number;
+  internetLevel: number;
   testMode: boolean;
 }
 
@@ -61,6 +81,10 @@ export interface GameActions {
   spendCredits: (amount: number) => boolean;
   addShopBSold: (amount: number) => void;
   upgradeRam: (newRam: number) => void;
+  installRamModule: (tier: number) => void;
+  setMotherboardLevel: (level: number) => void;
+  setInternetLevel: (level: number) => void;
+  addCpuCore: () => void;
   setMarket: (marketData: Record<string, unknown> | null) => void;
   persistMarket: (marketData: Record<string, unknown> | null) => void;
   upgradeCpu: () => void;
@@ -83,17 +107,37 @@ const defaultState: GameState = {
     shopUnlocked: false,
     getBalanceUnlocked: false,
     stockMarketUnlocked: false,
+    waitUnlocked: false,
     maxTradeUnlocked: false,
     resourceDUnlocked: false,
+    // Hardware
+    motherboard2Unlocked: false,
+    motherboard3Unlocked: false,
+    ramTier2Unlocked: false,
+    ramTier3Unlocked: false,
+    ramTier4Unlocked: false,
+    ramTier5Unlocked: false,
+    internet1Unlocked: false,
+    internet2Unlocked: false,
+    internet3Unlocked: false,
+    cpuCore2Unlocked: false,
+    cpuCore3Unlocked: false,
+    cpuCore4Unlocked: false,
+    syncFunctionUnlocked: false,
   },
   virtualTime: 0,
   // Shop system
   credits: 0,
-  ram: 128,       // max tokens allowed (PICO-8 style counting)
-  cpuLevel: 0,    // each level = 50% faster, cost doubles each level
+  ram: 8,         // base tokens (8 + 8 per RAM module)
+  cpuLevel: 0,
   // Market state (persisted separately from live engine)
   market: null,
   shopBSold: 0,
+  // Hardware
+  ramModules: [],
+  motherboardLevel: 1,
+  cpuCores: 1,
+  internetLevel: 0,
   testMode: false,
 };
 
@@ -106,15 +150,28 @@ function loadGameState(): GameState {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
+      // Migrate old RAM to module system
+      let ramModules = parsed.ramModules ?? defaultState.ramModules;
+      let ram = parsed.ram ?? defaultState.ram;
+      if (!parsed.ramModules && parsed.ram && parsed.ram > 8) {
+        const moduleCount = Math.floor((parsed.ram - 8) / 8);
+        ramModules = Array(moduleCount).fill(1);
+        ram = 8 + moduleCount * 8;
+      }
+
       return {
         resources: { ...defaultState.resources, ...parsed.resources },
         tech: { ...defaultState.tech, ...parsed.tech },
         virtualTime: parsed.virtualTime ?? defaultState.virtualTime,
         credits: parsed.credits ?? defaultState.credits,
-        ram: parsed.ram ?? defaultState.ram,
+        ram,
         cpuLevel: parsed.cpuLevel ?? defaultState.cpuLevel,
         market: parsed.market ?? defaultState.market,
         shopBSold: parsed.shopBSold ?? defaultState.shopBSold,
+        ramModules,
+        motherboardLevel: parsed.motherboardLevel ?? defaultState.motherboardLevel,
+        cpuCores: parsed.cpuCores ?? defaultState.cpuCores,
+        internetLevel: parsed.internetLevel ?? defaultState.internetLevel,
         testMode: false,
       };
     }
@@ -178,6 +235,10 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
     cpuLevel: initial.cpuLevel,
     market: initial.market,
     shopBSold: initial.shopBSold,
+    ramModules: initial.ramModules,
+    motherboardLevel: initial.motherboardLevel,
+    cpuCores: initial.cpuCores,
+    internetLevel: initial.internetLevel,
     testMode: false,
 
     /** Replace all resources */
@@ -297,6 +358,41 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
       set({ ram: newRam });
     },
 
+    /** Install a RAM module of given tier, syncs ram token count */
+    installRamModule: (tier: number) => {
+      const current = get();
+      const ramModules = [...current.ramModules, tier];
+      const ram = 8 + ramModules.length * 8;
+      const state = { ...current, ramModules, ram };
+      saveGameStateToStorage(state);
+      set({ ramModules, ram });
+    },
+
+    /** Set motherboard level */
+    setMotherboardLevel: (level: number) => {
+      const current = get();
+      const state = { ...current, motherboardLevel: level };
+      saveGameStateToStorage(state);
+      set({ motherboardLevel: level });
+    },
+
+    /** Set internet level */
+    setInternetLevel: (level: number) => {
+      const current = get();
+      const state = { ...current, internetLevel: level };
+      saveGameStateToStorage(state);
+      set({ internetLevel: level });
+    },
+
+    /** Add a CPU core */
+    addCpuCore: () => {
+      const current = get();
+      const cpuCores = current.cpuCores + 1;
+      const state = { ...current, cpuCores };
+      saveGameStateToStorage(state);
+      set({ cpuCores });
+    },
+
     /** Update market state in Zustand (fast, no localStorage) */
     setMarket: (marketData: Record<string, unknown> | null) => {
       set({ market: marketData });
@@ -331,6 +427,10 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
         cpuLevel: loaded.cpuLevel,
         market: loaded.market,
         shopBSold: loaded.shopBSold,
+        ramModules: loaded.ramModules,
+        motherboardLevel: loaded.motherboardLevel,
+        cpuCores: loaded.cpuCores,
+        internetLevel: loaded.internetLevel,
       });
     },
 
@@ -346,6 +446,10 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
         cpuLevel: defaultState.cpuLevel,
         market: defaultState.market,
         shopBSold: defaultState.shopBSold,
+        ramModules: defaultState.ramModules,
+        motherboardLevel: defaultState.motherboardLevel,
+        cpuCores: defaultState.cpuCores,
+        internetLevel: defaultState.internetLevel,
       });
     },
   };

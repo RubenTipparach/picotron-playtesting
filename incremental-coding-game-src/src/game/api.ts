@@ -13,6 +13,7 @@ import {
   executeSell,
   addMarketProfit,
 } from "./marketEngine";
+import { getEffectiveCpuSpeed, getMaxTradeVolume } from "./hardware";
 
 // ─── Types & Interfaces ──────────────────────────────────────────────
 
@@ -38,6 +39,7 @@ export interface API {
   getMarketValue(resource: string): Promise<number>;
   buy(resource: string, amount?: number): Promise<number>;
   sell(resource: string, amount?: number): Promise<number>;
+  wait(ms?: number): Promise<void>;
 }
 
 /** All API function names available in the game */
@@ -52,6 +54,7 @@ export const ALL_API_FUNCTIONS: string[] = [
   "getMarketValue",
   "buy",
   "sell",
+  "wait",
 ];
 
 // ─── Speed Configuration ──────────────────────────────────────────────
@@ -112,11 +115,10 @@ function getProcessingSpeed(): number {
     speed *= 0.8;
   }
 
-  // CPU upgrades: each level adds 50% more IPS (cumulative)
-  // IPS = 1.5^cpuLevel, so time multiplier = 1 / 1.5^cpuLevel
+  // CPU upgrades with diminishing returns (logarithmic scaling)
   const cpuLevel = useGameStore.getState().cpuLevel;
   if (cpuLevel > 0) {
-    speed /= Math.pow(1.5, cpuLevel);
+    speed /= getEffectiveCpuSpeed(cpuLevel);
   }
 
   return speed;
@@ -464,6 +466,11 @@ export function createAPI(executionContext: APICallContext): API {
      * @returns Amount bought, or 0 on failure
      */
     async buy(resource: string, amount: number = 1): Promise<number> {
+      const maxVol = getMaxTradeVolume(useGameStore.getState().internetLevel);
+      if (amount > maxVol) {
+        const lineInfo = executionContext.lineNumber !== undefined ? ` (line ${executionContext.lineNumber})` : "";
+        throw new Error(`buy() failed${lineInfo} — trade volume ${amount} exceeds bandwidth (max ${maxVol}). Research Internet upgrades!`);
+      }
       const context: APICallContext = {
         ...executionContext,
         functionName: "buy",
@@ -506,6 +513,11 @@ export function createAPI(executionContext: APICallContext): API {
      * @returns Credits received, or 0 on failure
      */
     async sell(resource: string, amount: number = 1): Promise<number> {
+      const maxVol = getMaxTradeVolume(useGameStore.getState().internetLevel);
+      if (amount > maxVol) {
+        const lineInfo = executionContext.lineNumber !== undefined ? ` (line ${executionContext.lineNumber})` : "";
+        throw new Error(`sell() failed${lineInfo} — trade volume ${amount} exceeds bandwidth (max ${maxVol}). Research Internet upgrades!`);
+      }
       const context: APICallContext = {
         ...executionContext,
         functionName: "sell",
@@ -541,6 +553,24 @@ export function createAPI(executionContext: APICallContext): API {
       });
 
       return context.isCancelled?.() ? 0 : revenue;
+    },
+
+    /**
+     * Sleep for a given number of milliseconds.
+     * wait() or wait(0) sleeps for 1 CPU cycle (~the minimum step delay).
+     * @param ms - Milliseconds to sleep (default 0, min 0)
+     */
+    async wait(ms: number = 0): Promise<void> {
+      const context: APICallContext = {
+        ...executionContext,
+        functionName: "wait",
+        lineNumber: executionContext.lineNumber,
+      };
+      const delay = Math.max(0, ms || 0);
+
+      await executeWithDelay(delay, context, () => {
+        // No-op — just sleeps
+      });
     },
   };
 

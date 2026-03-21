@@ -16,12 +16,15 @@ export interface TechUnlock {
   threshold: (resources: Resources) => boolean;
   unlocked: boolean;
   cost: Array<{ resource: ResourceKey; amount: number }>;
+  creditCost?: number;
   validationRegex?: RegExp;
   validationErrorMessage?: string;
   icon: string;
   dependencies?: string[];
   position?: { row: number; col: number };
   progressInfo?: () => { current: number; target: number; label: string };
+  /** Called after unlock — use for side effects like upgrading motherboard level */
+  onUnlock?: () => void;
 }
 
 /**
@@ -79,7 +82,7 @@ export const TECH_UNLOCKS: TechUnlock[] = [
     unlocked: false,
     icon: "\uD83D\uDED2",
     dependencies: ["convertAToBUnlocked"],
-    position: { row: 0, col: 2 },
+    position: { row: 0, col: 4 },
   },
   {
     id: "getBalanceUnlocked",
@@ -93,7 +96,7 @@ export const TECH_UNLOCKS: TechUnlock[] = [
       "getBalance() is not unlocked yet. Sell 10 B in the Shop to unlock it.",
     icon: "$",
     dependencies: ["shopUnlocked"],
-    position: { row: 0, col: 3 },
+    position: { row: 1, col: 3 },
     progressInfo: () => {
       const sold = useGameStore.getState().shopBSold;
       return { current: sold, target: 10, label: `${sold} / 10 B sold in Shop` };
@@ -146,6 +149,7 @@ export const TECH_UNLOCKS: TechUnlock[] = [
     icon: "\uD83D\uDFE7",
     dependencies: ["convertAToBUnlocked"],
     position: { row: 1, col: 2 },
+
   },
   {
     id: "ifStatementsUnlocked",
@@ -175,6 +179,7 @@ export const TECH_UNLOCKS: TechUnlock[] = [
     icon: "\u0192",
     dependencies: ["ifStatementsUnlocked"],
     position: { row: 2, col: 1 },
+
   },
   {
     id: "processingSpeed1Unlocked",
@@ -225,6 +230,21 @@ export const TECH_UNLOCKS: TechUnlock[] = [
     },
   },
   {
+    id: "waitUnlocked",
+    name: "Wait",
+    description: "Unlock wait(ms) to sleep for a given time. wait() or wait(0) sleeps for 1 CPU cycle.",
+    threshold: (resources) => resources.C >= 5,
+    cost: [{ resource: "C", amount: 5 }],
+    unlocked: false,
+    validationRegex: /\bwait\s*\(/,
+    validationErrorMessage:
+      "wait() is not unlocked yet. Produce 5 C to unlock it.",
+    icon: "\u23F3",
+    dependencies: ["stockMarketUnlocked"],
+    position: { row: 2, col: 3 },
+
+  },
+  {
     id: "maxTradeUnlocked",
     name: "Max Trade",
     description: "Unlock MAX buy/sell on the stock market",
@@ -234,6 +254,181 @@ export const TECH_UNLOCKS: TechUnlock[] = [
     icon: "\u21C5",
     dependencies: ["stockMarketUnlocked"],
     position: { row: 3, col: 3 },
+
+  },
+  // ─── Hardware: Internet ────────────────────────────────────────────
+  {
+    id: "internet1Unlocked",
+    name: "Internet I",
+    description: "Basic internet connection. Trade up to 5 units per transaction.",
+    threshold: () => useGameStore.getState().credits >= 50,
+    cost: [],
+    creditCost: 50,
+    unlocked: false,
+    icon: "\uD83D\uDCE1",
+    dependencies: ["shopUnlocked"],
+    position: { row: 0, col: 8 },
+    onUnlock: () => useGameStore.getState().setInternetLevel(1),
+  },
+  {
+    id: "internet2Unlocked",
+    name: "Internet II",
+    description: "Faster connection. Trade up to 25 units per transaction.",
+    threshold: (resources) => useGameStore.getState().credits >= 500 && resources.B >= 50,
+    cost: [{ resource: "B", amount: 50 }],
+    creditCost: 500,
+    unlocked: false,
+    icon: "\uD83D\uDCE1",
+    dependencies: ["internet1Unlocked"],
+    position: { row: 0, col: 9 },
+    onUnlock: () => useGameStore.getState().setInternetLevel(2),
+  },
+  {
+    id: "internet3Unlocked",
+    name: "Internet III",
+    description: "Fiber optic. Trade up to 100 units per transaction.",
+    threshold: (resources) => useGameStore.getState().credits >= 5000 && resources.C >= 500,
+    cost: [{ resource: "C", amount: 500 }],
+    creditCost: 5000,
+    unlocked: false,
+    icon: "\uD83D\uDCE1",
+    dependencies: ["internet2Unlocked"],
+    position: { row: 0, col: 10 },
+    onUnlock: () => useGameStore.getState().setInternetLevel(3),
+  },
+  // ─── Hardware: Motherboard ─────────────────────────────────────────
+  {
+    id: "motherboard2Unlocked",
+    name: "Motherboard II",
+    description: "M2 board: 8 RAM slots, 2 CPU cores.",
+    threshold: (resources) => useGameStore.getState().credits >= 200 && resources.B >= 20,
+    cost: [{ resource: "B", amount: 20 }],
+    creditCost: 200,
+    unlocked: false,
+    icon: "\uD83D\uDCBB",
+    dependencies: ["shopUnlocked"],
+    position: { row: 1, col: 4 },
+    onUnlock: () => useGameStore.getState().setMotherboardLevel(2),
+  },
+  {
+    id: "motherboard3Unlocked",
+    name: "Motherboard III",
+    description: "M3 board: 16 RAM slots, 4 CPU cores.",
+    threshold: (resources) => useGameStore.getState().credits >= 5000 && resources.C >= 5000,
+    cost: [{ resource: "C", amount: 5000 }],
+    creditCost: 5000,
+    unlocked: false,
+    icon: "\uD83D\uDCBB",
+    dependencies: ["motherboard2Unlocked", "resourceDUnlocked"],
+    position: { row: 4, col: 4 },
+    onUnlock: () => useGameStore.getState().setMotherboardLevel(3),
+  },
+  // ─── Hardware: RAM Tiers ───────────────────────────────────────────
+  {
+    id: "ramTier2Unlocked",
+    name: "RAM Tier 2",
+    description: "Research faster RAM. Modules cost $100 each (+8 tokens).",
+    threshold: (resources) => useGameStore.getState().credits >= 100 && resources.A >= 100,
+    cost: [{ resource: "A", amount: 100 }],
+    creditCost: 100,
+    unlocked: false,
+    icon: "\uD83D\uDCE6",
+    dependencies: ["shopUnlocked"],
+    position: { row: 1, col: 7 },
+
+  },
+  {
+    id: "ramTier3Unlocked",
+    name: "RAM Tier 3",
+    description: "Research DDR3 RAM. Modules cost $1,000 each (+8 tokens).",
+    threshold: (resources) => useGameStore.getState().credits >= 1000 && resources.B >= 1000,
+    cost: [{ resource: "B", amount: 1000 }],
+    creditCost: 1000,
+    unlocked: false,
+    icon: "\uD83D\uDCE6",
+    dependencies: ["ramTier2Unlocked"],
+    position: { row: 2, col: 7 },
+
+  },
+  {
+    id: "ramTier4Unlocked",
+    name: "RAM Tier 4",
+    description: "Research DDR4 RAM. Modules cost $10,000 each (+8 tokens).",
+    threshold: (resources) => useGameStore.getState().credits >= 10000 && resources.C >= 10000,
+    cost: [{ resource: "C", amount: 10000 }],
+    creditCost: 10000,
+    unlocked: false,
+    icon: "\uD83D\uDCE6",
+    dependencies: ["ramTier3Unlocked"],
+    position: { row: 3, col: 7 },
+  },
+  {
+    id: "ramTier5Unlocked",
+    name: "RAM Tier 5",
+    description: "Research DDR5 RAM. Modules cost $100,000 each (+8 tokens).",
+    threshold: (resources) => useGameStore.getState().credits >= 100000 && resources.D >= 100000,
+    cost: [{ resource: "D", amount: 100000 }],
+    creditCost: 100000,
+    unlocked: false,
+    icon: "\uD83D\uDCE6",
+    dependencies: ["ramTier4Unlocked"],
+    position: { row: 4, col: 7 },
+
+  },
+  // ─── Hardware: CPU Cores ───────────────────────────────────────────
+  {
+    id: "cpuCore2Unlocked",
+    name: "CPU Core 2",
+    description: "Install a 2nd CPU core. Enables parallel code execution.",
+    threshold: (resources) => useGameStore.getState().credits >= 1000 && resources.B >= 100,
+    cost: [{ resource: "B", amount: 100 }],
+    creditCost: 1000,
+    unlocked: false,
+    icon: "\u2699",
+    dependencies: ["motherboard2Unlocked"],
+    position: { row: 2, col: 6 },
+    onUnlock: () => useGameStore.getState().addCpuCore(),
+  },
+  {
+    id: "cpuCore3Unlocked",
+    name: "CPU Core 3",
+    description: "Install a 3rd CPU core.",
+    threshold: (resources) => useGameStore.getState().credits >= 5000 && resources.C >= 1000,
+    cost: [{ resource: "C", amount: 1000 }],
+    creditCost: 5000,
+    unlocked: false,
+    icon: "\u2699",
+    dependencies: ["cpuCore2Unlocked", "motherboard3Unlocked"],
+    position: { row: 4, col: 6 },
+    onUnlock: () => useGameStore.getState().addCpuCore(),
+  },
+  {
+    id: "cpuCore4Unlocked",
+    name: "CPU Core 4",
+    description: "Install a 4th CPU core. Maximum parallelism.",
+    threshold: (resources) => useGameStore.getState().credits >= 20000 && resources.D >= 10000,
+    cost: [{ resource: "D", amount: 10000 }],
+    creditCost: 20000,
+    unlocked: false,
+    icon: "\u2699",
+    dependencies: ["cpuCore3Unlocked"],
+    position: { row: 5, col: 6 },
+    onUnlock: () => useGameStore.getState().addCpuCore(),
+  },
+  // ─── Hardware: Sync ────────────────────────────────────────────────
+  {
+    id: "syncFunctionUnlocked",
+    name: "Sync",
+    description: "Unlock sync() to synchronize and pass data between CPU cores.",
+    threshold: (resources) => useGameStore.getState().credits >= 2000 && resources.C >= 500,
+    cost: [{ resource: "C", amount: 500 }],
+    creditCost: 2000,
+    unlocked: false,
+    validationRegex: /\bsync\s*\(/,
+    validationErrorMessage: "sync() is not unlocked yet. Research Sync to unlock it.",
+    icon: "\uD83D\uDD04",
+    dependencies: ["cpuCore2Unlocked"],
+    position: { row: 3, col: 6 },
   },
 ];
 
@@ -276,6 +471,7 @@ export function getAvailableFunctions(): string[] {
   if (tech.getBalanceUnlocked) functions.push("getBalance");
   if (tech.resourceCUnlocked) functions.push("convertABToC", "makeResourceC");
   if (tech.stockMarketUnlocked) functions.push("getMarketValue", "buy", "sell");
+  if (tech.waitUnlocked) functions.push("wait");
 
   return functions;
 }

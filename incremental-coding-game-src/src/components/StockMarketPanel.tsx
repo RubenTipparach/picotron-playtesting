@@ -16,6 +16,8 @@ import {
   addMarketProfit,
 } from "../game/marketEngine";
 import { trackRender } from "../utils/perfMonitor";
+import { formatMoney, formatPrice, formatNumber } from "../utils/format";
+import { getMaxTradeVolume } from "../game/hardware";
 
 const GREEN = "#22cc44";
 const RED = "#ee3333";
@@ -43,7 +45,7 @@ function makeGrid(min: number, range: number) {
   const lines: { pct: number; label: string }[] = [];
   for (let i = 0; i <= 3; i++) {
     const price = min + (range * i) / 3;
-    lines.push({ pct: toYPct(price, min, range), label: price.toFixed(2) });
+    lines.push({ pct: toYPct(price, min, range), label: formatPrice(price) });
   }
   return lines;
 }
@@ -79,7 +81,7 @@ function PriceAxis({ gridLines, currentPct, currentPrice, color, t, height }: Pr
         backgroundColor: color, color: t.bg, whiteSpace: "nowrap",
         transition: "top 0.4s ease",
       }}>
-        {currentPrice.toFixed(2)}
+        {formatPrice(currentPrice)}
       </div>
     </div>
   );
@@ -372,8 +374,12 @@ export const StockMarketPanel = React.memo(function StockMarketPanel() {
   const tech = useGameStore((s) => s.tech);
   const resources = useGameStore((s) => s.resources);
   const credits = useGameStore((s) => s.credits);
+  const internetLevel = useGameStore((s) => s.internetLevel);
   useGameStore((s) => s.market);
   const t = useTheme();
+
+  const maxVolume = getMaxTradeVolume(internetLevel);
+  const availableTradeAmounts = TRADE_AMOUNTS.filter((a) => a <= maxVolume);
 
   const [chartType, setChartType] = useState<"candle" | "line">("candle");
   const [timeWindow, setTimeWindow] = useState("1m");
@@ -458,7 +464,7 @@ export const StockMarketPanel = React.memo(function StockMarketPanel() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <span style={{ fontSize: "12px", fontWeight: "bold", color: t.primary }}>
-              MKTCAP ${Math.floor(marketCap).toLocaleString()}
+              MKTCAP {formatMoney(marketCap)}
             </span>
           </div>
           <div style={{ fontSize: "10px", color: t.primaryDark }}>
@@ -474,7 +480,7 @@ export const StockMarketPanel = React.memo(function StockMarketPanel() {
             const playerPct = total > 0 ? ((playerHold / total) * 100).toFixed(1) : "0.0";
             return (
               <div key={r} style={{ fontSize: "10px", color: clr }}>
-                {r}: {units} units
+                {r}: {formatNumber(units)} units
                 {playerHold > 0 && (
                   <span style={{ color: t.primaryDark }}> ({playerPct}%)</span>
                 )}
@@ -514,7 +520,7 @@ export const StockMarketPanel = React.memo(function StockMarketPanel() {
               </span>
               <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                 <span style={{ color: t.primary, fontSize: "13px", fontWeight: "bold", transition: "color 0.3s" }}>
-                  ${midPrice.toFixed(2)}
+                  ${formatPrice(midPrice)}
                 </span>
                 {changeText && (
                   <span style={{ color: changeColor, fontSize: "10px", transition: "color 0.3s" }}>
@@ -532,8 +538,8 @@ export const StockMarketPanel = React.memo(function StockMarketPanel() {
             {/* Trade controls */}
             {(() => {
               const selectedAmt = getTradeAmount(r);
-              const maxBuyAmt = buyP > 0 ? Math.floor(credits / buyP) : 0;
-              const maxSellAmt = resources[r] || 0;
+              const maxBuyAmt = Math.min(maxVolume, buyP > 0 ? Math.floor(credits / buyP) : 0);
+              const maxSellAmt = Math.min(maxVolume, resources[r] || 0);
               const isMax = selectedAmt === -1;
               const buyAmt = isMax ? maxBuyAmt : selectedAmt;
               const sellAmt = isMax ? maxSellAmt : Math.min(selectedAmt, maxSellAmt);
@@ -546,7 +552,7 @@ export const StockMarketPanel = React.memo(function StockMarketPanel() {
                   {/* Amount selector */}
                   <div style={{ display: "flex", gap: "2px", marginBottom: "4px", alignItems: "center" }}>
                     <span style={{ fontSize: "9px", color: t.primaryDark, marginRight: "4px" }}>QTY</span>
-                    {TRADE_AMOUNTS.map((a) => (
+                    {availableTradeAmounts.map((a) => (
                       <button
                         key={a}
                         onClick={() => setTradeAmount(r, a)}
@@ -594,7 +600,7 @@ export const StockMarketPanel = React.memo(function StockMarketPanel() {
                         textAlign: "center",
                       }}
                     >
-                      BUY {buyAmt}x — ${buyCost.toFixed(2)}
+                      BUY {formatNumber(buyAmt)}x — {formatMoney(buyCost)}
                     </button>
                     <button
                       onClick={() => handleSell(r, sellAmt)}
@@ -609,7 +615,7 @@ export const StockMarketPanel = React.memo(function StockMarketPanel() {
                         textAlign: "center",
                       }}
                     >
-                      SELL {sellAmt}x — ${sellRevenue.toFixed(2)}
+                      SELL {formatNumber(sellAmt)}x — {formatMoney(sellRevenue)}
                     </button>
                   </div>
                 </div>
@@ -620,10 +626,10 @@ export const StockMarketPanel = React.memo(function StockMarketPanel() {
       })}
 
       <div style={{ fontSize: "10px", color: t.primaryDark, marginTop: "4px" }}>
-        TRADE REVENUE: ${market.totalMarketProfit.toFixed(2)}
+        TRADE REVENUE: {formatMoney(market.totalMarketProfit)}
         {!tech.resourceDUnlocked && (
           <span style={{ marginLeft: "8px" }}>
-            (${Math.max(0, 1000 - market.totalMarketProfit).toFixed(2)} more to unlock D)
+            ({formatMoney(Math.max(0, 1000 - market.totalMarketProfit))} more to unlock D)
           </span>
         )}
       </div>

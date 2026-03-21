@@ -46,6 +46,7 @@ export function DocumentationPanel({ isOpen, onClose, scrollToSection, inline, o
     getMarketValue: { description: "Gets the current market price of a resource. Takes 1s.", example: "getMarketValue('A')", returns: "Returns: current price (e.g. 1.05)", sectionId: "stock-market" },
     buy: { description: "Buys resource from market using credits. Takes 2s.", example: "buy('A', 5)", returns: "Returns: amount bought", sectionId: "stock-market" },
     sell: { description: "Sells resource on market for credits. Takes 2s.", example: "sell('A', 5)", returns: "Returns: credits received", sectionId: "stock-market" },
+    wait: { description: "Sleeps for ms milliseconds. wait() or wait(0) sleeps for 1 CPU cycle.", example: "wait(1000)", returns: "Returns: nothing" },
   };
 
   const content = (

@@ -108,6 +108,7 @@ interface TechTreeModalProps {
 export function TechTreeModal({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, initialSelectedTechId }: TechTreeModalProps) {
   const techState = useGameStore((s) => s.tech);
   const resources = useGameStore((s) => s.resources);
+  const credits = useGameStore((s) => s.credits);
   const [selectedTechId, setSelectedTechId] = useState<string | undefined>(initialSelectedTechId);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const t = useTheme();
@@ -137,10 +138,22 @@ export function TechTreeModal({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
   const handleUnlock = () => {
     if (!selectedTech) return;
     if (!techState[selectedTech.id] && selectedTech.threshold(resources)) {
-      if (useGameStore.getState().consumeResources(selectedTech.cost)) {
-        useGameStore.getState().unlockTech(selectedTech.id);
-        onUnlock?.(selectedTech.id);
+      const store = useGameStore.getState();
+      // Check credit cost first
+      if (selectedTech.creditCost && store.credits < selectedTech.creditCost) return;
+      // Consume resources
+      if (!store.consumeResources(selectedTech.cost)) return;
+      // Spend credits
+      if (selectedTech.creditCost) {
+        if (!store.spendCredits(selectedTech.creditCost)) {
+          // Rollback resources (shouldn't happen since we checked threshold)
+          for (const c of selectedTech.cost) store.addResource(c.resource, c.amount);
+          return;
+        }
       }
+      store.unlockTech(selectedTech.id);
+      selectedTech.onUnlock?.();
+      onUnlock?.(selectedTech.id);
     }
   };
 
@@ -164,10 +177,21 @@ export function TechTreeModal({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
       </div>
       <p style={{ margin: 0, color: t.primaryDim, fontSize: "11px", lineHeight: 1.5 }}>{selectedTech.description}</p>
 
-      {!techState[selectedTech.id] && selectedTech.cost.length > 0 && (
+      {!techState[selectedTech.id] && (selectedTech.cost.length > 0 || selectedTech.creditCost) && (
         <div style={{ padding: "8px", backgroundColor: t.bg3, border: `1px solid ${t.border}` }}>
           <div style={{ color: t.textDim, fontSize: "10px", marginBottom: "6px", letterSpacing: "1px" }}>COST</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+            {selectedTech.creditCost && (
+              <span style={{
+                display: "inline-flex", alignItems: "center", padding: "2px 6px", fontSize: "11px", fontFamily: t.font,
+                backgroundColor: credits >= selectedTech.creditCost ? t.bg3 : t.bg,
+                color: credits >= selectedTech.creditCost ? t.primary : t.textMuted,
+                border: `1px solid ${credits >= selectedTech.creditCost ? t.primary : t.border}`,
+                marginRight: "4px",
+              }}>
+                ${selectedTech.creditCost.toLocaleString()}
+              </span>
+            )}
             {selectedTech.cost.map((c: any, i: number) => (
               <ResourceCostBadge key={i} resource={c.resource} amount={c.amount} available={resources[c.resource]} t={t} />
             ))}
@@ -232,7 +256,12 @@ export function TechTreeModal({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
           {canUnlockSelected
             ? "[UNLOCK]"
             : selectedTech.dependencies?.some((d: string) => !techState[d as keyof typeof techState])
-              ? "LOCKED — MISSING DEPENDENCY"
+              ? (() => {
+                  const missing = selectedTech.dependencies!
+                    .filter((d: string) => !techState[d as keyof typeof techState])
+                    .map((d: string) => TECH_UNLOCKS.find((t) => t.id === d)?.name || d);
+                  return `REQUIRES: ${missing.join(", ")}`;
+                })()
               : "INSUFFICIENT RESOURCES"}
         </button>
       )}
@@ -329,7 +358,7 @@ export function TechTreeModal({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
       <div
         style={{
           backgroundColor: t.bg, border: `1px solid ${t.borderBright}`,
-          padding: "20px", width: "90%", maxWidth: "1100px", maxHeight: "85vh",
+          padding: "20px", width: "95%", maxWidth: "1500px", maxHeight: "85vh",
           boxShadow: `0 0 40px ${t.primary}26`,
           display: "grid", gridTemplateRows: "auto 1fr", gridTemplateColumns: "1fr 300px",
           gap: "16px", overflow: "hidden", fontFamily: t.font,
