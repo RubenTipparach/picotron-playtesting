@@ -224,6 +224,17 @@ export const TECH_UNLOCKS: TechUnlock[] = [
       return { current: profit, target: 1000, label: `$${profit.toFixed(2)} / $1000 trade revenue` };
     },
   },
+  {
+    id: "maxTradeUnlocked",
+    name: "Max Trade",
+    description: "Unlock MAX buy/sell on the stock market",
+    threshold: () => false, // TODO: unlock condition TBD
+    cost: [],
+    unlocked: false,
+    icon: "\u21C5",
+    dependencies: ["stockMarketUnlocked"],
+    position: { row: 3, col: 3 },
+  },
 ];
 
 /**

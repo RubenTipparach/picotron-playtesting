@@ -531,11 +531,16 @@ export const StockMarketPanel = React.memo(function StockMarketPanel() {
 
             {/* Trade controls */}
             {(() => {
-              const amt = getTradeAmount(r);
-              const buyCost = buyP * amt;
-              const sellRevenue = sellP * Math.min(amt, resources[r] || 0);
-              const canBuy = credits >= buyCost;
-              const canSell = (resources[r] || 0) >= 1;
+              const selectedAmt = getTradeAmount(r);
+              const maxBuyAmt = buyP > 0 ? Math.floor(credits / buyP) : 0;
+              const maxSellAmt = resources[r] || 0;
+              const isMax = selectedAmt === -1;
+              const buyAmt = isMax ? maxBuyAmt : selectedAmt;
+              const sellAmt = isMax ? maxSellAmt : Math.min(selectedAmt, maxSellAmt);
+              const buyCost = buyP * buyAmt;
+              const sellRevenue = sellP * sellAmt;
+              const canBuy = buyAmt > 0 && credits >= buyCost;
+              const canSell = sellAmt >= 1;
               return (
                 <div style={{ marginTop: "6px" }}>
                   {/* Amount selector */}
@@ -547,15 +552,29 @@ export const StockMarketPanel = React.memo(function StockMarketPanel() {
                         onClick={() => setTradeAmount(r, a)}
                         style={{
                           padding: "1px 6px", fontSize: "9px", fontFamily: t.font,
-                          backgroundColor: amt === a ? t.primary : t.bg3,
-                          color: amt === a ? t.bg : t.primaryDark,
-                          border: `1px solid ${amt === a ? t.primary : t.border}`,
+                          backgroundColor: selectedAmt === a ? t.primary : t.bg3,
+                          color: selectedAmt === a ? t.bg : t.primaryDark,
+                          border: `1px solid ${selectedAmt === a ? t.primary : t.border}`,
                           cursor: "pointer",
                         }}
                       >
                         {a}x
                       </button>
                     ))}
+                    {tech.maxTradeUnlocked && (
+                      <button
+                        onClick={() => setTradeAmount(r, -1)}
+                        style={{
+                          padding: "1px 6px", fontSize: "9px", fontFamily: t.font,
+                          backgroundColor: isMax ? t.primary : t.bg3,
+                          color: isMax ? t.bg : t.primaryDark,
+                          border: `1px solid ${isMax ? t.primary : t.border}`,
+                          cursor: "pointer",
+                        }}
+                      >
+                        MAX
+                      </button>
+                    )}
                     <span style={{ marginLeft: "auto", fontSize: "10px", color: t.primaryDim }}>
                       HOLD: {resources[r] || 0}
                     </span>
@@ -563,7 +582,7 @@ export const StockMarketPanel = React.memo(function StockMarketPanel() {
                   {/* Buy / Sell buttons with cost preview */}
                   <div style={{ display: "flex", gap: "6px" }}>
                     <button
-                      onClick={() => handleBuy(r, amt)}
+                      onClick={() => handleBuy(r, buyAmt)}
                       disabled={!canBuy}
                       style={{
                         flex: 1, padding: "4px 6px", fontSize: "10px", fontWeight: "bold",
@@ -575,10 +594,10 @@ export const StockMarketPanel = React.memo(function StockMarketPanel() {
                         textAlign: "center",
                       }}
                     >
-                      BUY {amt}x — ${buyCost.toFixed(2)}
+                      BUY {buyAmt}x — ${buyCost.toFixed(2)}
                     </button>
                     <button
-                      onClick={() => handleSell(r, amt)}
+                      onClick={() => handleSell(r, sellAmt)}
                       disabled={!canSell}
                       style={{
                         flex: 1, padding: "4px 6px", fontSize: "10px", fontWeight: "bold",
@@ -590,7 +609,7 @@ export const StockMarketPanel = React.memo(function StockMarketPanel() {
                         textAlign: "center",
                       }}
                     >
-                      SELL {Math.min(amt, resources[r] || 0)}x — ${sellRevenue.toFixed(2)}
+                      SELL {sellAmt}x — ${sellRevenue.toFixed(2)}
                     </button>
                   </div>
                 </div>

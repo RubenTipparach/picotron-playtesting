@@ -33,6 +33,7 @@ export interface TechUnlocks {
   shopUnlocked: boolean;
   getBalanceUnlocked: boolean;
   stockMarketUnlocked: boolean;
+  maxTradeUnlocked: boolean;
   resourceDUnlocked: boolean;
 }
 
@@ -82,6 +83,7 @@ const defaultState: GameState = {
     shopUnlocked: false,
     getBalanceUnlocked: false,
     stockMarketUnlocked: false,
+    maxTradeUnlocked: false,
     resourceDUnlocked: false,
   },
   virtualTime: 0,
