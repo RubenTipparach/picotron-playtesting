@@ -35,6 +35,7 @@ export interface Theme {
   resourceB: string;
   resourceC: string;
   resourceD: string;
+  resourceE: string;
   crt: boolean;
   overlay: string | null;
   font: string;
@@ -69,6 +70,7 @@ export const THEMES: Record<string, Theme> = {
     resourceB: "#aa44ff",
     resourceC: "#ff6b35",
     resourceD: "#ffcc00",
+    resourceE: "#00e5ff",
     crt: true,
     overlay: null,
     font: "'Fira Code', 'Courier New', monospace",
@@ -124,6 +126,7 @@ export const THEMES: Record<string, Theme> = {
     resourceB: "#6a1b9a",
     resourceC: "#e65100",
     resourceD: "#f9a825",
+    resourceE: "#00bcd4",
     crt: false,
     overlay: null,
     font: "'Fira Code', 'Courier New', monospace",
@@ -179,6 +182,7 @@ export const THEMES: Record<string, Theme> = {
     resourceB: "#a78bfa",
     resourceC: "#fb923c",
     resourceD: "#fbbf24",
+    resourceE: "#22d3ee",
     crt: false,
     overlay: "grid",
     font: "'Fira Code', 'Courier New', monospace",

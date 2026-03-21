@@ -604,7 +604,7 @@ export class CodeExecutor {
       // ── Build and execute the script ──
       const wrappedCode = `
         return (async function(api, step) {
-          const { produceResourceA, convertAToB, getResourceCount, getBalance, log, convertABToC, makeResourceC, getMarketValue, buy, sell, wait, sync, send } = api;
+          const { produceResourceA, convertAToB, getResourceCount, getBalance, log, convertABToC, makeResourceC, getMarketValue, buy, sell, wait, sync, send, hash, submitHash, gpuHash, getMiningInfo, testHash, dbGet, dbSet, dbDelete, dbExists, dbSize } = api;
           ${transformedCode}
         })(api, step);
       `;

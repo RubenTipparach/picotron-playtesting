@@ -15,6 +15,7 @@ import {
 } from "./marketEngine";
 import { getEffectiveCpuSpeed, getMaxTradeVolume } from "./hardware";
 import { busSend, busSync } from "./syncBus";
+import { gameHash, getHashDigits, submitHashResult, gpuBatchHash, getMiningSummary, testHashResult } from "./miningEngine";
 
 // ─── Types & Interfaces ──────────────────────────────────────────────
 
@@ -43,6 +44,16 @@ export interface API {
   wait(ms?: number): Promise<void>;
   sync(syncId: string, n: number): Promise<any[]>;
   send(syncId: string, msg: any): Promise<void>;
+  hash(input: string): Promise<{ hashValue: string; hashTest: boolean; hashFound: boolean }>;
+  submitHash(input: string): Promise<number>;
+  gpuHash(inputs: string[]): Promise<Array<{ input: string; output: string }>>;
+  getMiningInfo(): Promise<any>;
+  testHash(input: string): Promise<any>;
+  dbGet(key: string): Promise<string | null>;
+  dbSet(key: string, value: string): Promise<boolean>;
+  dbDelete(key: string): Promise<boolean>;
+  dbExists(key: string): Promise<boolean>;
+  dbSize(): Promise<{ used: number; capacity: number }>;
 }
 
 /** All API function names available in the game */
@@ -60,6 +71,16 @@ export const ALL_API_FUNCTIONS: string[] = [
   "wait",
   "sync",
   "send",
+  "hash",
+  "submitHash",
+  "gpuHash",
+  "getMiningInfo",
+  "testHash",
+  "dbGet",
+  "dbSet",
+  "dbDelete",
+  "dbExists",
+  "dbSize",
 ];
 
 // ─── Speed Configuration ──────────────────────────────────────────────
@@ -346,6 +367,7 @@ export function createAPI(executionContext: APICallContext): API {
         else if (resourceName === "B") count = resources.B;
         else if (resourceName === "C") count = resources.C;
         else if (resourceName === "D") count = resources.D;
+        else if (resourceName === "E") count = resources.E;
 
         advanceTime(1);
       });
@@ -629,6 +651,222 @@ export function createAPI(executionContext: APICallContext): API {
       }
 
       return context.isCancelled?.() ? [] : messages;
+    },
+
+    /**
+     * Hash a string (up to 16 chars) and return hex output.
+     * Takes 0.5 seconds.
+     */
+    async hash(input: string): Promise<{ hashValue: string; hashTest: boolean; hashFound: boolean }> {
+      const context: APICallContext = {
+        ...executionContext,
+        functionName: "hash",
+        lineNumber: executionContext.lineNumber,
+      };
+      let result = { hashValue: "", hashTest: false, hashFound: false };
+
+      await executeWithDelay(500, context, () => {
+        if (context.isCancelled?.()) return;
+        const store = useGameStore.getState();
+        const level = store.miningLevel;
+        const digits = getHashDigits(level);
+        const hex = gameHash(input, digits);
+        const zeros = hex.length - hex.replace(/0+$/, "").length;
+        const suffix = "0".repeat(zeros);
+        result = {
+          hashValue: hex,
+          hashTest: zeros > 0,
+          hashFound: zeros > 0 && store.foundSuffixes.includes(suffix),
+        };
+      });
+
+      return context.isCancelled?.() ? { hashValue: "", hashTest: false, hashFound: false } : result;
+    },
+
+    /**
+     * Submit a string whose hash has trailing zeros to mine E.
+     * Takes 1 second. Throws if hash is invalid (no trailing zeros).
+     * @returns 1 on success
+     */
+    async submitHash(input: string): Promise<number> {
+      const context: APICallContext = {
+        ...executionContext,
+        functionName: "submitHash",
+        lineNumber: executionContext.lineNumber,
+      };
+      let earned = 0;
+
+      await executeWithDelay(1000, context, () => {
+        if (context.isCancelled?.()) return;
+        earned = submitHashResult(input);
+      });
+
+      return context.isCancelled?.() ? 0 : earned;
+    },
+
+    /**
+     * Batch hash strings using GPU cores.
+     * Array length must exactly equal GPU core count.
+     * Takes 2 seconds.
+     * @returns Array of {input, output} pairs
+     */
+    async gpuHash(inputs: string[]): Promise<Array<{ input: string; output: string }>> {
+      const context: APICallContext = {
+        ...executionContext,
+        functionName: "gpuHash",
+        lineNumber: executionContext.lineNumber,
+      };
+      let results: Array<{ input: string; output: string }> = [];
+
+      await executeWithDelay(2000, context, () => {
+        if (context.isCancelled?.()) return;
+        const gpuTier = useGameStore.getState().gpuTier;
+        results = gpuBatchHash(inputs, gpuTier);
+      });
+
+      return context.isCancelled?.() ? [] : results;
+    },
+
+    /**
+     * Get current mining status.
+     * Takes 0.5 seconds.
+     */
+    async getMiningInfo(): Promise<any> {
+      const context: APICallContext = {
+        ...executionContext,
+        functionName: "getMiningInfo",
+        lineNumber: executionContext.lineNumber,
+      };
+      let info: any = {};
+
+      await executeWithDelay(500, context, () => {
+        if (context.isCancelled?.()) return;
+        info = getMiningSummary();
+      });
+
+      return context.isCancelled?.() ? {} : info;
+    },
+
+    /**
+     * Test if a string's hash would be valid without submitting.
+     * Takes 0.5 seconds.
+     * @returns { valid, hash, trailingZeros, suffix, alreadyFound, reason }
+     */
+    async testHash(input: string): Promise<any> {
+      const context: APICallContext = {
+        ...executionContext,
+        functionName: "testHash",
+        lineNumber: executionContext.lineNumber,
+      };
+      let result: any = {};
+
+      await executeWithDelay(500, context, () => {
+        if (context.isCancelled?.()) return;
+        result = testHashResult(input);
+      });
+
+      return context.isCancelled?.() ? {} : result;
+    },
+
+    /**
+     * Get a value from the persistent KV store.
+     * Takes 0.5 seconds.
+     */
+    async dbGet(key: string): Promise<string | null> {
+      const context: APICallContext = {
+        ...executionContext,
+        functionName: "dbGet",
+        lineNumber: executionContext.lineNumber,
+      };
+      let result: string | null = null;
+
+      await executeWithDelay(500, context, () => {
+        if (context.isCancelled?.()) return;
+        result = useGameStore.getState().dbGet(key);
+      });
+
+      return context.isCancelled?.() ? null : result;
+    },
+
+    /**
+     * Set a key-value pair in the persistent KV store.
+     * Takes 0.5 seconds. Returns false if over capacity.
+     */
+    async dbSet(key: string, value: string): Promise<boolean> {
+      const context: APICallContext = {
+        ...executionContext,
+        functionName: "dbSet",
+        lineNumber: executionContext.lineNumber,
+      };
+      let success = false;
+
+      await executeWithDelay(500, context, () => {
+        if (context.isCancelled?.()) return;
+        success = useGameStore.getState().dbSet(String(key), String(value));
+      });
+
+      return context.isCancelled?.() ? false : success;
+    },
+
+    /**
+     * Delete a key from the persistent KV store.
+     * Takes 0.5 seconds. Returns true if key existed.
+     */
+    async dbDelete(key: string): Promise<boolean> {
+      const context: APICallContext = {
+        ...executionContext,
+        functionName: "dbDelete",
+        lineNumber: executionContext.lineNumber,
+      };
+      let existed = false;
+
+      await executeWithDelay(500, context, () => {
+        if (context.isCancelled?.()) return;
+        existed = useGameStore.getState().dbDelete(key);
+      });
+
+      return context.isCancelled?.() ? false : existed;
+    },
+
+    /**
+     * Check if a key exists in the persistent KV store.
+     * Takes 0.5 seconds.
+     */
+    async dbExists(key: string): Promise<boolean> {
+      const context: APICallContext = {
+        ...executionContext,
+        functionName: "dbExists",
+        lineNumber: executionContext.lineNumber,
+      };
+      let exists = false;
+
+      await executeWithDelay(500, context, () => {
+        if (context.isCancelled?.()) return;
+        exists = useGameStore.getState().kvStore[key] !== undefined;
+      });
+
+      return context.isCancelled?.() ? false : exists;
+    },
+
+    /**
+     * Get the current storage usage and capacity.
+     * Takes 0.5 seconds.
+     */
+    async dbSize(): Promise<{ used: number; capacity: number }> {
+      const context: APICallContext = {
+        ...executionContext,
+        functionName: "dbSize",
+        lineNumber: executionContext.lineNumber,
+      };
+      let result = { used: 0, capacity: 0 };
+
+      await executeWithDelay(500, context, () => {
+        if (context.isCancelled?.()) return;
+        const store = useGameStore.getState();
+        result = { used: store.getKvStoreSize(), capacity: store.getDriveCapacity() };
+      });
+
+      return context.isCancelled?.() ? { used: 0, capacity: 0 } : result;
     },
   };
 

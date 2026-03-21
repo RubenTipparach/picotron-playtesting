@@ -49,18 +49,58 @@ export function DocumentationPanel({ isOpen, onClose, scrollToSection, inline, o
     wait: { description: "Sleeps for ms milliseconds. wait() or wait(0) sleeps for 1 CPU cycle.", example: "wait(1000)", returns: "Returns: nothing" },
     send: { description: "Queue a message at a named sync point.", example: "send('data', 42)", returns: "Returns: nothing", sectionId: "sync" },
     sync: { description: "Block until n messages arrive at syncId. Returns all messages.", example: "sync('data', 2)", returns: "Returns: array of messages", sectionId: "sync" },
+    hash: { description: "Hash a string (up to 16 chars) into hex digits. Takes 0.5s.", example: "hash('test')", returns: "Returns: { hashValue: 'a3f0', hashTest: true/false, hashFound: true/false }", sectionId: "mining" },
+    submitHash: { description: "Submit a string whose hash ends in zeros to mine 1 E. Crashes if invalid.", example: "submitHash('mystring')", returns: "Returns: 1 on success", sectionId: "mining" },
+    gpuHash: { description: "Batch hash using GPU cores. Array size must equal GPU core count.", example: "gpuHash(['str1', 'str2', ...])", returns: "Returns: [{input, output}, ...]", sectionId: "mining" },
+    getMiningInfo: { description: "Get mining stats: input/output sizes, suffixes found, total mined, GPU info.", example: "let info = getMiningInfo()\nlog(info)", returns: "Returns: { level, inputSize, outputSize, suffixesFound, suffixesTotal, totalMined, gpuCores, ... }", sectionId: "mining" },
+    dbGet: { description: "Get a value from the persistent key-value store. Takes 0.5s.", example: "dbGet('mykey')", returns: "Returns: string value or null", sectionId: "storage" },
+    dbSet: { description: "Store a key-value pair on the hard drive. Takes 0.5s.", example: "dbSet('mykey', 'myvalue')", returns: "Returns: true if stored, false if drive full", sectionId: "storage" },
+    dbDelete: { description: "Delete a key from the store. Takes 0.5s.", example: "dbDelete('mykey')", returns: "Returns: true if key existed", sectionId: "storage" },
+    dbExists: { description: "Check if a key exists in the store. Takes 0.5s.", example: "dbExists('mykey')", returns: "Returns: true if key exists", sectionId: "storage" },
+    dbSize: { description: "Get current storage usage and capacity. Takes 0.5s.", example: "dbSize()", returns: "Returns: { used: 42, capacity: 1024 }", sectionId: "storage" },
+  };
+
+  const scrollToTop = () => {
+    contentRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const content = (
-    <div ref={contentRef} style={{ padding: "12px", fontFamily: t.font, color: t.primary, overflowY: "auto", height: "100%", boxSizing: "border-box" }}>
+    <div ref={contentRef} style={{ padding: "12px", fontFamily: t.font, color: t.primary, overflowY: "auto", height: "100%", boxSizing: "border-box", position: "relative" }}>
       {onInsertCode && (
         <div style={{ color: t.primaryDark, fontSize: "10px", marginBottom: "8px", letterSpacing: "1px" }}>
           [ CLICK CODE TO INSERT AT CURSOR ]
         </div>
       )}
 
+      {/* Table of Contents */}
+      <div style={{ marginBottom: "12px", padding: "8px", backgroundColor: t.bg3, border: `1px solid ${t.border}` }}>
+        <div style={{ color: t.primaryDim, fontSize: "10px", letterSpacing: "2px", marginBottom: "6px" }}>[ CONTENTS ]</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+          {[
+            { label: "Syntax", id: "syntax" },
+            { label: "Functions", id: "functions" },
+            ...(tech.stockMarketUnlocked ? [{ label: "Trading", id: "stock-market" }] : []),
+            ...(tech.syncFunctionUnlocked ? [{ label: "Sync", id: "sync" }] : []),
+            ...(tech.resourceEUnlocked ? [{ label: "Mining", id: "mining" }] : []),
+            ...(tech.kvStoreUnlocked ? [{ label: "Storage", id: "storage" }] : []),
+            { label: "Tips", id: "tips" },
+          ].map((item) => (
+            <span
+              key={item.id}
+              onClick={() => {
+                const el = contentRef.current?.querySelector(`[data-section-id="${item.id}"]`) as HTMLElement | null;
+                if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+              style={{ color: t.accent, fontSize: "11px", cursor: "pointer" }}
+            >
+              &gt; {item.label}
+            </span>
+          ))}
+        </div>
+      </div>
+
       {/* Syntax */}
-      <Section title="SYNTAX" t={t}>
+      <Section title="SYNTAX" t={t} sectionId="syntax">
         <DocCard t={t}>
           <DocText t={t}>Call functions with parentheses:</DocText>
           <CodeBlock t={t} onInsertCode={onInsertCode}>{"produceResourceA()\ngetResourceCount('A')"}</CodeBlock>
@@ -108,23 +148,65 @@ export function DocumentationPanel({ isOpen, onClose, scrollToSection, inline, o
           </DocCard>
         )}
 
-        {tech.stockMarketUnlocked && (
-          <DocCard dataSectionId="stock-market" t={t}>
+        {tech.tryCatchUnlocked && (
+          <DocCard dataSectionId="try-catch" t={t}>
+            <DocText t={t}>Try/Catch — handle errors without crashing:</DocText>
+            <CodeBlock t={t} onInsertCode={onInsertCode}>{"try {\n  convertAToB()\n} catch (e) {\n  log('Error: ' + e)\n}"}</CodeBlock>
+          </DocCard>
+        )}
+
+      </Section>
+
+      {/* Trading */}
+      {tech.stockMarketUnlocked && (
+        <Section title="TRADING" t={t} sectionId="stock-market">
+          <DocCard t={t}>
             <DocText t={t}>Stock Market — prices fluctuate based on supply and demand:</DocText>
             <CodeBlock t={t} onInsertCode={onInsertCode}>{"// Check price before trading\nlet price = getMarketValue('A')\nif (price > 1.5) {\n  sell('A', 10)\n}\n// Buy low\nif (price < 0.8) {\n  buy('A', 5)\n}"}</CodeBlock>
           </DocCard>
-        )}
+        </Section>
+      )}
 
-        {tech.syncFunctionUnlocked && (
-          <DocCard dataSectionId="sync" t={t}>
+      {/* Sync */}
+      {tech.syncFunctionUnlocked && (
+        <Section title="SYNC" t={t} sectionId="sync">
+          <DocCard t={t}>
             <DocText t={t}>Sync — coordinate between CPU cores:</DocText>
             <CodeBlock t={t} onInsertCode={onInsertCode}>{"// Core 1:\nsend('data', 42)\n\n// Core 2:\nlet msgs = sync('data', 1)\nlog(msgs[0]) // 42"}</CodeBlock>
           </DocCard>
-        )}
-      </Section>
+        </Section>
+      )}
+
+      {/* Mining */}
+      {tech.resourceEUnlocked && (
+        <Section title="MINING" t={t} sectionId="mining">
+          <DocCard t={t}>
+            <DocText t={t}>Mining — hash strings to find trailing zeros and earn E:</DocText>
+            <CodeBlock t={t} onInsertCode={onInsertCode}>{"// Try different strings\nlet h = hash('test123')\nlog(h.hashValue) // e.g. 'a3f0'\nlog(h.hashTest)  // true if ends in zeros\nlog(h.hashFound) // true if already submitted\n// If hashTest is true, submit it!\nsubmitHash('test123') // earns 1 E"}</CodeBlock>
+          </DocCard>
+          <DocCard t={t}>
+            <DocText t={t}>Auto-mine — brute force search for hashes:</DocText>
+            <CodeBlock t={t} onInsertCode={onInsertCode}>{"let i = 0\nwhile (true) {\n  let s = 'mine' + i\n  let result = hash(s)\n  log(result, 'i', i)\n  if (result.hashTest && !result.hashFound) {\n    log('FOUND: ' + s + ' -> ' + result.hashValue)\n    submitHash(s)\n  }\n  i++\n}"}</CodeBlock>
+          </DocCard>
+          <DocCard t={t}>
+            <DocText t={t}>Check mining stats:</DocText>
+            <CodeBlock t={t} onInsertCode={onInsertCode}>{"let info = getMiningInfo()\nlog(info)"}</CodeBlock>
+          </DocCard>
+        </Section>
+      )}
+
+      {/* Storage */}
+      {tech.kvStoreUnlocked && (
+        <Section title="STORAGE" t={t} sectionId="storage">
+          <DocCard t={t}>
+            <DocText t={t}>Persistent key-value store — data survives across script runs:</DocText>
+            <CodeBlock t={t} onInsertCode={onInsertCode}>{"// Store data\ndbSet('counter', '0')\n\n// Read it back (even after restart)\nlet val = dbGet('counter')\nlog(val) // '0'\n\n// Check if key exists\nlet exists = dbExists('counter')\nlog(exists) // true\n\n// Check drive space\nlet size = dbSize()\nlog(size) // { used: 10, capacity: 1024 }"}</CodeBlock>
+          </DocCard>
+        </Section>
+      )}
 
       {/* Functions */}
-      <Section title="FUNCTIONS" t={t}>
+      <Section title="FUNCTIONS" t={t} sectionId="functions">
         {availableFunctions.map((fn) => {
           const doc = functionDocs[fn];
           if (!doc) return null;
@@ -142,7 +224,7 @@ export function DocumentationPanel({ isOpen, onClose, scrollToSection, inline, o
       </Section>
 
       {/* Tips */}
-      <Section title="TIPS" t={t}>
+      <Section title="TIPS" t={t} sectionId="tips">
         <DocCard t={t}>
           <ul style={{ color: t.primaryDim, fontSize: "11px", margin: 0, paddingLeft: "16px" }}>
             <li style={{ marginBottom: "4px" }}>Each function call takes time — progress bars show execution.</li>
@@ -153,6 +235,19 @@ export function DocumentationPanel({ isOpen, onClose, scrollToSection, inline, o
           </ul>
         </DocCard>
       </Section>
+
+      <div
+        onClick={scrollToTop}
+        style={{
+          position: "sticky", bottom: 8, alignSelf: "flex-end",
+          padding: "4px 10px", cursor: "pointer",
+          color: t.primaryDim, fontSize: "10px", letterSpacing: "1px",
+          backgroundColor: t.bg3, border: `1px solid ${t.border}`,
+          textAlign: "center", marginTop: "8px",
+        }}
+      >
+        [ TOP ]
+      </div>
     </div>
   );
 
@@ -177,11 +272,12 @@ interface SectionProps {
   title: string;
   children: React.ReactNode;
   t: any;
+  sectionId?: string;
 }
 
-function Section({ title, children, t }: SectionProps) {
+function Section({ title, children, t, sectionId }: SectionProps) {
   return (
-    <div style={{ marginBottom: "16px" }}>
+    <div style={{ marginBottom: "16px" }} data-section-id={sectionId}>
       <div style={{ color: t.primaryDim, fontSize: "11px", letterSpacing: "2px", marginBottom: "8px" }}>[ {title} ]</div>
       <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>{children}</div>
     </div>
@@ -259,33 +355,53 @@ function CodeBlock({ children, onInsertCode, t }: CodeBlockProps) {
     );
   }
 
-  return (
-    <div style={{ fontFamily: t.font, fontSize: "11px", backgroundColor: t.bg, padding: "4px 0", margin: "4px 0 0 0", border: `1px solid ${t.border}` }}>
-      {lines.map((line, i) => {
-        const trimmed = line.trim();
-        const isComment = trimmed.startsWith("//");
-        const isEmpty = !trimmed;
-        const isClickable = !isComment && !isEmpty;
+  const isMultiLine = lines.length > 1;
 
-        return (
-          <div
-            key={i}
-            onClick={isClickable ? (e) => { e.stopPropagation(); onInsertCode(trimmed); } : undefined}
-            title={isClickable ? `Click to insert: ${trimmed}` : undefined}
-            style={{
-              color: isComment ? t.primaryDark : t.accent,
-              padding: "1px 8px",
-              cursor: isClickable ? "pointer" : "default",
-              transition: "background-color 0.15s",
-              whiteSpace: "pre-wrap",
-            }}
-            onMouseEnter={isClickable ? (e) => { e.currentTarget.style.backgroundColor = `${t.accent}1a`; } : undefined}
-            onMouseLeave={isClickable ? (e) => { e.currentTarget.style.backgroundColor = "transparent"; } : undefined}
-          >
-            {line || "\u00A0"}
-          </div>
-        );
-      })}
+  return (
+    <div style={{ fontFamily: t.font, fontSize: "11px", backgroundColor: t.bg, margin: "4px 0 0 0", border: `1px solid ${t.border}` }}>
+      <div style={{ padding: "4px 0" }}>
+        {lines.map((line, i) => {
+          const trimmed = line.trim();
+          const isComment = trimmed.startsWith("//");
+          const isEmpty = !trimmed;
+          const isClickable = !isComment && !isEmpty;
+
+          return (
+            <div
+              key={i}
+              onClick={isClickable ? (e) => { e.stopPropagation(); onInsertCode(trimmed); } : undefined}
+              title={isClickable ? `Click to insert: ${trimmed}` : undefined}
+              style={{
+                color: isComment ? t.primaryDark : t.accent,
+                padding: "1px 8px",
+                cursor: isClickable ? "pointer" : "default",
+                transition: "background-color 0.15s",
+                whiteSpace: "pre-wrap",
+              }}
+              onMouseEnter={isClickable ? (e) => { e.currentTarget.style.backgroundColor = `${t.accent}1a`; } : undefined}
+              onMouseLeave={isClickable ? (e) => { e.currentTarget.style.backgroundColor = "transparent"; } : undefined}
+            >
+              {line || "\u00A0"}
+            </div>
+          );
+        })}
+      </div>
+      {isMultiLine && (
+        <div
+          onClick={(e) => { e.stopPropagation(); onInsertCode(text); }}
+          style={{
+            padding: "3px 8px", cursor: "pointer", fontSize: "9px",
+            color: t.primary, backgroundColor: t.bg3,
+            borderTop: `1px solid ${t.border}`,
+            textAlign: "center", letterSpacing: "1px",
+            transition: "background-color 0.15s",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = `${t.accent}26`; }}
+          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = t.bg3; }}
+        >
+          [ PASTE ALL ]
+        </div>
+      )}
     </div>
   );
 }

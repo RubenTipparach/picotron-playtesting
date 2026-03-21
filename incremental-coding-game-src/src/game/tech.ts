@@ -180,7 +180,20 @@ export const TECH_UNLOCKS: TechUnlock[] = [
     icon: "\u0192",
     dependencies: ["ifStatementsUnlocked"],
     position: { row: 2, col: 1 },
-
+  },
+  {
+    id: "tryCatchUnlocked",
+    name: "Try/Catch",
+    description: "Handle errors gracefully with try/catch/throw. Caught errors are logged automatically.",
+    threshold: (resources) => resources.C >= 10,
+    cost: [{ resource: "C", amount: 10 }],
+    unlocked: false,
+    validationRegex: /\b(try\s*\{|catch\s*\(|throw\s+)/,
+    validationErrorMessage:
+      "Try/catch is not unlocked yet. Produce 10 C to unlock error handling.",
+    icon: "!",
+    dependencies: ["userFunctionsUnlocked"],
+    position: { row: 3, col: 1 },
   },
   {
     id: "processingSpeed1Unlocked",
@@ -315,14 +328,27 @@ export const TECH_UNLOCKS: TechUnlock[] = [
     id: "motherboard3Unlocked",
     name: "Motherboard III",
     description: "M3 board: 16 RAM slots, 4 CPU cores.",
-    threshold: (resources) => useGameStore.getState().credits >= 5000 && resources.C >= 5000,
-    cost: [{ resource: "C", amount: 5000 }],
-    creditCost: 5000,
+    threshold: (resources) => useGameStore.getState().credits >= 1000 && resources.C >= 1000,
+    cost: [{ resource: "C", amount: 1000 }],
+    creditCost: 1000,
     unlocked: false,
     icon: "\uD83D\uDCBB",
     dependencies: ["motherboard2Unlocked", "resourceDUnlocked"],
     position: { row: 4, col: 4 },
     onUnlock: () => useGameStore.getState().setMotherboardLevel(3),
+  },
+  {
+    id: "motherboard4Unlocked",
+    name: "Motherboard IV",
+    description: "M4 board: 32 RAM slots, 4 CPU cores, GPU slot.",
+    threshold: (resources) => useGameStore.getState().credits >= 10000 && resources.E >= 10,
+    cost: [{ resource: "E", amount: 10 }],
+    creditCost: 10000,
+    unlocked: false,
+    icon: "\uD83D\uDCBB",
+    dependencies: ["motherboard3Unlocked"],
+    position: { row: 5, col: 4 },
+    onUnlock: () => useGameStore.getState().setMotherboardLevel(4),
   },
   // ─── Hardware: RAM Tiers ───────────────────────────────────────────
   {
@@ -431,6 +457,150 @@ export const TECH_UNLOCKS: TechUnlock[] = [
     dependencies: ["cpuCore2Unlocked"],
     position: { row: 3, col: 6 },
   },
+  // ─── Mining: Resource E ────────────────────────────────────────────
+  {
+    id: "resourceEUnlocked",
+    name: "Resource E",
+    description: "Unlock Resource E — a scarce digital asset. Use hash() and submitHash() to mine it.",
+    threshold: (resources) => useGameStore.getState().credits >= 10000 && resources.D >= 1000,
+    cost: [{ resource: "D", amount: 1000 }],
+    creditCost: 10000,
+    unlocked: false,
+    validationRegex: /\b(hash|submitHash|testHash|gpuHash|getMiningInfo)\s*\(/,
+    validationErrorMessage: "Mining functions are not unlocked yet. Research Resource E.",
+    icon: "E",
+    dependencies: ["resourceDUnlocked"],
+    position: { row: 5, col: 2 },
+  },
+  {
+    id: "digitalMiningUnlocked",
+    name: "Accelerated Mining",
+    description: "Advanced mining documentation and techniques. Unlocks getMiningInfo() for tracking progress.",
+    threshold: (resources) => useGameStore.getState().credits >= 5000 && resources.E >= 100,
+    cost: [{ resource: "E", amount: 100 }],
+    creditCost: 5000,
+    unlocked: false,
+    icon: "\u26CF",
+    dependencies: ["resourceEUnlocked"],
+    position: { row: 6, col: 2 },
+  },
+  // ─── Storage: Hard Drive ───────────────────────────────────────────
+  {
+    id: "kvStoreUnlocked",
+    name: "Hard Drive",
+    description: "1 KB persistent key-value store. Use dbSet(), dbGet(), dbDelete() to store data across runs.",
+    threshold: (resources) => useGameStore.getState().credits >= 5000 && resources.D >= 50,
+    cost: [{ resource: "D", amount: 50 }],
+    creditCost: 5000,
+    unlocked: false,
+    validationRegex: /\b(dbSet|dbGet|dbDelete|dbExists|dbSize)\s*\(/,
+    validationErrorMessage: "Storage functions are not unlocked yet. Research Hard Drive.",
+    icon: "\uD83D\uDDB4",
+    dependencies: ["resourceEUnlocked"],
+    position: { row: 6, col: 1 },
+  },
+  {
+    id: "hddTier2Unlocked",
+    name: "HDD Tier 2",
+    description: "Upgrade drive to 4 KB storage.",
+    threshold: (resources) => useGameStore.getState().credits >= 20000 && resources.D >= 200,
+    cost: [{ resource: "D", amount: 200 }],
+    creditCost: 20000,
+    unlocked: false,
+    icon: "\uD83D\uDDB4",
+    dependencies: ["kvStoreUnlocked"],
+    position: { row: 7, col: 1 },
+  },
+  {
+    id: "hddTier3Unlocked",
+    name: "HDD Tier 3",
+    description: "Upgrade drive to 16 KB storage.",
+    threshold: (resources) => useGameStore.getState().credits >= 100000 && resources.D >= 1000,
+    cost: [{ resource: "D", amount: 1000 }],
+    creditCost: 100000,
+    unlocked: false,
+    icon: "\uD83D\uDDB4",
+    dependencies: ["hddTier2Unlocked"],
+    position: { row: 8, col: 1 },
+  },
+  {
+    id: "hddTier4Unlocked",
+    name: "HDD Tier 4",
+    description: "Upgrade drive to 64 KB storage.",
+    threshold: (resources) => useGameStore.getState().credits >= 500000 && resources.D >= 5000,
+    cost: [{ resource: "D", amount: 5000 }],
+    creditCost: 500000,
+    unlocked: false,
+    icon: "\uD83D\uDDB4",
+    dependencies: ["hddTier3Unlocked"],
+    position: { row: 9, col: 1 },
+  },
+  // ─── Mining: GPU Tiers ─────────────────────────────────────────────
+  {
+    id: "gpuTier1Unlocked",
+    name: "GPU Tier 1",
+    description: "16-core GPU. Call gpuHash(array) to hash 16 strings at once.",
+    threshold: (resources) => useGameStore.getState().credits >= 500 && resources.E >= 10,
+    cost: [{ resource: "E", amount: 10 }],
+    creditCost: 500,
+    unlocked: false,
+    icon: "\uD83C\uDFAE",
+    dependencies: ["digitalMiningUnlocked", "motherboard4Unlocked"],
+    position: { row: 6, col: 3 },
+    onUnlock: () => useGameStore.getState().setGpuTier(1),
+  },
+  {
+    id: "gpuTier2Unlocked",
+    name: "GPU Tier 2",
+    description: "64-core GPU. Hash 64 strings per gpuHash() call.",
+    threshold: (resources) => useGameStore.getState().credits >= 5000 && resources.E >= 50,
+    cost: [{ resource: "E", amount: 50 }],
+    creditCost: 5000,
+    unlocked: false,
+    icon: "\uD83C\uDFAE",
+    dependencies: ["gpuTier1Unlocked"],
+    position: { row: 7, col: 3 },
+    onUnlock: () => useGameStore.getState().setGpuTier(2),
+  },
+  {
+    id: "gpuTier3Unlocked",
+    name: "GPU Tier 3",
+    description: "256-core GPU. Hash 256 strings per gpuHash() call.",
+    threshold: (resources) => useGameStore.getState().credits >= 50000 && resources.E >= 200,
+    cost: [{ resource: "E", amount: 200 }],
+    creditCost: 50000,
+    unlocked: false,
+    icon: "\uD83C\uDFAE",
+    dependencies: ["gpuTier2Unlocked"],
+    position: { row: 8, col: 3 },
+    onUnlock: () => useGameStore.getState().setGpuTier(3),
+  },
+  {
+    id: "gpuTier4Unlocked",
+    name: "GPU Tier 4",
+    description: "1024-core GPU. Hash 1024 strings per gpuHash() call.",
+    threshold: (resources) => useGameStore.getState().credits >= 500000 && resources.E >= 1000,
+    cost: [{ resource: "E", amount: 1000 }],
+    creditCost: 500000,
+    unlocked: false,
+    icon: "\uD83C\uDFAE",
+    dependencies: ["gpuTier3Unlocked"],
+    position: { row: 9, col: 3 },
+    onUnlock: () => useGameStore.getState().setGpuTier(4),
+  },
+  {
+    id: "gpuTier5Unlocked",
+    name: "GPU Tier 5",
+    description: "4096-core GPU. Hash 4096 strings per gpuHash() call.",
+    threshold: (resources) => useGameStore.getState().credits >= 5000000 && resources.E >= 5000,
+    cost: [{ resource: "E", amount: 5000 }],
+    creditCost: 5000000,
+    unlocked: false,
+    icon: "\uD83C\uDFAE",
+    dependencies: ["gpuTier4Unlocked"],
+    position: { row: 10, col: 3 },
+    onUnlock: () => useGameStore.getState().setGpuTier(5),
+  },
 ];
 
 /**
@@ -474,6 +644,10 @@ export function getAvailableFunctions(): string[] {
   if (tech.stockMarketUnlocked) functions.push("getMarketValue", "buy", "sell");
   if (tech.waitUnlocked) functions.push("wait");
   if (tech.syncFunctionUnlocked) functions.push("sync", "send");
+  if (tech.resourceEUnlocked) functions.push("hash", "submitHash", "testHash");
+  if (tech.digitalMiningUnlocked) functions.push("getMiningInfo");
+  if (tech.gpuTier1Unlocked) functions.push("gpuHash");
+  if (tech.kvStoreUnlocked) functions.push("dbGet", "dbSet", "dbDelete", "dbExists", "dbSize");
 
   return functions;
 }
@@ -489,8 +663,10 @@ export const TECH_TO_DOCS_SECTION: Record<string, string> = {
   resourceCUnlocked: "resource-conversion-2",
   ifStatementsUnlocked: "if-statements",
   userFunctionsUnlocked: "user-functions",
+  tryCatchUnlocked: "try-catch",
   stockMarketUnlocked: "stock-market",
   syncFunctionUnlocked: "sync",
+  kvStoreUnlocked: "storage",
 };
 
 /** Resource colors used throughout the UI */
@@ -499,4 +675,5 @@ export const RESOURCE_COLORS: Record<ResourceKey, string> = {
   B: "#9d4edd", // Purple
   C: "#ff6b35", // Orange
   D: "#ffcc00", // Gold
+  E: "#00e5ff", // Cyan
 };

@@ -133,6 +133,7 @@ export function ResourcePanel({
         {tech.convertAToBUnlocked && <ResCount label="B" count={resources.B} color={t.resourceB} t={t} />}
         {tech.resourceCUnlocked && <ResCount label="C" count={resources.C} color={t.resourceC} t={t} />}
         {resources.D > 0 && <ResCount label="D" count={resources.D} color={t.resourceD} t={t} />}
+        {tech.resourceEUnlocked && <ResCount label="E" count={resources.E} color={t.resourceE || "#00e5ff"} t={t} />}
       </div>
 
       {/* Credits */}
