@@ -183,6 +183,17 @@ export function App(): React.ReactElement {
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [executionEvents, setExecutionEvents] = useState<ExecutionEvent[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const logsRef = useRef<LogEntry[]>([]);
+  const logFlushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const appendLog = (entry: LogEntry) => {
+    logsRef.current.push(entry);
+    if (!logFlushTimer.current) {
+      logFlushTimer.current = setTimeout(() => {
+        logFlushTimer.current = null;
+        setLogs([...logsRef.current]);
+      }, 250);
+    }
+  };
   const [executor, setExecutor] = useState<CodeExecutor | null>(null);
   const [stats, setStats] = useState<Stats>({ totalTime: 0, functionTimes: {}, isRunning: false });
 
@@ -353,18 +364,21 @@ export function App(): React.ReactElement {
   useEffect(() => {
     const exec = new CodeExecutor({
       onEvent: (event: ExecutionEvent) => {
-        setExecutionEvents((prev) => [...prev, event]);
+        setExecutionEvents((prev) => {
+          const next = [...prev, event];
+          return next.length > 20 ? next.slice(-20) : next;
+        });
         if (event.type === "lineChange") {
           setScrollToLine(event.lineNumber);
         } else if (event.type === "log") {
           const msg = String(event.message);
           const isWarning = msg.startsWith("\u26A0\uFE0F Warning:");
-          setLogs((prev) => [...prev, { type: isWarning ? "warning" : "log", message: event.message, timestamp: Date.now() }]);
+          appendLog({ type: isWarning ? "warning" : "log", message: event.message, timestamp: Date.now() });
         } else if (event.type === "error") {
           setIsRunning(false);
           setStats((prev) => ({ ...prev, isRunning: false }));
           setHasError(true);
-          setLogs((prev) => [...prev, { type: "error", message: `ERROR: ${event.error.message}${event.lineNumber ? ` (line ${event.lineNumber})` : ""}`, timestamp: Date.now() }]);
+          appendLog({ type: "error", message: `ERROR: ${event.error.message}${event.lineNumber ? ` (line ${event.lineNumber})` : ""}`, timestamp: Date.now() });
         } else if (event.type === "functionStart") {
           setStats((prev) => ({ ...prev, isRunning: true }));
         } else if (event.type === "functionComplete") {
@@ -405,7 +419,7 @@ export function App(): React.ReactElement {
     // RAM check against saved code (comments excluded)
     const codeSize = countTokens(savedCode);
     if (codeSize > ram) {
-      setLogs((prev) => [...prev, { type: "error", message: `ERROR: Code exceeds RAM limit (${codeSize}/${ram} tokens). Buy more RAM in the Shop.`, timestamp: Date.now() }]);
+      appendLog({ type: "error", message: `ERROR: Code exceeds RAM limit (${codeSize}/${ram} tokens). Buy more RAM in the Shop.`, timestamp: Date.now() });
       return;
     }
 
@@ -454,7 +468,7 @@ export function App(): React.ReactElement {
     setStats({ totalTime: 0, functionTimes: {}, functionDetails: {}, loopDetails: {}, isRunning: true });
     setHasError(false);
     setScrollToLine(null);
-    setLogs((prev) => [...prev, { type: "log", message: "--- Execution started ---", timestamp: Date.now() }]);
+    appendLog({ type: "log", message: "--- Execution started ---", timestamp: Date.now() });
 
     try {
       await executor.execute(savedCode);
@@ -473,7 +487,7 @@ export function App(): React.ReactElement {
         completionsSinceUpgradeRef.current = 0;
       }
     } catch (error) {
-      setLogs((prev) => [...prev, { type: "error", message: `Execution failed: ${error instanceof Error ? error.message : String(error)}`, timestamp: Date.now() }]);
+      appendLog({ type: "error", message: `Execution failed: ${error instanceof Error ? error.message : String(error)}`, timestamp: Date.now() });
       setIsRunning(false);
       setStats((prev) => ({ ...prev, isRunning: false }));
       setScrollToLine(null);
@@ -487,7 +501,7 @@ export function App(): React.ReactElement {
     setStats((prev) => ({ ...prev, isRunning: false }));
     setExecutionEvents([]);
     setScrollToLine(null);
-    setLogs((prev) => [...prev, { type: "log", message: "--- Execution stopped ---", timestamp: Date.now() }]);
+    appendLog({ type: "log", message: "--- Execution stopped ---", timestamp: Date.now() });
   }, [executor, isRunning]);
 
   // ── Auto-restart after save-while-running ──

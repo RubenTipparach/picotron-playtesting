@@ -119,12 +119,33 @@ function loadGameState(): GameState {
 /**
  * Save game state to localStorage.
  */
-function saveGameStateToStorage(state: Omit<GameState, 'testMode'>): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch (error) {
-    console.warn("Failed to save game state to localStorage", error);
+let saveTimeout: ReturnType<typeof setTimeout> | null = null;
+let pendingState: Omit<GameState, 'testMode'> | null = null;
+
+function flushSave(): void {
+  if (pendingState) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(pendingState));
+    } catch (error) {
+      console.warn("Failed to save game state to localStorage", error);
+    }
+    pendingState = null;
   }
+}
+
+function saveGameStateToStorage(state: Omit<GameState, 'testMode'>): void {
+  pendingState = state;
+  if (!saveTimeout) {
+    saveTimeout = setTimeout(() => {
+      saveTimeout = null;
+      flushSave();
+    }, 500);
+  }
+}
+
+// Flush on page unload so we don't lose data
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', flushSave);
 }
 
 /**
