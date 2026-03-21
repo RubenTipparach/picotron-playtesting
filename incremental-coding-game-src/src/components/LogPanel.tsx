@@ -10,9 +10,10 @@ interface LogEntry {
 
 interface LogPanelProps {
   logs: LogEntry[];
+  onClear?: () => void;
 }
 
-export const LogPanel = React.memo(function LogPanel({ logs }: LogPanelProps) {
+export const LogPanel = React.memo(function LogPanel({ logs, onClear }: LogPanelProps) {
   trackRender("LogPanel")();
   const bottomRef = useRef<HTMLDivElement>(null);
   const t = useTheme();
@@ -32,21 +33,27 @@ export const LogPanel = React.memo(function LogPanel({ logs }: LogPanelProps) {
 
   return (
     <div style={{
-      padding: "8px 12px",
       fontFamily: t.font,
       fontSize: "11px",
       backgroundColor: t.bg,
       color: t.primaryDim,
       height: "100%",
-      overflowY: "auto",
-      overflowX: "hidden",
+      display: "flex",
+      flexDirection: "column",
       boxSizing: "border-box",
       borderTop: `1px solid ${t.border}`,
     }}>
-      <div style={{ color: t.primaryDark, fontSize: "10px", marginBottom: "6px", letterSpacing: "2px" }}>
-        &gt; OUTPUT
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px 6px", flexShrink: 0 }}>
+        <span style={{ color: t.primaryDark, fontSize: "10px", letterSpacing: "2px" }}>&gt; OUTPUT</span>
+        {onClear && (
+          <button onClick={onClear} style={{
+            padding: "1px 6px", fontSize: "9px", fontFamily: t.font,
+            backgroundColor: t.bg3, color: t.primaryDim,
+            border: `1px solid ${t.border}`, cursor: "pointer",
+          }}>CLEAR</button>
+        )}
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "2px", padding: "0 12px 8px", overflowY: "auto", overflowX: "hidden", flex: 1 }}>
         {logs.length === 0 ? (
           <div style={{ color: t.border, fontStyle: "italic" }}>
             Awaiting execution...

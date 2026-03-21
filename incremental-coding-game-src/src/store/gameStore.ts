@@ -17,9 +17,10 @@ export interface Resources {
   B: number;
   C: number;
   D: number;
+  E: number;
 }
 
-export const RESOURCE_KEYS = ['A', 'B', 'C', 'D'] as const;
+export const RESOURCE_KEYS = ['A', 'B', 'C', 'D', 'E'] as const;
 export type ResourceKey = (typeof RESOURCE_KEYS)[number];
 
 export interface TechUnlocks {
@@ -40,6 +41,7 @@ export interface TechUnlocks {
   // Hardware
   motherboard2Unlocked: boolean;
   motherboard3Unlocked: boolean;
+  motherboard4Unlocked: boolean;
   ramTier2Unlocked: boolean;
   ramTier3Unlocked: boolean;
   ramTier4Unlocked: boolean;
@@ -51,6 +53,21 @@ export interface TechUnlocks {
   cpuCore3Unlocked: boolean;
   cpuCore4Unlocked: boolean;
   syncFunctionUnlocked: boolean;
+  // Mining
+  tryCatchUnlocked: boolean;
+  resourceEUnlocked: boolean;
+  digitalMiningUnlocked: boolean;
+  gpuTier1Unlocked: boolean;
+  gpuTier2Unlocked: boolean;
+  gpuTier3Unlocked: boolean;
+  gpuTier4Unlocked: boolean;
+  gpuTier5Unlocked: boolean;
+  eMarketUnlocked: boolean;
+  // Storage
+  kvStoreUnlocked: boolean;
+  hddTier2Unlocked: boolean;
+  hddTier3Unlocked: boolean;
+  hddTier4Unlocked: boolean;
 }
 
 export interface GameState {
@@ -67,7 +84,16 @@ export interface GameState {
   motherboardLevel: number;
   cpuCores: number;
   internetLevel: number;
+  // Mining
+  miningLevel: number;
+  totalEMined: number;
+  foundSuffixes: string[];
+  foundHashes: string[];
+  gpuTier: number;
+  eMarketActive: boolean;
   testMode: boolean;
+  // Storage
+  kvStore: Record<string, string>;
 }
 
 export interface GameActions {
@@ -87,16 +113,26 @@ export interface GameActions {
   setMotherboardLevel: (level: number) => void;
   setInternetLevel: (level: number) => void;
   addCpuCore: () => void;
+  advanceMiningLevel: () => void;
+  addFoundSuffix: (suffix: string) => void;
+  addFoundHash: (hash: string) => void;
+  setGpuTier: (tier: number) => void;
+  setEMarketActive: () => void;
   setMarket: (marketData: Record<string, unknown> | null) => void;
   persistMarket: (marketData: Record<string, unknown> | null) => void;
   upgradeCpu: () => void;
+  dbSet: (key: string, value: string) => boolean;
+  dbGet: (key: string) => string | null;
+  dbDelete: (key: string) => boolean;
+  getKvStoreSize: () => number;
+  getDriveCapacity: () => number;
   syncFromLocalStorage: () => void;
   resetGameState: () => void;
 }
 
 // Default initial state
 const defaultState: GameState = {
-  resources: { A: 0, B: 0, C: 0, D: 0 },
+  resources: { A: 0, B: 0, C: 0, D: 0, E: 0 },
   tech: {
     whileUnlocked: false,
     convertAToBUnlocked: false,
@@ -115,6 +151,7 @@ const defaultState: GameState = {
     // Hardware
     motherboard2Unlocked: false,
     motherboard3Unlocked: false,
+    motherboard4Unlocked: false,
     ramTier2Unlocked: false,
     ramTier3Unlocked: false,
     ramTier4Unlocked: false,
@@ -126,6 +163,21 @@ const defaultState: GameState = {
     cpuCore3Unlocked: false,
     cpuCore4Unlocked: false,
     syncFunctionUnlocked: false,
+    // Mining
+    tryCatchUnlocked: false,
+    resourceEUnlocked: false,
+    digitalMiningUnlocked: false,
+    gpuTier1Unlocked: false,
+    gpuTier2Unlocked: false,
+    gpuTier3Unlocked: false,
+    gpuTier4Unlocked: false,
+    gpuTier5Unlocked: false,
+    eMarketUnlocked: false,
+    // Storage
+    kvStoreUnlocked: false,
+    hddTier2Unlocked: false,
+    hddTier3Unlocked: false,
+    hddTier4Unlocked: false,
   },
   virtualTime: 0,
   // Shop system
@@ -140,7 +192,16 @@ const defaultState: GameState = {
   motherboardLevel: 1,
   cpuCores: 1,
   internetLevel: 0,
+  // Mining
+  miningLevel: 1,
+  totalEMined: 0,
+  foundSuffixes: [],
+  foundHashes: [],
+  gpuTier: 0,
+  eMarketActive: false,
   testMode: false,
+  // Storage
+  kvStore: {},
 };
 
 /**
@@ -169,7 +230,8 @@ function loadGameState(): GameState {
       else if (tech.internet1Unlocked) internetLevel = Math.max(internetLevel, 1);
 
       let motherboardLevel = parsed.motherboardLevel ?? defaultState.motherboardLevel;
-      if (tech.motherboard3Unlocked) motherboardLevel = Math.max(motherboardLevel, 3);
+      if (tech.motherboard4Unlocked) motherboardLevel = Math.max(motherboardLevel, 4);
+      else if (tech.motherboard3Unlocked) motherboardLevel = Math.max(motherboardLevel, 3);
       else if (tech.motherboard2Unlocked) motherboardLevel = Math.max(motherboardLevel, 2);
 
       let cpuCores = parsed.cpuCores ?? defaultState.cpuCores;
@@ -190,7 +252,14 @@ function loadGameState(): GameState {
         motherboardLevel,
         cpuCores,
         internetLevel,
+        miningLevel: parsed.miningLevel ?? defaultState.miningLevel,
+        totalEMined: parsed.totalEMined ?? defaultState.totalEMined,
+        foundSuffixes: parsed.foundSuffixes ?? defaultState.foundSuffixes,
+        foundHashes: parsed.foundHashes ?? defaultState.foundHashes,
+        gpuTier: parsed.gpuTier ?? defaultState.gpuTier,
+        eMarketActive: parsed.eMarketActive ?? defaultState.eMarketActive,
         testMode: false,
+        kvStore: parsed.kvStore ?? defaultState.kvStore,
       };
     }
   } catch (error) {
@@ -231,6 +300,11 @@ if (typeof window !== 'undefined') {
   window.addEventListener('beforeunload', flushSave);
 }
 
+// Flush on Vite HMR so dev reloads don't lose state
+if ((import.meta as any).hot) {
+  (import.meta as any).hot.dispose(() => flushSave());
+}
+
 /**
  * Zustand store for the game state.
  *
@@ -257,7 +331,14 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
     motherboardLevel: initial.motherboardLevel,
     cpuCores: initial.cpuCores,
     internetLevel: initial.internetLevel,
+    miningLevel: initial.miningLevel,
+    totalEMined: initial.totalEMined,
+    foundSuffixes: initial.foundSuffixes,
+    foundHashes: initial.foundHashes,
+    gpuTier: initial.gpuTier,
+    eMarketActive: initial.eMarketActive,
     testMode: false,
+    kvStore: initial.kvStore,
 
     /** Replace all resources */
     setResources: (resources: Resources) => {
@@ -278,9 +359,8 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
       const current = get();
       const resources = { ...current.resources };
       resources[resourceName] += amount;
-      const state = { ...current, resources };
-      saveGameStateToStorage(state);
       set({ resources });
+      saveGameStateToStorage({ ...get() });
     },
 
     /** Consume a single resource. Returns true if successful, false if insufficient. */
@@ -289,9 +369,8 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
       if (current.resources[resourceName] >= amount) {
         const resources = { ...current.resources };
         resources[resourceName] -= amount;
-        const state = { ...current, resources };
-        saveGameStateToStorage(state);
         set({ resources });
+        saveGameStateToStorage({ ...get() });
         return true;
       }
       return false;
@@ -303,18 +382,15 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
      */
     consumeResources: (costs: Array<{ resource: ResourceKey; amount: number }>): boolean => {
       const current = get();
-      // Check all resources are available first
       for (const cost of costs) {
         if (current.resources[cost.resource] < cost.amount) return false;
       }
-      // Deduct all resources
       const resources = { ...current.resources };
       for (const cost of costs) {
         resources[cost.resource] -= cost.amount;
       }
-      const state = { ...current, resources };
-      saveGameStateToStorage(state);
       set({ resources });
+      saveGameStateToStorage({ ...get() });
       return true;
     },
 
@@ -341,9 +417,8 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
     addCredits: (amount: number) => {
       const current = get();
       const credits = current.credits + amount;
-      const state = { ...current, credits };
-      saveGameStateToStorage(state);
       set({ credits });
+      saveGameStateToStorage({ ...get() });
     },
 
     /** Spend credits. Returns true if successful. */
@@ -424,6 +499,53 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
       set({ cpuCores });
     },
 
+    /** Advance mining to next difficulty level */
+    advanceMiningLevel: () => {
+      const current = get();
+      const miningLevel = current.miningLevel + 1;
+      const state = { ...current, miningLevel, foundSuffixes: [], foundHashes: [] };
+      saveGameStateToStorage(state);
+      set({ miningLevel, foundSuffixes: [], foundHashes: [] });
+    },
+
+    /** Record a found mining suffix (for level advancement tracking) */
+    addFoundSuffix: (suffix: string) => {
+      const current = get();
+      const foundSuffixes = current.foundSuffixes.includes(suffix)
+        ? current.foundSuffixes
+        : [...current.foundSuffixes, suffix];
+      const totalEMined = current.totalEMined + 1;
+      const eMarketActive = totalEMined >= 1000 || current.eMarketActive;
+      const state = { ...current, foundSuffixes, totalEMined, eMarketActive };
+      saveGameStateToStorage(state);
+      set({ foundSuffixes, totalEMined, eMarketActive });
+    },
+
+    /** Record a found hash value (prevents duplicate submissions) */
+    addFoundHash: (hash: string) => {
+      const current = get();
+      const foundHashes = [...current.foundHashes, hash];
+      const state = { ...current, foundHashes };
+      saveGameStateToStorage(state);
+      set({ foundHashes });
+    },
+
+    /** Set GPU tier */
+    setGpuTier: (tier: number) => {
+      const current = get();
+      const state = { ...current, gpuTier: tier };
+      saveGameStateToStorage(state);
+      set({ gpuTier: tier });
+    },
+
+    /** Activate E market (after 1000 E mined) */
+    setEMarketActive: () => {
+      const current = get();
+      const state = { ...current, eMarketActive: true };
+      saveGameStateToStorage(state);
+      set({ eMarketActive: true });
+    },
+
     /** Update market state in Zustand (fast, no localStorage) */
     setMarket: (marketData: Record<string, unknown> | null) => {
       set({ market: marketData });
@@ -446,6 +568,62 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
       set({ cpuLevel });
     },
 
+    /** Get the drive capacity in bytes based on unlocked HDD tiers */
+    getDriveCapacity: () => {
+      const tech = get().tech;
+      if (tech.hddTier4Unlocked) return 65536;
+      if (tech.hddTier3Unlocked) return 16384;
+      if (tech.hddTier2Unlocked) return 4096;
+      if (tech.kvStoreUnlocked) return 1024;
+      return 0;
+    },
+
+    /** Get the current size of the KV store in bytes */
+    getKvStoreSize: () => {
+      const kvStore = get().kvStore;
+      let size = 0;
+      for (const key in kvStore) {
+        size += key.length + kvStore[key].length;
+      }
+      return size;
+    },
+
+    /** Set a key-value pair in the KV store. Returns false if over capacity. */
+    dbSet: (key: string, value: string): boolean => {
+      const current = get();
+      const capacity = current.getDriveCapacity();
+      const kvStore = { ...current.kvStore };
+      // Calculate new size: subtract old entry if exists, add new entry
+      let size = current.getKvStoreSize();
+      if (kvStore[key] !== undefined) {
+        size -= key.length + kvStore[key].length;
+      }
+      size += key.length + value.length;
+      if (size > capacity) return false;
+      kvStore[key] = value;
+      const state = { ...current, kvStore };
+      saveGameStateToStorage(state);
+      set({ kvStore });
+      return true;
+    },
+
+    /** Get a value from the KV store. Returns null if not found. */
+    dbGet: (key: string): string | null => {
+      return get().kvStore[key] ?? null;
+    },
+
+    /** Delete a key from the KV store. Returns true if key existed. */
+    dbDelete: (key: string): boolean => {
+      const current = get();
+      if (current.kvStore[key] === undefined) return false;
+      const kvStore = { ...current.kvStore };
+      delete kvStore[key];
+      const state = { ...current, kvStore };
+      saveGameStateToStorage(state);
+      set({ kvStore });
+      return true;
+    },
+
     /** Reload state from localStorage (for cross-tab sync) */
     syncFromLocalStorage: () => {
       const loaded = loadGameState();
@@ -462,6 +640,13 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
         motherboardLevel: loaded.motherboardLevel,
         cpuCores: loaded.cpuCores,
         internetLevel: loaded.internetLevel,
+        miningLevel: loaded.miningLevel,
+        totalEMined: loaded.totalEMined,
+        foundSuffixes: loaded.foundSuffixes,
+        foundHashes: loaded.foundHashes,
+        gpuTier: loaded.gpuTier,
+        eMarketActive: loaded.eMarketActive,
+        kvStore: loaded.kvStore,
       });
     },
 
@@ -481,6 +666,13 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
         motherboardLevel: defaultState.motherboardLevel,
         cpuCores: defaultState.cpuCores,
         internetLevel: defaultState.internetLevel,
+        miningLevel: defaultState.miningLevel,
+        totalEMined: defaultState.totalEMined,
+        foundSuffixes: defaultState.foundSuffixes,
+        foundHashes: defaultState.foundHashes,
+        gpuTier: defaultState.gpuTier,
+        eMarketActive: defaultState.eMarketActive,
+        kvStore: defaultState.kvStore,
       });
     },
   };

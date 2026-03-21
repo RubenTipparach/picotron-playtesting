@@ -430,7 +430,13 @@ export const StockMarketPanel = React.memo(function StockMarketPanel() {
     );
   }
 
-  const tradeableResources = tech.resourceDUnlocked ? ["A", "B", "C", "D"] : ["A", "B", "C"];
+  const eMarketActive = useGameStore((s) => s.eMarketActive);
+  const tradeableResources = (() => {
+    const res = ["A", "B", "C"];
+    if (tech.resourceDUnlocked) res.push("D");
+    if (eMarketActive) res.push("E");
+    return res;
+  })();
 
   return (
     <div style={{

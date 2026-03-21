@@ -17,6 +17,7 @@ export function getMotherboardSpec(level: number): MotherboardSpec {
     case 1: return { maxRamSlots: 4, maxCpuCores: 1, name: "M1" };
     case 2: return { maxRamSlots: 8, maxCpuCores: 2, name: "M2" };
     case 3: return { maxRamSlots: 16, maxCpuCores: 4, name: "M3" };
+    case 4: return { maxRamSlots: 32, maxCpuCores: 4, name: "M4" };
     default: return { maxRamSlots: 4, maxCpuCores: 1, name: "M1" };
   }
 }
@@ -73,6 +74,27 @@ export const RAM_TIER_COSTS: Record<number, number> = {
 export function getEffectiveRam(ramModules: number[]): number {
   return BASE_RAM_TOKENS + ramModules.reduce((sum, tier) => sum + (RAM_TIER_TOKENS[tier] || 8), 0);
 }
+
+// ─── GPU (Mining) ────────────────────────────────────────────────────
+
+/** GPU parallel cores by tier */
+export const GPU_TIER_CORES: Record<number, number> = {
+  0: 0,
+  1: 16,
+  2: 64,
+  3: 256,
+  4: 1024,
+  5: 4096,
+};
+
+/** Credit cost to research each GPU tier */
+export const GPU_TIER_COSTS: Record<number, number> = {
+  1: 500,
+  2: 5000,
+  3: 50000,
+  4: 500000,
+  5: 5000000,
+};
 
 // ─── Internet / Trade Volume ─────────────────────────────────────────
 

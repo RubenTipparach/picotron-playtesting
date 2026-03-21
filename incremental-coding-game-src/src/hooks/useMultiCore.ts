@@ -14,9 +14,25 @@ import { trackEvent } from "../utils/perfMonitor";
 import type { CodeEditorHandle } from "../components/CodeEditor";
 
 const CODE_STORAGE_KEY = "incremental-coding-game-code";
+const CORE_ENABLED_KEY = "core-enabled-states";
 
 function coreStorageKey(i: number): string {
   return i === 0 ? CODE_STORAGE_KEY : `code-core-${i}`;
+}
+
+function loadCoreEnabledStates(): boolean[] {
+  try {
+    const stored = localStorage.getItem(CORE_ENABLED_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCoreEnabledStates(states: boolean[]): void {
+  try {
+    localStorage.setItem(CORE_ENABLED_KEY, JSON.stringify(states));
+  } catch {}
 }
 
 function loadCoreCode(i: number): string {
@@ -37,6 +53,7 @@ export interface CoreState {
   code: string;
   savedCode: string;
   isRunning: boolean;
+  enabled: boolean;
   currentLine: number | null;
   currentFunction: string;
 }
@@ -58,6 +75,7 @@ interface UseMultiCoreResult {
   pauseAll: () => void;
   resumeAll: () => void;
   stepAll: () => void;
+  toggleCore: (coreIndex: number) => void;
   isAnyRunning: boolean;
   isAnyPaused: boolean;
 }
@@ -68,18 +86,20 @@ export function useMultiCore(
   onStatsEvent?: (event: ExecutionEvent, coreIndex: number, savedCode: string) => void
 ): UseMultiCoreResult {
   // Core state (triggers re-renders for UI)
-  const [coreStates, setCoreStates] = useState<CoreState[]>(() =>
-    Array.from({ length: cpuCores }, (_, i) => {
+  const [coreStates, setCoreStates] = useState<CoreState[]>(() => {
+    const enabledStates = loadCoreEnabledStates();
+    return Array.from({ length: cpuCores }, (_, i) => {
       const savedCode = loadCoreCode(i);
       return {
         code: savedCode,
         savedCode,
         isRunning: false,
+        enabled: enabledStates[i] ?? true,
         currentLine: null,
         currentFunction: "",
       };
-    })
-  );
+    });
+  });
 
   // Internal refs (no re-renders)
   const internalsRef = useRef<CoreInternal[]>([]);
@@ -186,7 +206,7 @@ export function useMultiCore(
       setCoreStates((prev) => {
         if (prev.length <= coreIndex) {
           const savedCode = loadCoreCode(coreIndex);
-          return [...prev, { code: savedCode, savedCode, isRunning: false, currentLine: null, currentFunction: "" }];
+          return [...prev, { code: savedCode, savedCode, isRunning: false, enabled: true, currentLine: null, currentFunction: "" }];
         }
         return prev;
       });
@@ -237,29 +257,31 @@ export function useMultiCore(
     const states = coreStates;
     const internals = internalsRef.current;
 
-    // RAM check: sum all cores
+    // RAM check: sum enabled cores
     let totalTokens = 0;
     for (let i = 0; i < Math.min(cpuCores, states.length); i++) {
-      totalTokens += countTokens(states[i].savedCode);
+      if (states[i].enabled) totalTokens += countTokens(states[i].savedCode);
     }
     if (totalTokens > ram) {
-      return `Code exceeds RAM limit (${totalTokens}/${ram} tokens across ${cpuCores} core${cpuCores > 1 ? "s" : ""}). Buy more RAM in the Shop.`;
+      return `Code exceeds RAM limit (${totalTokens}/${ram} tokens across cores). Buy more RAM in the Shop.`;
     }
 
-    // Validate each core
+    // Validate enabled cores
     for (let i = 0; i < Math.min(cpuCores, states.length); i++) {
+      if (!states[i].enabled) continue;
       const errors = validateCode(states[i].savedCode);
       if (errors.length > 0) {
         return `Core ${i + 1}: ${errors.map((e) => `Line ${e.lineNumber}: ${e.message}`).join(", ")}`;
       }
     }
 
-    // Start all cores
+    // Start enabled cores
     setCoreStates((prev) =>
-      prev.map((core, i) => (i < cpuCores ? { ...core, isRunning: true } : core))
+      prev.map((core, i) => (i < cpuCores && core.enabled ? { ...core, isRunning: true } : core))
     );
 
     for (let i = 0; i < Math.min(cpuCores, internals.length, states.length); i++) {
+      if (!states[i].enabled) continue;
       const executor = internals[i].executor;
       if (!executor.getRunning()) {
         executor.execute(states[i].savedCode).catch(() => {
@@ -282,6 +304,22 @@ export function useMultiCore(
     setCoreStates((prev) =>
       prev.map((core) => ({ ...core, isRunning: false, currentLine: null, currentFunction: "" }))
     );
+  }, []);
+
+  const toggleCore = useCallback((coreIndex: number) => {
+    setCoreStates((prev) => {
+      const next = [...prev];
+      if (next[coreIndex]) {
+        // If running, stop it first
+        if (next[coreIndex].isRunning) {
+          internalsRef.current[coreIndex]?.executor.stop();
+          internalsRef.current[coreIndex]?.editorRef.current?.clearDecorations?.();
+        }
+        next[coreIndex] = { ...next[coreIndex], enabled: !next[coreIndex].enabled, isRunning: false };
+      }
+      saveCoreEnabledStates(next.map((c) => c.enabled));
+      return next;
+    });
   }, []);
 
   const isAnyRunning = coreStates.some((c) => c.isRunning);
@@ -319,6 +357,7 @@ export function useMultiCore(
     saveAllCodes,
     runAll,
     stopAll,
+    toggleCore,
     pauseAll,
     resumeAll,
     stepAll,

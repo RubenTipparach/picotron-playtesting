@@ -31,8 +31,9 @@ import { ShopPanel } from './components/ShopPanel';
 import { StockMarketPanel } from './components/StockMarketPanel';
 import { SnippetsPanel } from './components/SnippetsPanel';
 import { HintPopover, HintsPanel } from './components/HintPopover';
+import { DbExplorerPanel } from './components/DbExplorerPanel';
 import { THEMES, ThemeContext, loadThemeId, saveThemeId } from './themes';
-import { initMarket, setDUnlocked, startMarketTimer, stopMarketTimer, setPlayerResourcesGetter } from './game/marketEngine';
+import { initMarket, setDUnlocked, setEUnlocked, startMarketTimer, stopMarketTimer, setPlayerResourcesGetter } from './game/marketEngine';
 import { PerfOverlay } from './components/PerfOverlay';
 import { trackRender, trackEvent } from './utils/perfMonitor';
 import { useMultiCore } from './hooks/useMultiCore';
@@ -216,7 +217,7 @@ export function App(): React.ReactElement {
     }
   }, []);
 
-  const { cores, internals, setCode: setCoreCode, loadCode: loadCoreCode, saveCode: saveCoreCode, saveAllCodes, runAll, stopAll, pauseAll, resumeAll, stepAll, isAnyRunning, isAnyPaused } = useMultiCore(cpuCores, appendLog, handleStatsEvent);
+  const { cores, internals, setCode: setCoreCode, loadCode: loadCoreCode, saveCode: saveCoreCode, saveAllCodes, runAll, stopAll, toggleCore, pauseAll, resumeAll, stepAll, isAnyRunning, isAnyPaused } = useMultiCore(cpuCores, appendLog, handleStatsEvent);
   const [activeCore, setActiveCore] = useState(0);
   const [splitView, setSplitView] = useState(false);
   const [isSnippetsOpen, setIsSnippetsOpen] = useState<boolean>(false);
@@ -260,6 +261,7 @@ export function App(): React.ReactElement {
     initMarket(state.market);
     setPlayerResourcesGetter(() => useGameStore.getState().resources as unknown as Record<string, number>);
     if (state.tech.resourceDUnlocked) setDUnlocked(true);
+    if (state.eMarketActive) setEUnlocked(true);
 
     // Start market timer if stock market is unlocked
     if (state.tech.stockMarketUnlocked) {
@@ -318,6 +320,11 @@ export function App(): React.ReactElement {
   useEffect(() => {
     if (tech.resourceDUnlocked) setDUnlocked(true);
   }, [tech.resourceDUnlocked]);
+
+  const eMarketActive = useGameStore((s: any) => s.eMarketActive);
+  useEffect(() => {
+    if (eMarketActive) setEUnlocked(true);
+  }, [eMarketActive]);
 
   // ── Track upgrades ──
   useEffect(() => {
@@ -487,6 +494,7 @@ export function App(): React.ReactElement {
   const desktopTabs: string[] = [
     ...(tech.shopUnlocked ? ["shop"] : []),
     ...(tech.stockMarketUnlocked ? ["market"] : []),
+    ...(tech.kvStoreUnlocked ? ["drive"] : []),
     "docs", "profiler", "hints",
   ];
   const mobileTabs: { id: string; label: string }[] = [
@@ -494,6 +502,7 @@ export function App(): React.ReactElement {
     { id: "output", label: "LOG" },
     ...(tech.shopUnlocked ? [{ id: "shop", label: "SHOP" }] : []),
     ...(tech.stockMarketUnlocked ? [{ id: "market", label: "MKT" }] : []),
+    ...(tech.kvStoreUnlocked ? [{ id: "drive", label: "HDD" }] : []),
     { id: "docs", label: "DOCS" },
     { id: "profiler", label: "CPU" },
   ];
@@ -503,6 +512,7 @@ export function App(): React.ReactElement {
     switch (tab) {
       case "shop": return <ShopPanel />;
       case "market": return <StockMarketPanel />;
+      case "drive": return <DbExplorerPanel />;
       case "docs": return <DocumentationPanel isOpen={true} onClose={() => {}} scrollToSection={docsScrollSection} inline onInsertCode={(text: string) => { if (editorRef.current?.insertText) editorRef.current.insertText(text); }} />;
       case "profiler": return <CPUPanel stats={stats} onScrollToLine={(line: number) => { if (editorRef.current?.scrollToLine) editorRef.current.scrollToLine(line); }} />;
       case "hints": return <HintsPanel activeHints={activeHints} dismissedHints={dismissedHints} onReopenHint={reopenHint} inline />;
@@ -559,7 +569,7 @@ export function App(): React.ReactElement {
           </div>
 
           <div style={{ position: "absolute", inset: 0, display: mobilePanel === "output" ? "block" : "none", overflow: "auto" }}>
-            <LogPanel logs={logs} />
+            <LogPanel logs={logs} onClear={() => { logsRef.current = []; setLogs([]); }} />
           </div>
 
           {desktopTabs.map((tab) => (
@@ -677,25 +687,46 @@ export function App(): React.ReactElement {
             <div style={{ display: "flex", alignItems: "center", borderBottom: `1px solid ${theme.border}`, backgroundColor: theme.bg, flexShrink: 0 }}>
               {cores.slice(0, cpuCores).map((core, i) => {
                 const isActive = activeCore === i;
-                const status = core.isRunning
-                  ? `L${core.currentLine || "?"}${core.currentFunction ? `: ${core.currentFunction}` : ""}`
-                  : "idle";
+                const status = !core.enabled
+                  ? "off"
+                  : core.isRunning
+                    ? `L${core.currentLine || "?"}${core.currentFunction ? `: ${core.currentFunction}` : ""}`
+                    : "idle";
                 return (
-                  <button
-                    key={i}
-                    onClick={() => setActiveCore(i)}
-                    style={{
-                      padding: "4px 8px", fontSize: "10px", fontFamily: theme.font,
-                      backgroundColor: isActive ? theme.bg3 : theme.bg,
-                      color: isActive ? theme.primary : theme.primaryDark,
-                      border: "none", borderRight: `1px solid ${theme.border}`,
-                      borderBottom: isActive ? `2px solid ${theme.primary}` : "2px solid transparent",
-                      cursor: "pointer", whiteSpace: "nowrap",
-                      width: "130px", overflow: "hidden", textOverflow: "ellipsis", textAlign: "left",
-                    }}
-                  >
-                    C{i + 1} {core.isRunning ? "\u25B6" : "\u25CF"} {status}
-                  </button>
+                  <div key={i} style={{ display: "flex", alignItems: "center", borderRight: `1px solid ${theme.border}` }}>
+                    <button
+                      onClick={() => setActiveCore(i)}
+                      style={{
+                        padding: "4px 8px", fontSize: "10px", fontFamily: theme.font,
+                        backgroundColor: isActive ? theme.bg3 : theme.bg,
+                        color: !core.enabled ? theme.primaryDark : isActive ? theme.primary : theme.primaryDim,
+                        border: "none",
+                        borderBottom: isActive ? `2px solid ${theme.primary}` : "2px solid transparent",
+                        cursor: "pointer", whiteSpace: "nowrap",
+                        width: "160px", overflow: "hidden", textOverflow: "ellipsis", textAlign: "left",
+                        opacity: core.enabled ? 1 : 0.4,
+                      }}
+                    >
+                      C{i + 1} {!core.enabled ? "\u25CB" : core.isRunning ? "\u25B6" : "\u25CF"} {status}
+                    </button>
+                    <div
+                      onClick={() => toggleCore(i)}
+                      title={core.enabled ? "Disable core" : "Enable core"}
+                      style={{
+                        width: "24px", height: "14px", borderRadius: "7px", cursor: "pointer",
+                        backgroundColor: core.enabled ? theme.primary : theme.border,
+                        position: "relative", flexShrink: 0, marginRight: "4px",
+                        transition: "background-color 0.2s",
+                      }}
+                    >
+                      <div style={{
+                        width: "10px", height: "10px", borderRadius: "50%",
+                        backgroundColor: theme.bg, position: "absolute", top: "2px",
+                        left: core.enabled ? "12px" : "2px",
+                        transition: "left 0.2s",
+                      }} />
+                    </div>
+                  </div>
                 );
               })}
               <button
@@ -769,7 +800,7 @@ export function App(): React.ReactElement {
           </div>
 
           <div style={{ height: `${consoleHeight}px`, minHeight: "60px", overflow: "hidden", flexShrink: 0 }}>
-            <LogPanel logs={logs} />
+            <LogPanel logs={logs} onClear={() => { logsRef.current = []; setLogs([]); }} />
           </div>
         </div>
 

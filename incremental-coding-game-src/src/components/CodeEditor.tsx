@@ -90,7 +90,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(
             },
           },
         ]);
-      } else if (event.type === "functionComplete" || event.type === "complete") {
+      } else if (event.type === "complete") {
         decorationsRef.current = editor.deltaDecorations(decorationsRef.current, []);
       }
     };
