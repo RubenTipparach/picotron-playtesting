@@ -31,6 +31,7 @@ export interface TechUnlocks {
   userFunctionsUnlocked: boolean;
   processingSpeed1Unlocked: boolean;
   shopUnlocked: boolean;
+  getBalanceUnlocked: boolean;
   stockMarketUnlocked: boolean;
   resourceDUnlocked: boolean;
 }
@@ -43,6 +44,7 @@ export interface GameState {
   ram: number;
   cpuLevel: number;
   market: Record<string, unknown> | null;
+  shopBSold: number;
   testMode: boolean;
 }
 
@@ -56,6 +58,7 @@ export interface GameActions {
   addVirtualTime: (seconds: number) => void;
   addCredits: (amount: number) => void;
   spendCredits: (amount: number) => boolean;
+  addShopBSold: (amount: number) => void;
   upgradeRam: (newRam: number) => void;
   setMarket: (marketData: Record<string, unknown> | null) => void;
   persistMarket: (marketData: Record<string, unknown> | null) => void;
@@ -77,6 +80,7 @@ const defaultState: GameState = {
     userFunctionsUnlocked: false,
     processingSpeed1Unlocked: false,
     shopUnlocked: false,
+    getBalanceUnlocked: false,
     stockMarketUnlocked: false,
     resourceDUnlocked: false,
   },
@@ -87,6 +91,7 @@ const defaultState: GameState = {
   cpuLevel: 0,    // each level = 50% faster, cost doubles each level
   // Market state (persisted separately from live engine)
   market: null,
+  shopBSold: 0,
   testMode: false,
 };
 
@@ -107,6 +112,7 @@ function loadGameState(): GameState {
         ram: parsed.ram ?? defaultState.ram,
         cpuLevel: parsed.cpuLevel ?? defaultState.cpuLevel,
         market: parsed.market ?? defaultState.market,
+        shopBSold: parsed.shopBSold ?? defaultState.shopBSold,
         testMode: false,
       };
     }
@@ -169,6 +175,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
     ram: initial.ram,
     cpuLevel: initial.cpuLevel,
     market: initial.market,
+    shopBSold: initial.shopBSold,
     testMode: false,
 
     /** Replace all resources */
@@ -271,6 +278,15 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
       return false;
     },
 
+    /** Track B resources sold in shop */
+    addShopBSold: (amount: number) => {
+      const current = get();
+      const shopBSold = current.shopBSold + amount;
+      const state = { ...current, shopBSold };
+      saveGameStateToStorage(state);
+      set({ shopBSold });
+    },
+
     /** Upgrade RAM capacity */
     upgradeRam: (newRam: number) => {
       const current = get();
@@ -312,6 +328,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
         ram: loaded.ram,
         cpuLevel: loaded.cpuLevel,
         market: loaded.market,
+        shopBSold: loaded.shopBSold,
       });
     },
 
@@ -326,6 +343,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
         ram: defaultState.ram,
         cpuLevel: defaultState.cpuLevel,
         market: defaultState.market,
+        shopBSold: defaultState.shopBSold,
       });
     },
   };

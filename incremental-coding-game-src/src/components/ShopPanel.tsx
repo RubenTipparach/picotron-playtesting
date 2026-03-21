@@ -1,6 +1,7 @@
 import React from "react";
 import { useGameStore } from "../store/gameStore";
 import { useTheme } from "../themes";
+import { trackRender } from "../utils/perfMonitor";
 import { getSellPrice, getBuyPrice, executeSell, executeBuy, addMarketProfit } from "../game/marketEngine";
 
 const BASE_SELL_PRICES: Record<string, number> = { A: 1, B: 5, C: 25 };
@@ -18,7 +19,8 @@ const RAM_UPGRADES = [
 
 const CPU_BASE_COST = 30;
 
-export function ShopPanel() {
+export const ShopPanel = React.memo(function ShopPanel() {
+  trackRender("ShopPanel")();
   const resources = useGameStore((s) => s.resources);
   const credits = useGameStore((s) => s.credits);
   const ram = useGameStore((s) => s.ram);
@@ -44,12 +46,12 @@ export function ShopPanel() {
 
   const buyResource = (name: string, amount: number) => {
     const price = getBuyPriceDisplay(name);
-    const totalCost = Math.ceil(price * amount);
+    const totalCost = price * amount;
     if (credits < totalCost) return;
     if (marketUnlocked) {
       const result = executeBuy(name, amount);
       if (!result.success) return;
-      const cost = Math.ceil(result.cost);
+      const cost = result.cost;
       if (!useGameStore.getState().spendCredits(cost)) return;
     } else {
       if (!useGameStore.getState().spendCredits(totalCost)) return;
@@ -71,6 +73,9 @@ export function ShopPanel() {
       const earned = actual * BASE_SELL_PRICES[name];
       useGameStore.getState().addCredits(earned);
       addMarketProfit(earned);
+    }
+    if (name === "B") {
+      useGameStore.getState().addShopBSold(actual);
     }
   };
 
@@ -115,7 +120,7 @@ export function ShopPanel() {
       <div style={{ marginBottom: "16px", borderBottom: `1px solid ${t.border}`, paddingBottom: "8px" }}>
         <span style={{ color: t.primaryDim, fontSize: "11px" }}>BALANCE:</span>
         <span style={{ color: t.primary, fontSize: "16px", marginLeft: "8px", fontWeight: "bold" }}>
-          ${credits.toFixed(2)}
+          ${credits.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </span>
       </div>
 
@@ -163,7 +168,7 @@ export function ShopPanel() {
                 {name} (${marketUnlocked ? price.toFixed(2) : price}ea)
               </span>
               {BUY_AMOUNTS.map((amt) => {
-                const totalCost = Math.ceil(price * amt);
+                const totalCost = price * amt;
                 return (
                   <button
                     key={amt}
@@ -232,4 +237,4 @@ export function ShopPanel() {
       </div>
     </div>
   );
-}
+});

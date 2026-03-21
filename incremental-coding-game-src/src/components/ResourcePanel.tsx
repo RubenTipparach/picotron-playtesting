@@ -1,6 +1,7 @@
 import React from "react";
 import { useGameStore } from "../store/gameStore";
 import { useTheme } from "../themes";
+import { trackRender } from "../utils/perfMonitor";
 
 interface ResourcePanelProps {
   isRunning: boolean;
@@ -31,6 +32,7 @@ export function ResourcePanel({
   onCycleTheme,
   themeName,
 }: ResourcePanelProps) {
+  trackRender("ResourcePanel")();
   const resources = useGameStore((s) => s.resources);
   const tech = useGameStore((s) => s.tech);
   const virtualTime = useGameStore((s) => s.virtualTime);
@@ -110,7 +112,7 @@ export function ResourcePanel({
 
       {/* Credits */}
       <div style={{ fontSize: "12px", color: t.primary }}>
-        <span style={{ color: t.primaryDim }}>$</span>{credits.toFixed(2)}
+        <span style={{ color: t.primaryDim }}>$</span>{credits.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
       </div>
 
       {/* Spacer */}

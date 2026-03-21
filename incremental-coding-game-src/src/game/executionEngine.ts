@@ -108,6 +108,11 @@ export function transformCode(code: string, insertSteps: boolean = true): string
           return line.replace(/\{\s*$/, `{ await step(${lineNumber});`);
         }
 
+        // For control flow with API calls in the condition, insert step before
+        if (hasApiCall && trimmed.endsWith("{")) {
+          return `await step(${lineNumber}); ${line}`;
+        }
+
         if (trimmed.endsWith(";")) {
           return line.replace(/;\s*$/, `; await step(${lineNumber});`);
         }
@@ -578,7 +583,7 @@ export class CodeExecutor {
       // ── Build and execute the script ──
       const wrappedCode = `
         return (async function(api, step) {
-          const { produceResourceA, convertAToB, getResourceCount, log, convertBToC, makeResourceC, getMarketValue, buy, sell } = api;
+          const { produceResourceA, convertAToB, getResourceCount, getBalance, log, convertABToC, makeResourceC, getMarketValue, buy, sell } = api;
           ${transformedCode}
         })(api, step);
       `;

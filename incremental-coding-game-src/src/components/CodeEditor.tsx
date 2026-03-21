@@ -31,18 +31,18 @@ interface ExecutionEvent {
 interface CodeEditorProps {
   code: string;
   onCodeChange: (code: string) => void;
-  executionEvents: ExecutionEvent[];
   onOpenTechTree?: (techId?: string) => void;
-  scrollToLineNumber?: number | null;
 }
 
 export interface CodeEditorHandle {
   scrollToLine: (line: number) => void;
   insertText: (text: string) => void;
+  pushEvent: (event: ExecutionEvent) => void;
+  clearDecorations: () => void;
 }
 
 export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(
-  ({ code, onCodeChange, executionEvents, onOpenTechTree, scrollToLineNumber }, ref) => {
+  ({ code, onCodeChange, onOpenTechTree }, ref) => {
     const theme = useContext(ThemeContext);
     const editorRef = useRef<any>(null);
     const monacoRef = useRef<any>(null);
@@ -51,7 +51,47 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(
     const onOpenTechTreeRef = useRef(onOpenTechTree);
     const validationInfoRef = useRef<Array<{ lineNumber: number; feature: string }>>([]);
 
-    // Expose scrollToLine and insertText to parent
+    const applyEvent = (event: ExecutionEvent) => {
+      if (!editorRef.current) return;
+      const editor = editorRef.current;
+      if (!editor.getModel()) return;
+
+      if (event.type === "lineChange") {
+        decorationsRef.current = editor.deltaDecorations(decorationsRef.current, [
+          {
+            range: { startLineNumber: event.lineNumber, startColumn: 1, endLineNumber: event.lineNumber, endColumn: 1 },
+            options: { isWholeLine: true, className: "executing-line" },
+          },
+        ]);
+        // Auto-scroll if line not visible
+        const visibleRanges = editor.getVisibleRanges();
+        const isVisible = visibleRanges.some(
+          (range: any) => event.lineNumber >= range.startLineNumber && event.lineNumber <= range.endLineNumber
+        );
+        if (!isVisible) {
+          editor.revealLineInCenter(event.lineNumber);
+        }
+      } else if (event.type === "functionProgress") {
+        const progress = event.progress!;
+        const element = document.querySelector(".executing-line") as HTMLElement | null;
+        if (element) {
+          element.style.setProperty("--progress", `${progress}%`);
+        }
+        decorationsRef.current = editor.deltaDecorations(decorationsRef.current, [
+          {
+            range: { startLineNumber: event.lineNumber, startColumn: 1, endLineNumber: event.lineNumber, endColumn: 1 },
+            options: {
+              isWholeLine: true, className: "executing-line",
+              after: { content: ` ${Math.round(progress)}%`, inlineClassName: "progress-text" },
+            },
+          },
+        ]);
+      } else if (event.type === "functionComplete" || event.type === "complete") {
+        decorationsRef.current = editor.deltaDecorations(decorationsRef.current, []);
+      }
+    };
+
+    // Expose imperative methods to parent
     useImperativeHandle(ref, () => ({
       scrollToLine: (line: number) => {
         if (editorRef.current) {
@@ -64,109 +104,36 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(
           editor.focus();
           const position = editor.getPosition();
           if (position) {
+            const model = editor.getModel();
+            const currentLineContent = model?.getLineContent(position.lineNumber) || "";
+            const isLineEmpty = currentLineContent.trim() === "";
+            const insertText = isLineEmpty ? text : "\n" + text;
             const range = {
               startLineNumber: position.lineNumber,
-              startColumn: position.column,
+              startColumn: isLineEmpty ? 1 : currentLineContent.length + 1,
               endLineNumber: position.lineNumber,
-              endColumn: position.column,
+              endColumn: isLineEmpty ? 1 : currentLineContent.length + 1,
             };
-            editor.executeEdits("docs-insert", [{ range, text }]);
-            // Move cursor to end of inserted text
-            const newCol = position.column + text.length;
-            editor.setPosition({ lineNumber: position.lineNumber, column: newCol });
+            editor.executeEdits("docs-insert", [{ range, text: insertText }]);
+            const lines = insertText.split("\n");
+            const lastLine = lines[lines.length - 1];
+            const newLineNumber = position.lineNumber + lines.length - 1;
+            editor.setPosition({ lineNumber: newLineNumber, column: lastLine.length + 1 });
           }
         }
       },
-    }));
-
-    // Handle external scroll requests -- only scroll, never move cursor
-    useEffect(() => {
-      if (scrollToLineNumber != null && editorRef.current) {
-        const editor = editorRef.current;
-        const visibleRanges = editor.getVisibleRanges();
-        const isVisible = visibleRanges.some(
-          (range: any) =>
-            scrollToLineNumber >= range.startLineNumber &&
-            scrollToLineNumber <= range.endLineNumber
-        );
-        if (!isVisible) {
-          editor.revealLineInCenter(scrollToLineNumber);
+      pushEvent: applyEvent,
+      clearDecorations: () => {
+        if (editorRef.current) {
+          decorationsRef.current = editorRef.current.deltaDecorations(decorationsRef.current, []);
         }
-      }
-    }, [scrollToLineNumber]);
+      },
+    }));
 
     // Keep onOpenTechTree ref current
     useEffect(() => {
       onOpenTechTreeRef.current = onOpenTechTree;
     }, [onOpenTechTree]);
-
-    // -- Handle execution events (line highlighting, progress) --
-    useEffect(() => {
-      if (!editorRef.current) return;
-      const editor = editorRef.current;
-      if (!editor.getModel()) return;
-
-      // Clear existing decorations
-      decorationsRef.current = editor.deltaDecorations(decorationsRef.current, []);
-
-      let currentLine: number | null = null;
-      let completedDecorations: string[] = [];
-
-      executionEvents.forEach((event) => {
-        if (event.type === "lineChange") {
-          // Clear old decorations on line change
-          if (currentLine !== null) {
-            decorationsRef.current = editor.deltaDecorations(decorationsRef.current, []);
-            completedDecorations = [];
-          }
-          currentLine = event.lineNumber!;
-
-          // Highlight the executing line
-          decorationsRef.current = editor.deltaDecorations(decorationsRef.current, [
-            {
-              range: {
-                startLineNumber: event.lineNumber,
-                startColumn: 1,
-                endLineNumber: event.lineNumber,
-                endColumn: 1,
-              },
-              options: { isWholeLine: true, className: "executing-line" },
-            },
-          ]);
-        } else if (event.type === "functionProgress" && currentLine === event.lineNumber) {
-          // Update progress bar
-          const progress = event.progress!;
-          const element = document.querySelector(".executing-line") as HTMLElement | null;
-          if (element) {
-            element.style.setProperty("--progress", `${progress}%`);
-          }
-
-          decorationsRef.current = editor.deltaDecorations(decorationsRef.current, [
-            {
-              range: {
-                startLineNumber: event.lineNumber,
-                startColumn: 1,
-                endLineNumber: event.lineNumber,
-                endColumn: 1,
-              },
-              options: {
-                isWholeLine: true,
-                className: "executing-line",
-                after: {
-                  content: ` ${Math.round(progress)}%`,
-                  inlineClassName: "progress-text",
-                },
-              },
-            },
-          ]);
-        } else if (event.type === "functionComplete" || event.type === "complete") {
-          // Clear all decorations on completion
-          decorationsRef.current = editor.deltaDecorations(decorationsRef.current, []);
-          completedDecorations = editor.deltaDecorations(completedDecorations, []);
-          currentLine = null;
-        }
-      });
-    }, [executionEvents]);
 
     // -- Editor mount handler --
     const handleEditorMount = (editor: any, monaco: any) => {
@@ -271,10 +238,10 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(
           insert: "log('${1:message}')",
           isSnippet: true,
         },
-        convertBToC: {
-          signature: "convertBToC(): Promise<number>",
+        convertABToC: {
+          signature: "convertABToC(): Promise<number>",
           description: "Converts 3 A + 1 B into 1 C. Takes 3 seconds.",
-          insert: "convertBToC()",
+          insert: "convertABToC()",
         },
       };
 

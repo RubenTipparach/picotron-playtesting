@@ -82,6 +82,24 @@ export const TECH_UNLOCKS: TechUnlock[] = [
     position: { row: 0, col: 2 },
   },
   {
+    id: "getBalanceUnlocked",
+    name: "Balance Check",
+    description: "Unlock getBalance() to check your credit balance from code",
+    threshold: () => useGameStore.getState().shopBSold >= 10,
+    cost: [],
+    unlocked: false,
+    validationRegex: /\bgetBalance\s*\(/,
+    validationErrorMessage:
+      "getBalance() is not unlocked yet. Sell 10 B in the Shop to unlock it.",
+    icon: "$",
+    dependencies: ["shopUnlocked"],
+    position: { row: 0, col: 3 },
+    progressInfo: () => {
+      const sold = useGameStore.getState().shopBSold;
+      return { current: sold, target: 10, label: `${sold} / 10 B sold in Shop` };
+    },
+  },
+  {
     id: "varsUnlocked",
     name: "Variables",
     description:
@@ -110,19 +128,19 @@ export const TECH_UNLOCKS: TechUnlock[] = [
       "Math operators are not unlocked yet. Produce 10 B to unlock them.",
     icon: "\u00B1",
     dependencies: ["varsUnlocked"],
-    position: { row: 2, col: 1 },
+    position: { row: 2, col: 0 },
   },
   {
     id: "resourceCUnlocked",
     name: "Resource Conversion 2",
-    description: "Unlock convertBToC()",
+    description: "Unlock convertABToC()",
     threshold: (resources) => resources.B >= 10,
     cost: [
       { resource: "A", amount: 20 },
       { resource: "B", amount: 10 },
     ],
     unlocked: false,
-    validationRegex: /\b(convertBToC|makeResourceC)\s*\(/,
+    validationRegex: /\b(convertABToC|makeResourceC)\s*\(/,
     validationErrorMessage:
       "Resource C is not unlocked yet. Produce 10 B to unlock it.",
     icon: "\uD83D\uDFE7",
@@ -167,7 +185,7 @@ export const TECH_UNLOCKS: TechUnlock[] = [
     unlocked: false,
     icon: "\u26A1",
     dependencies: ["mathFunctionsUnlocked"],
-    position: { row: 3, col: 1 },
+    position: { row: 3, col: 0 },
   },
   {
     id: "stockMarketUnlocked",
@@ -244,7 +262,8 @@ export function getAvailableFunctions(): string[] {
   const functions = ["produceResourceA", "getResourceCount", "log"];
 
   if (tech.convertAToBUnlocked) functions.push("convertAToB");
-  if (tech.resourceCUnlocked) functions.push("convertBToC", "makeResourceC");
+  if (tech.getBalanceUnlocked) functions.push("getBalance");
+  if (tech.resourceCUnlocked) functions.push("convertABToC", "makeResourceC");
   if (tech.stockMarketUnlocked) functions.push("getMarketValue", "buy", "sell");
 
   return functions;

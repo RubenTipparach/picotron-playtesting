@@ -229,7 +229,11 @@ export function TechTreeModal({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
             letterSpacing: "1px",
           }}
         >
-          {canUnlockSelected ? "[UNLOCK]" : "INSUFFICIENT"}
+          {canUnlockSelected
+            ? "[UNLOCK]"
+            : selectedTech.dependencies?.some((d: string) => !techState[d as keyof typeof techState])
+              ? "LOCKED — MISSING DEPENDENCY"
+              : "INSUFFICIENT RESOURCES"}
         </button>
       )}
     </div>

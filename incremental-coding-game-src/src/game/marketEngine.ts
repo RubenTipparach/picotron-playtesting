@@ -57,8 +57,8 @@ function gaussianRandom(seed: number): number {
   return Math.sqrt(-2 * Math.log(Math.max(u1, 0.0001))) * Math.cos(2 * Math.PI * u2);
 }
 
-const CANDLE_PERIOD = 20; // 20 ticks = 10s per candle
-const MAX_CANDLES = 120; // 10 minutes of candles (6 per minute)
+const CANDLE_PERIOD = 2; // 2 ticks = 1s per candle
+const MAX_CANDLES = 600; // 10 minutes of 1s candles
 const MAX_HISTORY = 1200; // 10 minutes of tick-level data (2 ticks/sec)
 
 let marketState: MarketState = {
@@ -74,6 +74,8 @@ let marketState: MarketState = {
   agentCount: 50,                             // Number of virtual agents
   targetMarketUnits: { ...INITIAL_MARKET_UNITS }, // Target size market is growing toward
 };
+
+import { trackEvent } from '../utils/perfMonitor';
 
 let timerHandle: ReturnType<typeof setInterval> | null = null;
 let saveCallback: ((state: MarketState) => void) | null = null;
@@ -137,19 +139,18 @@ function simulateAgents(tick: number): void {
   const tradingAgents = Math.max(1, Math.floor(agents * AGENT_TRADE_RATE));
 
   for (const r of resources) {
-    // Each trading agent randomly buys or sells
-    let netPressure = 0;
-    for (let a = 0; a < tradingAgents; a++) {
-      const seed = tick * 137 + a * 31 + r.charCodeAt(0) * 7;
-      const rand = seededRandom(seed);
-      const direction = rand > 0.52 ? 1 : rand < 0.48 ? -1 : 0; // Slight bias varies
-      const intensity = seededRandom(seed + 0.3) * 0.5 + 0.5; // 0.5-1.0
-      netPressure += direction * intensity * (TRADE_IMPACT as any)[r] * 0.3;
+    // Compute aggregate effect analytically instead of looping per-agent.
+    // Each agent has ~4% chance buy, ~4% chance sell, ~92% idle.
+    // Net direction averages near 0 with random variance proportional to sqrt(N).
+    const seed = tick * 137 + r.charCodeAt(0) * 7;
+    const noise = gaussianRandom(seed) * Math.sqrt(tradingAgents);
+    const avgIntensity = 0.75; // mean of uniform(0.5, 1.0)
+    const netPressure = noise * avgIntensity * (TRADE_IMPACT as any)[r] * 0.3;
 
-      // Agents adjust market units (they produce/consume)
-      const unitChange = direction * intensity * 0.1;
-      marketState.marketUnits[r] = Math.max(1, marketState.marketUnits[r] + unitChange);
-    }
+    // Aggregate unit change (net direction * avg intensity * 0.1 * sqrt(N))
+    const unitNoise = gaussianRandom(seed + 0.5) * Math.sqrt(tradingAgents);
+    const unitChange = unitNoise * avgIntensity * 0.1;
+    marketState.marketUnits[r] = Math.max(1, marketState.marketUnits[r] + unitChange);
 
     marketState.demandPressure[r] += netPressure;
   }
@@ -178,7 +179,7 @@ function simulateAgents(tick: number): void {
       }
     }
 
-    // Scale agent count with market size
+    // Scale agent count with market size, capped to prevent runaway growth
     const avgUnits = resources.reduce((sum, r) => sum + marketState.marketUnits[r], 0) / resources.length;
     const baseAvg = resources.reduce((sum, r) => sum + INITIAL_MARKET_UNITS[r], 0) / resources.length;
     marketState.agentCount = Math.max(50, Math.floor(50 * (avgUnits / baseAvg)));
@@ -214,7 +215,7 @@ export function tickMarket(numTicks: number): void {
       marketState.demandPressure[r] *= 0.9;
 
       const newPrice = Math.max(base * 0.1, price + noise + reversion + pressure);
-      (marketState.prices as any)[r] = Math.round(newPrice * 100) / 100;
+      (marketState.prices as any)[r] = newPrice;
 
       const currentPrice = (marketState.prices as any)[r] as number;
       marketState.priceHistory[r].push({ time: t, price: currentPrice });
@@ -257,7 +258,7 @@ export function getMarketCap(): number {
   for (const r of resources) {
     totalCap += marketState.marketUnits[r] * (marketState.prices as any)[r];
   }
-  return Math.floor(totalCap);
+  return totalCap;
 }
 
 /**
@@ -277,10 +278,18 @@ export function startMarketTimer(onTick: (state: MarketState) => void, onPersist
   saveCallback = onTick;
   persistCallback = onPersist;
   ticksSinceLastPersist = 0;
+  let ticksSinceLastUiUpdate = 0;
+  const UI_UPDATE_EVERY_N_TICKS = 4; // Update React every 2s (4 ticks * 500ms)
   timerHandle = setInterval(() => {
+    trackEvent("marketTick");
     tickMarket(1);
-    // Spread to create a new object reference so Zustand detects the change
-    if (saveCallback) saveCallback({ ...marketState });
+
+    // Throttle React state updates
+    ticksSinceLastUiUpdate++;
+    if (ticksSinceLastUiUpdate >= UI_UPDATE_EVERY_N_TICKS && saveCallback) {
+      ticksSinceLastUiUpdate = 0;
+      saveCallback({ ...marketState });
+    }
 
     // Persist to localStorage less frequently
     ticksSinceLastPersist++;
@@ -322,7 +331,7 @@ export function getMarketValue(resource: string): number {
  */
 export function getBuyPrice(resource: string): number {
   const mid = getMarketValue(resource);
-  return Math.round(mid * (1 + SPREAD) * 100) / 100;
+  return mid * (1 + SPREAD);
 }
 
 /**
@@ -330,7 +339,7 @@ export function getBuyPrice(resource: string): number {
  */
 export function getSellPrice(resource: string): number {
   const mid = getMarketValue(resource);
-  return Math.round(mid * (1 - SPREAD) * 100) / 100;
+  return mid * (1 - SPREAD);
 }
 
 /**
@@ -343,7 +352,7 @@ export function executeBuy(resource: string, amount: number): TradeResult {
   if (r === "D" && !marketState.dUnlocked) return { success: false, cost: 0, amount: 0 };
 
   const price = getBuyPrice(r);
-  const cost = Math.round(price * amount * 100) / 100;
+  const cost = price * amount;
 
   // Push price up
   marketState.demandPressure[r] += (TRADE_IMPACT as any)[r] * amount;
@@ -361,7 +370,7 @@ export function executeSell(resource: string, amount: number): TradeResult {
   if (r === "D" && !marketState.dUnlocked) return { success: false, revenue: 0, amount: 0 };
 
   const price = getSellPrice(r);
-  const revenue = Math.round(price * amount * 100) / 100;
+  const revenue = price * amount;
 
   // Push price down
   marketState.demandPressure[r] -= (TRADE_IMPACT as any)[r] * amount;

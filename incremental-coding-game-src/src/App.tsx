@@ -36,6 +36,8 @@ import { SnippetsPanel } from './components/SnippetsPanel';
 import { HintPopover, HintsPanel } from './components/HintPopover';
 import { THEMES, ThemeContext, loadThemeId, saveThemeId } from './themes';
 import { initMarket, setDUnlocked, startMarketTimer, stopMarketTimer, setPlayerResourcesGetter } from './game/marketEngine';
+import { PerfOverlay } from './components/PerfOverlay';
+import { trackRender, trackEvent } from './utils/perfMonitor';
 
 const CODE_STORAGE_KEY = "incremental-coding-game-code";
 
@@ -179,9 +181,10 @@ export function App(): React.ReactElement {
   const hasUnsavedChanges = code !== savedCode;
   const [isSnippetsOpen, setIsSnippetsOpen] = useState<boolean>(false);
 
+  const [showPerf, setShowPerf] = useState(false);
+
   // ── Execution state ──
   const [isRunning, setIsRunning] = useState<boolean>(false);
-  const [executionEvents, setExecutionEvents] = useState<ExecutionEvent[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const logsRef = useRef<LogEntry[]>([]);
   const logFlushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -215,7 +218,6 @@ export function App(): React.ReactElement {
   const completionsSinceUpgradeRef = useRef<number>(0);
 
   // ── Refs ──
-  const [scrollToLine, setScrollToLine] = useState<number | null>(null);
   const editorRef = useRef<any>(null);
   const lastCodeHashRef = useRef<string>("");
   const resources = useGameStore((state: any) => state.resources);
@@ -275,7 +277,7 @@ export function App(): React.ReactElement {
       executor.stop();
       setIsRunning(false);
       setStats((prev) => ({ ...prev, isRunning: false }));
-      setExecutionEvents([]);
+      editorRef.current?.clearDecorations?.();
       pendingRestartRef.current = true;
     }
     setSavedCode(code);
@@ -364,13 +366,12 @@ export function App(): React.ReactElement {
   useEffect(() => {
     const exec = new CodeExecutor({
       onEvent: (event: ExecutionEvent) => {
-        setExecutionEvents((prev) => {
-          const next = [...prev, event];
-          return next.length > 20 ? next.slice(-20) : next;
-        });
-        if (event.type === "lineChange") {
-          setScrollToLine(event.lineNumber);
-        } else if (event.type === "log") {
+        trackEvent(`evt:${event.type}`);
+        // Push visual events directly to editor (no React state, no re-render)
+        if (editorRef.current?.pushEvent) {
+          editorRef.current.pushEvent(event);
+        }
+        if (event.type === "log") {
           const msg = String(event.message);
           const isWarning = msg.startsWith("\u26A0\uFE0F Warning:");
           appendLog({ type: isWarning ? "warning" : "log", message: event.message, timestamp: Date.now() });
@@ -405,7 +406,7 @@ export function App(): React.ReactElement {
         } else if (event.type === "complete") {
           setIsRunning(false);
           setStats((prev) => ({ ...prev, isRunning: false }));
-          setScrollToLine(null);
+          editorRef.current?.clearDecorations?.();
         }
       },
     });
@@ -464,10 +465,10 @@ export function App(): React.ReactElement {
     setActiveHints((prev) => prev.filter((h) => h.id !== "error-run-specific"));
 
     setIsRunning(true);
-    setExecutionEvents([]);
+    editorRef.current?.clearDecorations?.();
     setStats({ totalTime: 0, functionTimes: {}, functionDetails: {}, loopDetails: {}, isRunning: true });
     setHasError(false);
-    setScrollToLine(null);
+    editorRef.current?.clearDecorations?.();
     appendLog({ type: "log", message: "--- Execution started ---", timestamp: Date.now() });
 
     try {
@@ -490,7 +491,7 @@ export function App(): React.ReactElement {
       appendLog({ type: "error", message: `Execution failed: ${error instanceof Error ? error.message : String(error)}`, timestamp: Date.now() });
       setIsRunning(false);
       setStats((prev) => ({ ...prev, isRunning: false }));
-      setScrollToLine(null);
+      editorRef.current?.clearDecorations?.();
     }
   }, [executor, isRunning, savedCode, ram, availableUpgradeCount, dismissHint]);
 
@@ -499,8 +500,8 @@ export function App(): React.ReactElement {
     executor.stop();
     setIsRunning(false);
     setStats((prev) => ({ ...prev, isRunning: false }));
-    setExecutionEvents([]);
-    setScrollToLine(null);
+    editorRef.current?.clearDecorations?.();
+    editorRef.current?.clearDecorations?.();
     appendLog({ type: "log", message: "--- Execution stopped ---", timestamp: Date.now() });
   }, [executor, isRunning]);
 
@@ -527,6 +528,7 @@ export function App(): React.ReactElement {
   useHotkeys("escape", (e) => { if (isRunning) { e.preventDefault(); handleStop(); } }, { enableOnFormTags: true }, [isRunning]);
   useHotkeys("ctrl+u, cmd+u", (e) => { e.preventDefault(); setIsTechTreeOpen((p) => { if (!p) setTechTreeSelectedId(undefined); return !p; }); }, { enableOnFormTags: true });
   useHotkeys("ctrl+s, cmd+s", (e) => { e.preventDefault(); handleSave(); }, { enableOnFormTags: true }, [handleSave]);
+  useHotkeys("f3", (e) => { e.preventDefault(); setShowPerf(p => !p); }, { enableOnFormTags: true });
 
   // ── Mobile detection ──
   const [isMobile, setIsMobile] = useState<boolean>(window.innerWidth < 768);
@@ -600,7 +602,7 @@ export function App(): React.ReactElement {
       case "shop": return <ShopPanel />;
       case "market": return <StockMarketPanel />;
       case "docs": return <DocumentationPanel isOpen={true} onClose={() => {}} scrollToSection={docsScrollSection} inline onInsertCode={(text: string) => { if (editorRef.current?.insertText) editorRef.current.insertText(text); }} />;
-      case "profiler": return <CPUPanel stats={stats} onScrollToLine={(line: number) => { setScrollToLine(line); if (editorRef.current?.scrollToLine) editorRef.current.scrollToLine(line); }} />;
+      case "profiler": return <CPUPanel stats={stats} onScrollToLine={(line: number) => { if (editorRef.current?.scrollToLine) editorRef.current.scrollToLine(line); }} />;
       case "hints": return <HintsPanel activeHints={activeHints} dismissedHints={dismissedHints} onHintClick={() => {}} onReopenHint={reopenHint} inline />;
       default: return null;
     }
@@ -640,8 +642,6 @@ export function App(): React.ReactElement {
               ref={editorRef}
               code={code}
               onCodeChange={setCode}
-              executionEvents={executionEvents}
-              scrollToLineNumber={scrollToLine}
               onOpenTechTree={(techId: string) => { setIsTechTreeOpen(true); setTechTreeSelectedId(techId); }}
             />
             <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "3px", backgroundColor: theme.bg3 }}>
@@ -732,6 +732,7 @@ export function App(): React.ReactElement {
             </div>
           </div>
         )}
+      {showPerf && <PerfOverlay />}
       </div>
       </ThemeContext.Provider>
     );
@@ -766,8 +767,6 @@ export function App(): React.ReactElement {
               ref={editorRef}
               code={code}
               onCodeChange={setCode}
-              executionEvents={executionEvents}
-              scrollToLineNumber={scrollToLine}
               onOpenTechTree={(techId: string) => { setIsTechTreeOpen(true); setTechTreeSelectedId(techId); }}
             />
             <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "3px", backgroundColor: theme.bg3 }}>
@@ -872,6 +871,7 @@ export function App(): React.ReactElement {
           </div>
         </div>
       )}
+    {showPerf && <PerfOverlay />}
     </div>
     </ThemeContext.Provider>
   );

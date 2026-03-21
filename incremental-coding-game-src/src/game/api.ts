@@ -31,8 +31,9 @@ export interface API {
   produceResourceA(): Promise<number>;
   convertAToB(): Promise<number>;
   getResourceCount(resourceName: string): Promise<number>;
+  getBalance(): Promise<number>;
   log(...args: unknown[]): Promise<void>;
-  convertBToC(): Promise<number>;
+  convertABToC(): Promise<number>;
   makeResourceC(): Promise<number>;
   getMarketValue(resource: string): Promise<number>;
   buy(resource: string, amount?: number): Promise<number>;
@@ -44,8 +45,9 @@ export const ALL_API_FUNCTIONS: string[] = [
   "produceResourceA",
   "convertAToB",
   "getResourceCount",
+  "getBalance",
   "log",
-  "convertBToC",
+  "convertABToC",
   "makeResourceC",
   "getMarketValue",
   "buy",
@@ -154,7 +156,7 @@ export async function executeWithDelay(
   try {
     if (context.isCancelled?.()) return;
 
-    // Progress reporting interval (60fps)
+    // Progress reporting interval (10fps — fast enough for smooth bars, low enough to avoid render storms)
     progressInterval = setInterval(() => {
       try {
         context.throwIfCancelled?.();
@@ -168,7 +170,7 @@ export async function executeWithDelay(
       const elapsed = Date.now() - startTime;
       const percent = Math.min((elapsed / actualDelay) * 100, 100);
       context.onProgress?.(lineNumber, percent);
-    }, 16);
+    }, 100);
 
     // Wait for the delay, checking for cancellation
     await new Promise<void>((resolve, reject) => {
@@ -345,6 +347,28 @@ export function createAPI(executionContext: APICallContext): API {
     },
 
     /**
+     * Get the current credit balance.
+     * Takes 1 second. Adds 1 virtual second.
+     * @returns Current credits
+     */
+    async getBalance(): Promise<number> {
+      const context: APICallContext = {
+        ...executionContext,
+        functionName: "getBalance",
+        lineNumber: executionContext.lineNumber,
+      };
+      let balance = 0;
+
+      await executeWithDelay(1000, context, () => {
+        if (context.isCancelled?.()) return;
+        balance = useGameStore.getState().credits;
+        advanceTime(1);
+      });
+
+      return context.isCancelled?.() ? 0 : balance;
+    },
+
+    /**
      * Log a message to the game console.
      * Takes 0.5 seconds. Adds 0.5 virtual seconds.
      * @param args - Values to display
@@ -367,10 +391,10 @@ export function createAPI(executionContext: APICallContext): API {
      * Takes 3 seconds. Adds 3 virtual seconds.
      * @returns 1 if successful, 0 if insufficient resources or cancelled
      */
-    async convertBToC(): Promise<number> {
+    async convertABToC(): Promise<number> {
       const context: APICallContext = {
         ...executionContext,
-        functionName: "convertBToC",
+        functionName: "convertABToC",
         lineNumber: executionContext.lineNumber,
       };
       let produced = 0;
@@ -396,7 +420,7 @@ export function createAPI(executionContext: APICallContext): API {
               ? ` (line ${context.lineNumber})`
               : "";
           throw new Error(
-            `convertBToC() failed${lineInfo} — not enough resources. Need 3 A + 1 B, have ${availableA} A + ${availableB} B. Use if/getResourceCount to check first!`
+            `convertABToC() failed${lineInfo} — not enough resources. Need 3 A + 1 B, have ${availableA} A + ${availableB} B. Use if/getResourceCount to check first!`
           );
         }
       });
@@ -404,9 +428,9 @@ export function createAPI(executionContext: APICallContext): API {
       return context.isCancelled?.() ? 0 : produced;
     },
 
-    /** @deprecated Use convertBToC() instead */
+    /** @deprecated Use convertABToC() instead */
     async makeResourceC(): Promise<number> {
-      return api.convertBToC();
+      return api.convertABToC();
     },
 
     /**
@@ -459,7 +483,7 @@ export function createAPI(executionContext: APICallContext): API {
           throw new Error(`buy("${resource}", ${amount}) failed${lineInfo} — invalid resource.`);
         }
 
-        const cost = Math.ceil(result.cost);
+        const cost = result.cost;
         if (!store.spendCredits(cost)) {
           const lineInfo = context.lineNumber !== undefined ? ` (line ${context.lineNumber})` : "";
           throw new Error(

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import { useTheme } from "../themes";
+import { trackRender } from "../utils/perfMonitor";
 
 interface LogEntry {
   type: "error" | "warning" | "unlock" | "info";
@@ -11,7 +12,8 @@ interface LogPanelProps {
   logs: LogEntry[];
 }
 
-export function LogPanel({ logs }: LogPanelProps) {
+export const LogPanel = React.memo(function LogPanel({ logs }: LogPanelProps) {
+  trackRender("LogPanel")();
   const bottomRef = useRef<HTMLDivElement>(null);
   const t = useTheme();
 
@@ -63,4 +65,4 @@ export function LogPanel({ logs }: LogPanelProps) {
       </div>
     </div>
   );
-}
+});
