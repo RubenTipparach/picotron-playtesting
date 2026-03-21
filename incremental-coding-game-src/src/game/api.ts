@@ -6,16 +6,41 @@
  * the game state (resources, virtual time).
  */
 
-import { useGameStore } from "./gameStore.js";
+import { useGameStore } from "../store/gameStore";
 import {
   getMarketValue as engineGetMarketValue,
   executeBuy,
   executeSell,
   addMarketProfit,
-} from "./marketEngine.js";
+} from "./marketEngine";
+
+// ─── Types & Interfaces ──────────────────────────────────────────────
+
+export interface APICallContext {
+  functionName: string;
+  lineNumber?: number;
+  onStart?: (lineNumber: number, functionName: string, duration: number) => void;
+  onProgress?: (lineNumber: number, progress: number) => void;
+  onComplete?: (lineNumber: number, functionName: string, duration: number) => void;
+  onLog?: (message: string) => void;
+  isCancelled?: () => boolean;
+  throwIfCancelled?: () => void;
+}
+
+export interface API {
+  produceResourceA(): Promise<number>;
+  convertAToB(): Promise<number>;
+  getResourceCount(resourceName: string): Promise<number>;
+  log(...args: unknown[]): Promise<void>;
+  convertBToC(): Promise<number>;
+  makeResourceC(): Promise<number>;
+  getMarketValue(resource: string): Promise<number>;
+  buy(resource: string, amount?: number): Promise<number>;
+  sell(resource: string, amount?: number): Promise<number>;
+}
 
 /** All API function names available in the game */
-export const API_FUNCTION_NAMES = [
+export const ALL_API_FUNCTIONS: string[] = [
   "produceResourceA",
   "convertAToB",
   "getResourceCount",
@@ -32,10 +57,10 @@ export const API_FUNCTION_NAMES = [
 /**
  * Check if running in test environment.
  */
-function isTestEnvironment() {
-  if (typeof import.meta !== "undefined" && import.meta.vitest) return true;
+function isTestEnvironment(): boolean {
+  if (typeof import.meta !== "undefined" && (import.meta as any).vitest) return true;
   try {
-    const proc = globalThis.process;
+    const proc = (globalThis as any).process;
     if (proc && proc.env && proc.env.NODE_ENV === "test") return true;
   } catch {}
   return typeof globalThis !== "undefined" && "vitest" in globalThis;
@@ -45,7 +70,7 @@ function isTestEnvironment() {
  * Get speed override from URL param (?speed=0.5) or env var (VITE_API_SPEED).
  * Returns null if no override is set.
  */
-function getSpeedOverride() {
+function getSpeedOverride(): number | null {
   // Check URL parameter
   if (typeof window !== "undefined") {
     const param = new URLSearchParams(window.location.search).get("speed");
@@ -57,7 +82,7 @@ function getSpeedOverride() {
 
   // Check environment variable
   try {
-    const proc = globalThis.process;
+    const proc = (globalThis as any).process;
     if (proc && proc.env && proc.env.VITE_API_SPEED) {
       const value = parseFloat(proc.env.VITE_API_SPEED);
       if (!isNaN(value) && value >= 0 && value <= 1) return value;
@@ -73,7 +98,7 @@ function getSpeedOverride() {
  * Lower = faster. 1.0 = normal speed.
  * Accounts for speed overrides and tech upgrades.
  */
-function getProcessingSpeed() {
+function getProcessingSpeed(): number {
   const override = getSpeedOverride();
   if (override !== null) return override;
 
@@ -100,18 +125,15 @@ function getProcessingSpeed() {
 /**
  * Execute a game function with a timed delay and progress tracking.
  *
- * @param {number} baseDelayMs - Base delay in milliseconds before speed multiplier
- * @param {object} context - Execution context with callbacks:
- *   - lineNumber: Current line being executed
- *   - functionName: Name of the API function
- *   - isCancelled(): Check if execution was cancelled
- *   - throwIfCancelled(): Throw CancellationError if cancelled
- *   - onStart(line, funcName, actualDelay): Called when starting
- *   - onProgress(line, percent): Called during execution (0-100)
- *   - onComplete(line, funcName, actualDelay): Called when done
- * @param {Function} action - The actual game logic to execute after the delay
+ * @param baseDelayMs - Base delay in milliseconds before speed multiplier
+ * @param context - Execution context with callbacks
+ * @param action - The actual game logic to execute after the delay
  */
-export async function executeWithDelay(baseDelayMs, context, action) {
+export async function executeWithDelay(
+  baseDelayMs: number,
+  context: APICallContext,
+  action: () => void | Promise<void>
+): Promise<void> {
   context.throwIfCancelled?.();
 
   const speed = getProcessingSpeed();
@@ -125,9 +147,9 @@ export async function executeWithDelay(baseDelayMs, context, action) {
     context.onStart?.(lineNumber, functionName, actualDelay);
   }
 
-  let progressInterval = null;
-  let delayTimeout = null;
-  let cancelCheckInterval = null;
+  let progressInterval: ReturnType<typeof setInterval> | null = null;
+  let delayTimeout: ReturnType<typeof setTimeout> | null = null;
+  let cancelCheckInterval: ReturnType<typeof setInterval> | null = null;
 
   try {
     if (context.isCancelled?.()) return;
@@ -149,7 +171,7 @@ export async function executeWithDelay(baseDelayMs, context, action) {
     }, 16);
 
     // Wait for the delay, checking for cancellation
-    await new Promise((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       try {
         context.throwIfCancelled?.();
       } catch (error) {
@@ -205,7 +227,7 @@ export async function executeWithDelay(baseDelayMs, context, action) {
 /**
  * Format a value for log display, similar to console.log behavior.
  */
-function formatLogValue(value) {
+function formatLogValue(value: unknown): string {
   if (value === null) return "null";
   if (value === undefined) return "undefined";
   if (typeof value === "string") return value;
@@ -216,7 +238,7 @@ function formatLogValue(value) {
   return String(value);
 }
 
-function formatLogMessage(...args) {
+function formatLogMessage(...args: unknown[]): string {
   return args.map(formatLogValue).join(" ");
 }
 
@@ -226,23 +248,23 @@ function formatLogMessage(...args) {
  * Create the API object containing all game functions.
  * Each function uses executeWithDelay for timing and progress tracking.
  *
- * @param {object} executionContext - Shared context for all API calls
- * @returns {object} API object with all game functions
+ * @param executionContext - Shared context for all API calls
+ * @returns API object with all game functions
  */
-export function createGameApi(executionContext) {
+export function createAPI(executionContext: APICallContext): API {
   /** Advance virtual time (market runs on its own timer now) */
-  function advanceTime(seconds) {
+  function advanceTime(seconds: number): void {
     useGameStore.getState().addVirtualTime(seconds);
   }
 
-  return {
+  const api: API = {
     /**
      * Produce 1 unit of Resource A.
      * Takes 2 seconds. Adds 2 virtual seconds.
-     * @returns {number} 1 if produced, 0 if cancelled
+     * @returns 1 if produced, 0 if cancelled
      */
-    async produceResourceA() {
-      const context = {
+    async produceResourceA(): Promise<number> {
+      const context: APICallContext = {
         ...executionContext,
         functionName: "produceResourceA",
         lineNumber: executionContext.lineNumber,
@@ -260,10 +282,10 @@ export function createGameApi(executionContext) {
     /**
      * Convert 2 A into 1 B.
      * Takes 3 seconds. Adds 3 virtual seconds.
-     * @returns {number} 1 if successful, 0 if insufficient resources or cancelled
+     * @returns 1 if successful, 0 if insufficient resources or cancelled
      */
-    async convertAToB() {
-      const context = {
+    async convertAToB(): Promise<number> {
+      const context: APICallContext = {
         ...executionContext,
         functionName: "convertAToB",
         lineNumber: executionContext.lineNumber,
@@ -296,11 +318,11 @@ export function createGameApi(executionContext) {
     /**
      * Get the current count of a resource.
      * Takes 1 second. Adds 1 virtual second.
-     * @param {string} resourceName - "A", "B", or "C"
-     * @returns {number} Current resource count
+     * @param resourceName - "A", "B", "C", or "D"
+     * @returns Current resource count
      */
-    async getResourceCount(resourceName) {
-      const context = {
+    async getResourceCount(resourceName: string): Promise<number> {
+      const context: APICallContext = {
         ...executionContext,
         functionName: "getResourceCount",
         lineNumber: executionContext.lineNumber,
@@ -325,10 +347,10 @@ export function createGameApi(executionContext) {
     /**
      * Log a message to the game console.
      * Takes 0.5 seconds. Adds 0.5 virtual seconds.
-     * @param {string} message - Message to display
+     * @param args - Values to display
      */
-    async log(...args) {
-      const context = {
+    async log(...args: unknown[]): Promise<void> {
+      const context: APICallContext = {
         ...executionContext,
         functionName: "log",
         lineNumber: executionContext.lineNumber,
@@ -343,10 +365,10 @@ export function createGameApi(executionContext) {
     /**
      * Convert 3 A and 1 B into 1 C.
      * Takes 3 seconds. Adds 3 virtual seconds.
-     * @returns {number} 1 if successful, 0 if insufficient resources or cancelled
+     * @returns 1 if successful, 0 if insufficient resources or cancelled
      */
-    async convertBToC() {
-      const context = {
+    async convertBToC(): Promise<number> {
+      const context: APICallContext = {
         ...executionContext,
         functionName: "convertBToC",
         lineNumber: executionContext.lineNumber,
@@ -383,18 +405,18 @@ export function createGameApi(executionContext) {
     },
 
     /** @deprecated Use convertBToC() instead */
-    async makeResourceC() {
+    async makeResourceC(): Promise<number> {
       return api.convertBToC();
     },
 
     /**
      * Get the current market value of a resource.
      * Takes 1 second. Adds 1 virtual second.
-     * @param {string} resource - "A", "B", "C", or "D"
-     * @returns {number} Current market price
+     * @param resource - "A", "B", "C", or "D"
+     * @returns Current market price
      */
-    async getMarketValue(resource) {
-      const context = {
+    async getMarketValue(resource: string): Promise<number> {
+      const context: APICallContext = {
         ...executionContext,
         functionName: "getMarketValue",
         lineNumber: executionContext.lineNumber,
@@ -413,12 +435,12 @@ export function createGameApi(executionContext) {
     /**
      * Buy a resource from the market using credits.
      * Takes 2 seconds. Adds 2 virtual seconds.
-     * @param {string} resource - "A", "B", "C", or "D"
-     * @param {number} amount - How many to buy (default 1)
-     * @returns {number} Amount bought, or 0 on failure
+     * @param resource - "A", "B", "C", or "D"
+     * @param amount - How many to buy (default 1)
+     * @returns Amount bought, or 0 on failure
      */
-    async buy(resource, amount = 1) {
-      const context = {
+    async buy(resource: string, amount: number = 1): Promise<number> {
+      const context: APICallContext = {
         ...executionContext,
         functionName: "buy",
         lineNumber: executionContext.lineNumber,
@@ -445,7 +467,7 @@ export function createGameApi(executionContext) {
           );
         }
 
-        store.addResource(r, amount);
+        store.addResource(r as any, amount);
         bought = amount;
       });
 
@@ -455,12 +477,12 @@ export function createGameApi(executionContext) {
     /**
      * Sell a resource on the market for credits.
      * Takes 2 seconds. Adds 2 virtual seconds.
-     * @param {string} resource - "A", "B", "C", or "D"
-     * @param {number} amount - How many to sell (default 1)
-     * @returns {number} Credits received, or 0 on failure
+     * @param resource - "A", "B", "C", or "D"
+     * @param amount - How many to sell (default 1)
+     * @returns Credits received, or 0 on failure
      */
-    async sell(resource, amount = 1) {
-      const context = {
+    async sell(resource: string, amount: number = 1): Promise<number> {
+      const context: APICallContext = {
         ...executionContext,
         functionName: "sell",
         lineNumber: executionContext.lineNumber,
@@ -473,8 +495,8 @@ export function createGameApi(executionContext) {
 
         const store = useGameStore.getState();
         const r = String(resource).toUpperCase();
-        if (!store.consumeResource(r, amount)) {
-          const available = store.resources[r] || 0;
+        if (!store.consumeResource(r as any, amount)) {
+          const available = store.resources[r as keyof typeof store.resources] || 0;
           const lineInfo = context.lineNumber !== undefined ? ` (line ${context.lineNumber})` : "";
           throw new Error(
             `sell("${resource}", ${amount}) failed${lineInfo} — not enough ${r}. Need ${amount}, have ${available}.`
@@ -483,7 +505,7 @@ export function createGameApi(executionContext) {
 
         const result = executeSell(r, amount);
         if (!result.success) {
-          store.addResource(r, amount);
+          store.addResource(r as any, amount);
           const lineInfo = context.lineNumber !== undefined ? ` (line ${context.lineNumber})` : "";
           throw new Error(`sell("${resource}", ${amount}) failed${lineInfo} — invalid resource.`);
         }
@@ -497,4 +519,6 @@ export function createGameApi(executionContext) {
       return context.isCancelled?.() ? 0 : revenue;
     },
   };
+
+  return api;
 }

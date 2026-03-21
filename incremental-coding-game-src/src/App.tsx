@@ -7,35 +7,75 @@
  * Top: Resource bar + controls
  */
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import { useHotkeys } from "react-hotkeys-hook";
-import { useGameStore } from "./gameStore.js";
-import { validateCode, getAvailableUpgrades } from "./techTree.js";
-import { CodeExecutor } from "./executionEngine.js";
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useHotkeys } from 'react-hotkeys-hook';
+import { useGameStore } from './store/gameStore';
+import { validateCode } from './game/codeValidator';
+import { getAvailableUpgrades } from './game/tech';
+import { CodeExecutor } from './game/executionEngine';
+import type { ExecutionEvent } from './game/executionEngine';
 import {
   hasSeenHint,
-  markHintSeen,
+  markHintAsSeen,
   resetAllHints,
   getErrorRunAttempts,
   incrementErrorRunAttempts,
   clearErrorRunAttempts,
   hashCode,
-} from "./hintSystem.js";
+} from './utils/hintManager';
 
-import { ResourceBar } from "./components/ResourceBar.jsx";
-import { CpuStats } from "./components/CpuStats.jsx";
-import { CodeEditor } from "./components/CodeEditor.jsx";
-import { LogPanel } from "./components/LogPanel.jsx";
-import { TechTreePanel } from "./components/TechTreePanel.jsx";
-import { DocsPanel } from "./components/DocsPanel.jsx";
-import { ShopPanel } from "./components/ShopPanel.jsx";
-import { StockMarketPanel } from "./components/StockMarketPanel.jsx";
-import { SnippetsPanel } from "./components/SnippetsPanel.jsx";
-import { HintModal, HintPanel } from "./components/HintOverlay.jsx";
-import { THEMES, ThemeContext, loadThemeId, saveThemeId } from "./themes.js";
-import { initMarket, setDUnlocked, startMarketTimer, stopMarketTimer, setPlayerResourcesGetter } from "./marketEngine.js";
+import { ResourcePanel } from './components/ResourcePanel';
+import { CPUPanel } from './components/CPUPanel';
+import { CodeEditor } from './components/CodeEditor';
+import { LogPanel } from './components/LogPanel';
+import { TechTreeModal } from './components/TechTreeModal';
+import { DocumentationPanel } from './components/DocumentationPanel';
+import { ShopPanel } from './components/ShopPanel';
+import { StockMarketPanel } from './components/StockMarketPanel';
+import { SnippetsPanel } from './components/SnippetsPanel';
+import { HintPopover, HintsPanel } from './components/HintPopover';
+import { THEMES, ThemeContext, loadThemeId, saveThemeId } from './themes';
+import { initMarket, setDUnlocked, startMarketTimer, stopMarketTimer, setPlayerResourcesGetter } from './game/marketEngine';
 
 const CODE_STORAGE_KEY = "incremental-coding-game-code";
+
+interface LogEntry {
+  type: string;
+  message: string;
+  timestamp: number;
+}
+
+interface FunctionDetail {
+  calls: number;
+  totalTime: number;
+  lineNumber: number;
+  functionName: string;
+  codeLine: string;
+}
+
+interface LoopDetail {
+  iterations: number;
+  totalTime: number;
+  lineNumber: number;
+  codeLine: string;
+}
+
+interface Stats {
+  totalTime: number;
+  functionTimes: Record<string, number>;
+  functionDetails?: Record<string, FunctionDetail>;
+  loopDetails?: Record<string, LoopDetail>;
+  isRunning: boolean;
+}
+
+interface HintData {
+  id: string;
+  title: string;
+  message: string;
+  codeExample?: string;
+  isTutorial?: boolean;
+  onDismiss?: () => void;
+}
 
 /**
  * Count tokens using PICO-8-style rules (adapted for JS):
@@ -43,7 +83,7 @@ const CODE_STORAGE_KEY = "incremental-coding-game-code";
  * - Free: comments, `const`/`let`/`var` (like PICO-8's `local`), commas, dots, colons, semicolons, closing brackets
  * - Unary -/~ on a number literal = 0 extra tokens (number itself is 1)
  */
-function countTokens(src) {
+function countTokens(src: string): number {
   // Strip comments first
   let code = src.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
 
@@ -120,9 +160,9 @@ function countTokens(src) {
   return tokens;
 }
 
-export function App() {
+export function App(): React.ReactElement {
   // ── Theme state ──
-  const [themeId, setThemeId] = useState(loadThemeId);
+  const [themeId, setThemeId] = useState<string>(loadThemeId);
   const theme = THEMES[themeId] || THEMES.hacker;
   const cycleTheme = useCallback(() => {
     const ids = Object.keys(THEMES);
@@ -132,45 +172,45 @@ export function App() {
   }, [themeId]);
 
   // ── Code state ──
-  const [savedCode, setSavedCode] = useState(
+  const [savedCode, setSavedCode] = useState<string>(
     localStorage.getItem(CODE_STORAGE_KEY) || "produceResourceA()"
   );
-  const [code, setCode] = useState(savedCode);
+  const [code, setCode] = useState<string>(savedCode);
   const hasUnsavedChanges = code !== savedCode;
-  const [isSnippetsOpen, setIsSnippetsOpen] = useState(false);
+  const [isSnippetsOpen, setIsSnippetsOpen] = useState<boolean>(false);
 
   // ── Execution state ──
-  const [isRunning, setIsRunning] = useState(false);
-  const [executionEvents, setExecutionEvents] = useState([]);
-  const [logs, setLogs] = useState([]);
-  const [executor, setExecutor] = useState(null);
-  const [stats, setStats] = useState({ totalTime: 0, functionTimes: {}, isRunning: false });
+  const [isRunning, setIsRunning] = useState<boolean>(false);
+  const [executionEvents, setExecutionEvents] = useState<ExecutionEvent[]>([]);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [executor, setExecutor] = useState<CodeExecutor | null>(null);
+  const [stats, setStats] = useState<Stats>({ totalTime: 0, functionTimes: {}, isRunning: false });
 
   // ── Panel state ──
-  const [rightTab, setRightTab] = useState("docs"); // docs | profiler | hints | shop | market
-  const [isTechTreeOpen, setIsTechTreeOpen] = useState(false);
-  const [techTreeSelectedId, setTechTreeSelectedId] = useState(undefined);
-  const [docsScrollSection, setDocsScrollSection] = useState(undefined);
+  const [rightTab, setRightTab] = useState<string>("docs"); // docs | profiler | hints | shop | market
+  const [isTechTreeOpen, setIsTechTreeOpen] = useState<boolean>(false);
+  const [techTreeSelectedId, setTechTreeSelectedId] = useState<string | undefined>(undefined);
+  const [docsScrollSection, setDocsScrollSection] = useState<string | undefined>(undefined);
 
   // ── Hint state ──
-  const [activeHints, setActiveHints] = useState([]);
-  const [dismissedHints, setDismissedHints] = useState([]);
-  const [hasError, setHasError] = useState(false);
+  const [activeHints, setActiveHints] = useState<HintData[]>([]);
+  const [dismissedHints, setDismissedHints] = useState<HintData[]>([]);
+  const [hasError, setHasError] = useState<boolean>(false);
 
   // ── Upgrade notification state ──
-  const [availableUpgradeCount, setAvailableUpgradeCount] = useState(0);
-  const [hasSeenUpgrades, setHasSeenUpgrades] = useState(false);
-  const prevUpgradeCountRef = useRef(0);
-  const completionsSinceUpgradeRef = useRef(0);
+  const [availableUpgradeCount, setAvailableUpgradeCount] = useState<number>(0);
+  const [hasSeenUpgrades, setHasSeenUpgrades] = useState<boolean>(false);
+  const prevUpgradeCountRef = useRef<number>(0);
+  const completionsSinceUpgradeRef = useRef<number>(0);
 
   // ── Refs ──
-  const [scrollToLine, setScrollToLine] = useState(null);
-  const editorRef = useRef(null);
-  const lastCodeHashRef = useRef("");
-  const resources = useGameStore((state) => state.resources);
-  const tech = useGameStore((state) => state.tech);
-  const ram = useGameStore((state) => state.ram);
-  const prevTechRef = useRef(tech);
+  const [scrollToLine, setScrollToLine] = useState<number | null>(null);
+  const editorRef = useRef<any>(null);
+  const lastCodeHashRef = useRef<string>("");
+  const resources = useGameStore((state: any) => state.resources);
+  const tech = useGameStore((state: any) => state.tech);
+  const ram = useGameStore((state: any) => state.ram);
+  const prevTechRef = useRef<any>(tech);
 
   // ── Initialize ──
   useEffect(() => {
@@ -183,12 +223,12 @@ export function App() {
     // Start market timer if stock market is unlocked
     if (state.tech.stockMarketUnlocked) {
       startMarketTimer(
-        (marketData) => useGameStore.getState().setMarket(marketData),
-        (marketData) => useGameStore.getState().persistMarket(marketData),
+        (marketData: any) => useGameStore.getState().setMarket(marketData),
+        (marketData: any) => useGameStore.getState().persistMarket(marketData),
       );
     }
 
-    const restored = [];
+    const restored: HintData[] = [];
     if (hasSeenHint("first-tutorial")) {
       restored.push({ id: "first-tutorial", title: "Welcome Tutorial", message: "Welcome! Write code in the editor and press Run to execute it.", isTutorial: true });
     }
@@ -217,7 +257,7 @@ export function App() {
   }, [code, isRunning]);
 
   // ── Save handler — stops & restarts execution so cursor stays in sync ──
-  const pendingRestartRef = useRef(false);
+  const pendingRestartRef = useRef<boolean>(false);
   const handleSave = useCallback(() => {
     const wasRunning = isRunning;
     if (wasRunning && executor) {
@@ -234,8 +274,8 @@ export function App() {
   useEffect(() => {
     if (tech.stockMarketUnlocked) {
       startMarketTimer(
-        (marketData) => useGameStore.getState().setMarket(marketData),
-        (marketData) => useGameStore.getState().persistMarket(marketData),
+        (marketData: any) => useGameStore.getState().setMarket(marketData),
+        (marketData: any) => useGameStore.getState().persistMarket(marketData),
       );
     }
     return () => stopMarketTimer();
@@ -258,20 +298,20 @@ export function App() {
   }, [isTechTreeOpen]);
 
   // ── Hint helpers ──
-  const dismissHint = useCallback((hintId, hint) => {
-    markHintSeen(hintId);
+  const dismissHint = useCallback((hintId: string, hint: HintData) => {
+    markHintAsSeen(hintId);
     setActiveHints((prev) => prev.filter((h) => h.id !== hintId));
     setDismissedHints((prev) => prev.find((h) => h.id === hintId) ? prev : [...prev, { ...hint, onDismiss: undefined }]);
   }, []);
 
-  const reopenHint = useCallback((hint) => {
+  const reopenHint = useCallback((hint: HintData) => {
     setDismissedHints((prev) => prev.filter((h) => h.id !== hint.id));
     setActiveHints((prev) => prev.find((h) => h.id === hint.id) ? prev : [...prev, { ...hint, onDismiss: () => dismissHint(hint.id, hint) }]);
   }, [dismissHint]);
 
   // ── First tutorial hint ──
   useEffect(() => {
-    const hint = {
+    const hint: HintData = {
       id: "first-tutorial",
       title: "Welcome Tutorial",
       message: "Welcome! Write code in the editor and press RUN or F5. Start by calling produceResourceA() to gather resources.",
@@ -289,7 +329,7 @@ export function App() {
   useEffect(() => {
     const prevWhile = prevTechRef.current.whileUnlocked;
     if (tech.whileUnlocked) {
-      const hint = {
+      const hint: HintData = {
         id: "loop-unlock",
         title: "Loops Unlocked",
         message: "Loops unlocked! Try automating with a while loop:",
@@ -312,13 +352,13 @@ export function App() {
   // ── Initialize executor ──
   useEffect(() => {
     const exec = new CodeExecutor({
-      onEvent: (event) => {
+      onEvent: (event: ExecutionEvent) => {
         setExecutionEvents((prev) => [...prev, event]);
         if (event.type === "lineChange") {
           setScrollToLine(event.lineNumber);
         } else if (event.type === "log") {
           const msg = String(event.message);
-          const isWarning = msg.startsWith("⚠️ Warning:");
+          const isWarning = msg.startsWith("\u26A0\uFE0F Warning:");
           setLogs((prev) => [...prev, { type: isWarning ? "warning" : "log", message: event.message, timestamp: Date.now() }]);
         } else if (event.type === "error") {
           setIsRunning(false);
@@ -381,17 +421,17 @@ export function App() {
 
       const attempts = getErrorRunAttempts(codeHash);
       if (attempts === 1 && !hasSeenHint("error-run")) {
-        const hint = {
+        const hint: HintData = {
           id: "error-run", title: "Code Has Errors",
           message: "Your code has errors. Check the red markers in the editor.",
           isTutorial: true,
-          onDismiss: () => { markHintSeen("error-run"); dismissHint("error-run", hint); },
+          onDismiss: () => { markHintAsSeen("error-run"); dismissHint("error-run", hint); },
         };
         setActiveHints((prev) => prev.find((h) => h.id === "error-run") ? prev : [...prev, hint]);
       } else if (attempts >= 3 && hasSeenHint("error-run")) {
         setDismissedHints((prev) => prev.filter((h) => h.id !== "error-run-specific"));
-        const messages = errors.map((e) => `Line ${e.lineNumber}: ${e.message}`).join("\n");
-        const hint = {
+        const messages = errors.map((e: any) => `Line ${e.lineNumber}: ${e.message}`).join("\n");
+        const hint: HintData = {
           id: "error-run-specific", title: "Fix These Errors",
           message: `Errors found:\n\n${messages}`,
           isTutorial: true,
@@ -421,11 +461,11 @@ export function App() {
       if (availableUpgradeCount > 0) {
         completionsSinceUpgradeRef.current += 1;
         if (completionsSinceUpgradeRef.current >= 3 && !hasSeenHint("upgrades-available")) {
-          const hint = {
+          const hint: HintData = {
             id: "upgrades-available", title: "Upgrades Available",
             message: `${availableUpgradeCount} upgrade${availableUpgradeCount > 1 ? "s" : ""} available! Open the Tech Tree (Ctrl+U).`,
             isTutorial: true,
-            onDismiss: () => { markHintSeen("upgrades-available"); dismissHint("upgrades-available", hint); },
+            onDismiss: () => { markHintAsSeen("upgrades-available"); dismissHint("upgrades-available", hint); },
           };
           setActiveHints((prev) => prev.find((h) => h.id === "upgrades-available") ? prev : [...prev, hint]);
         }
@@ -475,8 +515,8 @@ export function App() {
   useHotkeys("ctrl+s, cmd+s", (e) => { e.preventDefault(); handleSave(); }, { enableOnFormTags: true }, [handleSave]);
 
   // ── Mobile detection ──
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-  const [mobilePanel, setMobilePanel] = useState("code"); // "code" | "output" | "shop" | "docs" | "profiler" | "hints"
+  const [isMobile, setIsMobile] = useState<boolean>(window.innerWidth < 768);
+  const [mobilePanel, setMobilePanel] = useState<string>("code"); // "code" | "output" | "shop" | "docs" | "profiler" | "hints"
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 768);
@@ -485,18 +525,18 @@ export function App() {
   }, []);
 
   // ── Resizable panels ──
-  const [consoleHeight, setConsoleHeight] = useState(200);
-  const [rightPanelWidth, setRightPanelWidth] = useState(320);
-  const draggingRef = useRef(null); // "vertical" | "horizontal" | null
-  const leftPanelRef = useRef(null);
-  const mainContentRef = useRef(null);
+  const [consoleHeight, setConsoleHeight] = useState<number>(200);
+  const [rightPanelWidth, setRightPanelWidth] = useState<number>(320);
+  const draggingRef = useRef<string | null>(null); // "vertical" | "horizontal" | null
+  const leftPanelRef = useRef<HTMLDivElement | null>(null);
+  const mainContentRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const getClientPos = (e) => {
+    const getClientPos = (e: any) => {
       if (e.touches && e.touches.length > 0) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
       return { x: e.clientX, y: e.clientY };
     };
-    const onMove = (e) => {
+    const onMove = (e: any) => {
       const pos = getClientPos(e);
       if (draggingRef.current === "vertical" && leftPanelRef.current) {
         const rect = leftPanelRef.current.getBoundingClientRect();
@@ -523,15 +563,15 @@ export function App() {
   const ramPercent = Math.min(100, (tokenCount / ram) * 100);
   const ramColor = ramPercent > 90 ? theme.red : ramPercent > 70 ? theme.yellow : theme.primary;
 
-  const startDrag = (type, cursor) => { draggingRef.current = type; document.body.style.cursor = cursor; document.body.style.userSelect = "none"; };
+  const startDrag = (type: string, cursor: string) => { draggingRef.current = type; document.body.style.cursor = cursor; document.body.style.userSelect = "none"; };
 
   // Build visible tabs based on tech unlocks
-  const desktopTabs = [
+  const desktopTabs: string[] = [
     ...(tech.shopUnlocked ? ["shop"] : []),
     ...(tech.stockMarketUnlocked ? ["market"] : []),
     "docs", "profiler", "hints",
   ];
-  const mobileTabs = [
+  const mobileTabs: { id: string; label: string }[] = [
     { id: "code", label: "CODE" },
     { id: "output", label: "LOG" },
     ...(tech.shopUnlocked ? [{ id: "shop", label: "SHOP" }] : []),
@@ -541,13 +581,13 @@ export function App() {
   ];
 
   // Render the right panel tab content (shared between mobile and desktop)
-  const renderTabContent = (tab) => {
+  const renderTabContent = (tab: string) => {
     switch (tab) {
       case "shop": return <ShopPanel />;
       case "market": return <StockMarketPanel />;
-      case "docs": return <DocsPanel isOpen={true} onClose={() => {}} scrollToSection={docsScrollSection} inline onInsertCode={(text) => { if (editorRef.current?.insertText) editorRef.current.insertText(text); }} />;
-      case "profiler": return <CpuStats stats={stats} onScrollToLine={(line) => { setScrollToLine(line); if (editorRef.current?.scrollToLine) editorRef.current.scrollToLine(line); }} />;
-      case "hints": return <HintPanel activeHints={activeHints} dismissedHints={dismissedHints} onHintClick={() => {}} onReopenHint={reopenHint} inline />;
+      case "docs": return <DocumentationPanel isOpen={true} onClose={() => {}} scrollToSection={docsScrollSection} inline onInsertCode={(text: string) => { if (editorRef.current?.insertText) editorRef.current.insertText(text); }} />;
+      case "profiler": return <CPUPanel stats={stats} onScrollToLine={(line: number) => { setScrollToLine(line); if (editorRef.current?.scrollToLine) editorRef.current.scrollToLine(line); }} />;
+      case "hints": return <HintsPanel activeHints={activeHints} dismissedHints={dismissedHints} onHintClick={() => {}} onReopenHint={reopenHint} inline />;
       default: return null;
     }
   };
@@ -563,7 +603,7 @@ export function App() {
       <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.bg, fontFamily: theme.font, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {overlayEl}
 
-        <ResourceBar
+        <ResourcePanel
           isRunning={isRunning}
           onRun={handleRun}
           onStop={handleStop}
@@ -588,7 +628,7 @@ export function App() {
               onCodeChange={setCode}
               executionEvents={executionEvents}
               scrollToLineNumber={scrollToLine}
-              onOpenTechTree={(techId) => { setIsTechTreeOpen(true); setTechTreeSelectedId(techId); }}
+              onOpenTechTree={(techId: string) => { setIsTechTreeOpen(true); setTechTreeSelectedId(techId); }}
             />
             <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "3px", backgroundColor: theme.bg3 }}>
               <div style={{ height: "100%", width: `${ramPercent}%`, backgroundColor: ramColor, transition: "width 0.2s, background-color 0.3s" }} />
@@ -643,19 +683,19 @@ export function App() {
         </div>
 
         {activeHints.length > 0 && (
-          <HintModal
+          <HintPopover
             hint={activeHints[0]}
             onDismiss={() => { if (activeHints[0]?.onDismiss) activeHints[0].onDismiss(); }}
             onHintClick={() => {}}
           />
         )}
 
-        <TechTreePanel
+        <TechTreeModal
           isOpen={isTechTreeOpen}
           initialSelectedTechId={techTreeSelectedId}
           onFocus={() => setTechTreeSelectedId(undefined)}
           onClose={() => setIsTechTreeOpen(false)}
-          onOpenDocs={(sectionId) => {
+          onOpenDocs={(sectionId: string) => {
             setIsTechTreeOpen(false);
             setTechTreeSelectedId(undefined);
             setMobilePanel("docs");
@@ -673,7 +713,7 @@ export function App() {
                 <button onClick={() => setIsSnippetsOpen(false)} style={{ fontFamily: theme.font, fontSize: "12px", color: theme.primary, backgroundColor: "transparent", border: "none", cursor: "pointer" }}>X</button>
               </div>
               <div style={{ flex: 1, overflowY: "auto" }}>
-                <SnippetsPanel currentCode={code} onLoad={(snippetCode) => { setCode(snippetCode); setSavedCode(snippetCode); setIsSnippetsOpen(false); }} />
+                <SnippetsPanel currentCode={code} onLoad={(snippetCode: string) => { setCode(snippetCode); setSavedCode(snippetCode); setIsSnippetsOpen(false); }} />
               </div>
             </div>
           </div>
@@ -689,7 +729,7 @@ export function App() {
     <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.bg, fontFamily: theme.font, overflow: "hidden", display: "flex", flexDirection: "column" }}>
       {overlayEl}
 
-      <ResourceBar
+      <ResourcePanel
         isRunning={isRunning}
         onRun={handleRun}
         onStop={handleStop}
@@ -714,7 +754,7 @@ export function App() {
               onCodeChange={setCode}
               executionEvents={executionEvents}
               scrollToLineNumber={scrollToLine}
-              onOpenTechTree={(techId) => { setIsTechTreeOpen(true); setTechTreeSelectedId(techId); }}
+              onOpenTechTree={(techId: string) => { setIsTechTreeOpen(true); setTechTreeSelectedId(techId); }}
             />
             <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "3px", backgroundColor: theme.bg3 }}>
               <div style={{ height: "100%", width: `${ramPercent}%`, backgroundColor: ramColor, transition: "width 0.2s, background-color 0.3s" }} />
@@ -783,19 +823,19 @@ export function App() {
       </div>
 
       {activeHints.length > 0 && (
-        <HintModal
+        <HintPopover
           hint={activeHints[0]}
           onDismiss={() => { if (activeHints[0]?.onDismiss) activeHints[0].onDismiss(); }}
           onHintClick={() => {}}
         />
       )}
 
-      <TechTreePanel
+      <TechTreeModal
         isOpen={isTechTreeOpen}
         initialSelectedTechId={techTreeSelectedId}
         onFocus={() => setTechTreeSelectedId(undefined)}
         onClose={() => setIsTechTreeOpen(false)}
-        onOpenDocs={(sectionId) => {
+        onOpenDocs={(sectionId: string) => {
           setIsTechTreeOpen(false);
           setTechTreeSelectedId(undefined);
           setRightTab("docs");
@@ -813,7 +853,7 @@ export function App() {
               <button onClick={() => setIsSnippetsOpen(false)} style={{ fontFamily: theme.font, fontSize: "12px", color: theme.primary, backgroundColor: "transparent", border: "none", cursor: "pointer" }}>X</button>
             </div>
             <div style={{ flex: 1, overflowY: "auto" }}>
-              <SnippetsPanel currentCode={code} onLoad={(snippetCode) => { setCode(snippetCode); setSavedCode(snippetCode); setIsSnippetsOpen(false); }} />
+              <SnippetsPanel currentCode={code} onLoad={(snippetCode: string) => { setCode(snippetCode); setSavedCode(snippetCode); setIsSnippetsOpen(false); }} />
             </div>
           </div>
         </div>

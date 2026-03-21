@@ -5,16 +5,22 @@
  * Tracks which hints have been seen via localStorage.
  */
 
+export interface HintDefinition {
+  id: string;
+  title: string;
+  message: string;
+  codeExample?: string;
+  isTutorial: boolean;
+}
+
 const HINT_SEEN_PREFIX = "hint-seen-";
 const ERROR_RUN_ATTEMPTS_KEY = "error-run-attempts";
 const ERROR_RUN_HINT_SEEN_KEY = "error-run-hint-seen";
 
 /**
  * Check if a hint has been seen/dismissed by the player.
- * @param {string} hintId
- * @returns {boolean}
  */
-export function hasSeenHint(hintId) {
+export function hasSeenHint(hintId: string): boolean {
   try {
     const data = localStorage.getItem(`${HINT_SEEN_PREFIX}${hintId}`);
     return data ? JSON.parse(data).hasSeen : false;
@@ -25,9 +31,8 @@ export function hasSeenHint(hintId) {
 
 /**
  * Mark a hint as seen/dismissed.
- * @param {string} hintId
  */
-export function markHintSeen(hintId) {
+export function markHintAsSeen(hintId: string): void {
   try {
     const data = { hasSeen: true, lastShown: Date.now() };
     localStorage.setItem(`${HINT_SEEN_PREFIX}${hintId}`, JSON.stringify(data));
@@ -39,7 +44,7 @@ export function markHintSeen(hintId) {
 /**
  * Reset all hint states (used when resetting the game).
  */
-export function resetAllHints() {
+export function resetAllHints(): void {
   try {
     Object.keys(localStorage).forEach((key) => {
       if (key.startsWith(HINT_SEEN_PREFIX)) {
@@ -53,16 +58,14 @@ export function resetAllHints() {
   }
 }
 
-// ─── Error Run Tracking ───────────────────────────────────────────────
+// --- Error Run Tracking ---------------------------------------------------
 // Tracks how many times the player tries to run code with errors,
 // so we can show progressively more helpful hints.
 
 /**
  * Get the number of times the player has tried to run code with a given hash.
- * @param {string} codeHash
- * @returns {number}
  */
-export function getErrorRunAttempts(codeHash) {
+export function getErrorRunAttempts(codeHash: string): number {
   try {
     const data = localStorage.getItem(ERROR_RUN_ATTEMPTS_KEY);
     return (data && JSON.parse(data)[codeHash]?.count) || 0;
@@ -73,9 +76,8 @@ export function getErrorRunAttempts(codeHash) {
 
 /**
  * Increment the error run attempt counter for a code hash.
- * @param {string} codeHash
  */
-export function incrementErrorRunAttempts(codeHash) {
+export function incrementErrorRunAttempts(codeHash: string): void {
   try {
     const data = localStorage.getItem(ERROR_RUN_ATTEMPTS_KEY);
     const attempts = data ? JSON.parse(data) : {};
@@ -91,9 +93,8 @@ export function incrementErrorRunAttempts(codeHash) {
 
 /**
  * Clear error run attempts for a code hash (called when code is fixed).
- * @param {string} codeHash
  */
-export function clearErrorRunAttempts(codeHash) {
+export function clearErrorRunAttempts(codeHash: string): void {
   try {
     const data = localStorage.getItem(ERROR_RUN_ATTEMPTS_KEY);
     if (!data) return;
@@ -108,10 +109,8 @@ export function clearErrorRunAttempts(codeHash) {
 /**
  * Simple string hash for identifying code versions.
  * Used to track error run attempts per code version.
- * @param {string} str
- * @returns {string}
  */
-export function hashCode(str) {
+export function hashCode(str: string): string {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     const char = str.charCodeAt(i);
@@ -121,12 +120,12 @@ export function hashCode(str) {
   return hash.toString(36);
 }
 
-// ─── Hint Definitions ─────────────────────────────────────────────────
+// --- Hint Definitions -----------------------------------------------------
 
 /**
  * Pre-defined tutorial hints shown at various game stages.
  */
-export const HINT_DEFINITIONS = {
+export const HINT_DEFINITIONS: Record<string, HintDefinition> = {
   "first-tutorial": {
     id: "first-tutorial",
     title: "Welcome Tutorial",

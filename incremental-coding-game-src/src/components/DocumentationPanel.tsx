@@ -1,12 +1,20 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useGameStore } from "../gameStore.js";
-import { getAvailableFunctions } from "../techTree.js";
-import { useTheme } from "../themes.js";
+import { useGameStore } from "../store/gameStore";
+import { getAvailableFunctions } from "../game/tech";
+import { useTheme } from "../themes";
 
-export function DocsPanel({ isOpen, onClose, scrollToSection, inline, onInsertCode }) {
+interface DocumentationPanelProps {
+  isOpen: boolean;
+  onClose?: () => void;
+  scrollToSection?: string;
+  inline?: boolean;
+  onInsertCode?: (code: string) => void;
+}
+
+export function DocumentationPanel({ isOpen, onClose, scrollToSection, inline, onInsertCode }: DocumentationPanelProps) {
   const tech = useGameStore((state) => state.tech);
   const [availableFunctions, setAvailableFunctions] = useState(getAvailableFunctions());
-  const contentRef = useRef(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const t = useTheme();
 
   useEffect(() => {
@@ -15,7 +23,7 @@ export function DocsPanel({ isOpen, onClose, scrollToSection, inline, onInsertCo
 
   useEffect(() => {
     if (isOpen && scrollToSection && contentRef.current) {
-      const el = contentRef.current.querySelector(`[data-section-id="${scrollToSection}"]`);
+      const el = contentRef.current.querySelector(`[data-section-id="${scrollToSection}"]`) as HTMLElement | null;
       if (el) {
         setTimeout(() => {
           el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -28,7 +36,7 @@ export function DocsPanel({ isOpen, onClose, scrollToSection, inline, onInsertCo
 
   if (!isOpen) return null;
 
-  const functionDocs = {
+  const functionDocs: Record<string, { description: string; example: string; returns: string; sectionId?: string }> = {
     produceResourceA: { description: "Produces 1 unit of resource A. Takes 2s.", example: "produceResourceA()", returns: "Returns: 1" },
     convertAToB: { description: "Converts 2A into 1B. Takes 3s.", example: "convertAToB()", returns: "Returns: 1 if ok, 0 if not enough A" },
     getResourceCount: { description: "Gets count of a resource. Takes 1s.", example: "getResourceCount('A')", returns: "Returns: resource count" },
@@ -154,7 +162,13 @@ export function DocsPanel({ isOpen, onClose, scrollToSection, inline, onInsertCo
   );
 }
 
-function Section({ title, children, t }) {
+interface SectionProps {
+  title: string;
+  children: React.ReactNode;
+  t: any;
+}
+
+function Section({ title, children, t }: SectionProps) {
   return (
     <div style={{ marginBottom: "16px" }}>
       <div style={{ color: t.primaryDim, fontSize: "11px", letterSpacing: "2px", marginBottom: "8px" }}>[ {title} ]</div>
@@ -163,7 +177,13 @@ function Section({ title, children, t }) {
   );
 }
 
-function DocCard({ children, dataSectionId, t }) {
+interface DocCardProps {
+  children: React.ReactNode;
+  dataSectionId?: string;
+  t: any;
+}
+
+function DocCard({ children, dataSectionId, t }: DocCardProps) {
   return (
     <div data-section-id={dataSectionId} style={{ padding: "8px", backgroundColor: t.bg3, border: `1px solid ${t.border}`, transition: "background-color 0.3s" }}>
       {children}
@@ -171,11 +191,23 @@ function DocCard({ children, dataSectionId, t }) {
   );
 }
 
-function DocText({ children, t }) {
+interface DocTextProps {
+  children: React.ReactNode;
+  t: any;
+}
+
+function DocText({ children, t }: DocTextProps) {
   return <div style={{ color: t.primaryDim, fontSize: "11px", marginBottom: "4px" }}>{children}</div>;
 }
 
-function ClickableCode({ text, onInsertCode, children, t }) {
+interface ClickableCodeProps {
+  text: string;
+  onInsertCode?: (code: string) => void;
+  children: React.ReactNode;
+  t: any;
+}
+
+function ClickableCode({ text, onInsertCode, children, t }: ClickableCodeProps) {
   if (!onInsertCode || !text) return <div style={{ marginBottom: "4px" }}>{children}</div>;
   return (
     <div
@@ -198,7 +230,13 @@ function ClickableCode({ text, onInsertCode, children, t }) {
   );
 }
 
-function CodeBlock({ children, onInsertCode, t }) {
+interface CodeBlockProps {
+  children: React.ReactNode;
+  onInsertCode?: (code: string) => void;
+  t: any;
+}
+
+function CodeBlock({ children, onInsertCode, t }: CodeBlockProps) {
   const text = typeof children === "string" ? children : "";
   const lines = text.split("\n");
 

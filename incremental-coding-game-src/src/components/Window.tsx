@@ -1,5 +1,5 @@
 /**
- * FloatingWindow Component
+ * Window Component
  *
  * A draggable, resizable window that can contain any content.
  * Supports Run/Stop buttons, close button, and focus management.
@@ -8,7 +8,23 @@
 
 import React, { useState, useEffect, useRef } from "react";
 
-export function FloatingWindow({
+interface WindowProps {
+  title: string;
+  initialX?: number;
+  initialY?: number;
+  initialWidth?: number;
+  initialHeight?: number;
+  children: React.ReactNode;
+  onClose?: () => void;
+  onRun?: () => void;
+  onStop?: () => void;
+  isRunning?: boolean;
+  canRun?: boolean;
+  isActive?: boolean;
+  onFocus?: () => void;
+}
+
+export function Window({
   title,
   initialX = 100,
   initialY = 100,
@@ -22,23 +38,23 @@ export function FloatingWindow({
   canRun = true,
   isActive = false,
   onFocus,
-}) {
+}: WindowProps) {
   const [position, setPosition] = useState({ x: initialX, y: initialY });
   const [size, setSize] = useState({ width: initialWidth, height: initialHeight });
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const windowRef = useRef(null);
+  const windowRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (isActive && onFocus) onFocus();
   }, [isActive, onFocus]);
 
-  // ── Drag handling ──
-  const handleDragStart = (event) => {
+  // -- Drag handling --
+  const handleDragStart = (event: React.MouseEvent) => {
     if (
       event.target === event.currentTarget ||
-      event.target.classList.contains("window-title")
+      (event.target as HTMLElement).classList.contains("window-title")
     ) {
       setIsDragging(true);
       setDragOffset({
@@ -49,8 +65,8 @@ export function FloatingWindow({
     }
   };
 
-  // ── Resize handling ──
-  const handleResizeStart = (event) => {
+  // -- Resize handling --
+  const handleResizeStart = (event: React.MouseEvent) => {
     event.stopPropagation();
     setIsResizing(true);
     setDragOffset({
@@ -60,7 +76,7 @@ export function FloatingWindow({
   };
 
   useEffect(() => {
-    const handleMouseMove = (event) => {
+    const handleMouseMove = (event: MouseEvent) => {
       if (isDragging) {
         setPosition({
           x: event.clientX - dragOffset.x,

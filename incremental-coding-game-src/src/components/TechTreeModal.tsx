@@ -1,9 +1,16 @@
 import React, { useState, useEffect } from "react";
-import { useGameStore } from "../gameStore.js";
-import { TECH_TREE, getAvailableUpgrades, TECH_TO_DOCS_SECTION } from "../techTree.js";
-import { useTheme } from "../themes.js";
+import { useGameStore } from "../store/gameStore";
+import { TECH_UNLOCKS, getAvailableUpgrades, TECH_TO_DOCS_SECTION } from "../game/tech";
+import { useTheme } from "../themes";
 
-function ResourceCostBadge({ resource, amount, available, t }) {
+interface ResourceCostBadgeProps {
+  resource: string;
+  amount: number;
+  available: number;
+  t: any;
+}
+
+function ResourceCostBadge({ resource, amount, available, t }: ResourceCostBadgeProps) {
   const hasEnough = available >= amount;
   return (
     <span style={{
@@ -19,8 +26,19 @@ function ResourceCostBadge({ resource, amount, available, t }) {
   );
 }
 
-function TechNode({ tech, isUnlocked, isAvailable, isSelected, resources, onClick, size, t }) {
-  const canAfford = tech.cost.every((c) => resources[c.resource] >= c.amount);
+interface TechNodeProps {
+  tech: any;
+  isUnlocked: boolean;
+  isAvailable: boolean;
+  isSelected: boolean;
+  resources: Record<string, number>;
+  onClick: () => void;
+  size: number;
+  t: any;
+}
+
+function TechNode({ tech, isUnlocked, isAvailable, isSelected, resources, onClick, size, t }: TechNodeProps) {
+  const canAfford = tech.cost.every((c: any) => resources[c.resource] >= c.amount);
   const borderColor = isSelected ? t.borderBright : isUnlocked ? t.primaryDim : isAvailable && canAfford ? t.yellow : t.textMuted;
 
   return (
@@ -45,7 +63,7 @@ function TechNode({ tech, isUnlocked, isAvailable, isSelected, resources, onClic
       {!isUnlocked && (
         <div style={{ position: "absolute", bottom: "3px", display: "flex", gap: "2px" }}>
           {tech.cost.length > 0
-            ? tech.cost.slice(0, 2).map((cost, i) => (
+            ? tech.cost.slice(0, 2).map((cost: any, i: number) => (
                 <div key={i} style={{
                   fontSize: size > 60 ? "8px" : "7px", fontFamily: t.font,
                   color: resources[cost.resource] >= cost.amount ? t.primary : t.textMuted,
@@ -78,10 +96,19 @@ function TechNode({ tech, isUnlocked, isAvailable, isSelected, resources, onClic
   );
 }
 
-export function TechTreePanel({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, initialSelectedTechId }) {
+interface TechTreeModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onFocus: () => void;
+  onUnlock?: (techId: string) => void;
+  onOpenDocs?: (section: string) => void;
+  initialSelectedTechId?: string;
+}
+
+export function TechTreeModal({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, initialSelectedTechId }: TechTreeModalProps) {
   const techState = useGameStore((s) => s.tech);
   const resources = useGameStore((s) => s.resources);
-  const [selectedTechId, setSelectedTechId] = useState(initialSelectedTechId);
+  const [selectedTechId, setSelectedTechId] = useState<string | undefined>(initialSelectedTechId);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const t = useTheme();
 
@@ -97,13 +124,13 @@ export function TechTreePanel({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
       if (selectedTechId) return;
       const available = getAvailableUpgrades(resources, techState);
       if (available.length > 0) setSelectedTechId(available[0].id);
-      else if (TECH_TREE.length > 0) setSelectedTechId(TECH_TREE[0].id);
+      else if (TECH_UNLOCKS.length > 0) setSelectedTechId(TECH_UNLOCKS[0].id);
     }
   }, [isOpen, selectedTechId, resources, techState, initialSelectedTechId]);
 
   useEffect(() => { if (selectedTechId) onFocus(); }, [selectedTechId, onFocus]);
 
-  const selectedTech = TECH_TREE.find((tt) => tt.id === selectedTechId);
+  const selectedTech = TECH_UNLOCKS.find((tt) => tt.id === selectedTechId);
   const availableUpgrades = getAvailableUpgrades(resources, techState);
   const canUnlockSelected = selectedTech && availableUpgrades.some((u) => u.id === selectedTechId);
 
@@ -117,15 +144,15 @@ export function TechTreePanel({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
     }
   };
 
-  const getTechStatus = (node) => {
+  const getTechStatus = (node: any) => {
     if (techState[node.id]) return "unlocked";
-    const depsMet = !node.dependencies || node.dependencies.every((d) => techState[d]);
+    const depsMet = !node.dependencies || node.dependencies.every((d: string) => techState[d]);
     return node.threshold(resources) && depsMet ? "available" : "locked";
   };
 
   if (!isOpen) return null;
 
-  // ── Detail panel content (shared) ──
+  // -- Detail panel content (shared) --
   const detailContent = selectedTech ? (
     <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "12px", borderBottom: `1px solid ${t.border}`, paddingBottom: "10px" }}>
@@ -141,7 +168,7 @@ export function TechTreePanel({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
         <div style={{ padding: "8px", backgroundColor: t.bg3, border: `1px solid ${t.border}` }}>
           <div style={{ color: t.textDim, fontSize: "10px", marginBottom: "6px", letterSpacing: "1px" }}>COST</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-            {selectedTech.cost.map((c, i) => (
+            {selectedTech.cost.map((c: any, i: number) => (
               <ResourceCostBadge key={i} resource={c.resource} amount={c.amount} available={resources[c.resource]} t={t} />
             ))}
           </div>
@@ -210,7 +237,7 @@ export function TechTreePanel({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
     <div style={{ color: t.textMuted, fontSize: "11px" }}>Select a node...</div>
   );
 
-  // ── MOBILE TECH TREE: full screen, vertical list ──
+  // -- MOBILE TECH TREE: full screen, vertical list --
   if (isMobile) {
     return (
       <div
@@ -226,10 +253,10 @@ export function TechTreePanel({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
         <div style={{ flex: 1, overflow: "auto", padding: "12px" }}>
           {/* Tech nodes as a vertical list */}
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            {TECH_TREE.map((node) => {
+            {TECH_UNLOCKS.map((node) => {
               const status = getTechStatus(node);
               const isSelected = selectedTechId === node.id;
-              const canAfford = node.cost.every((c) => resources[c.resource] >= c.amount);
+              const canAfford = node.cost.every((c: any) => resources[c.resource] >= c.amount);
               const borderColor = isSelected ? t.borderBright : status === "unlocked" ? t.primaryDim : status === "available" && canAfford ? t.yellow : t.textMuted;
 
               return (
@@ -258,7 +285,7 @@ export function TechTreePanel({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
                       {status === "unlocked"
                         ? "UNLOCKED"
                         : node.cost.length > 0
-                          ? node.cost.map((c) => `${c.amount}${c.resource}`).join(" + ")
+                          ? node.cost.map((c: any) => `${c.amount}${c.resource}`).join(" + ")
                           : node.progressInfo
                             ? node.progressInfo().label
                             : ""}
@@ -282,9 +309,9 @@ export function TechTreePanel({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
     );
   }
 
-  // ── DESKTOP TECH TREE: grid layout with side panel ──
-  const maxRow = Math.max(...TECH_TREE.map((tt) => tt.position?.row || 0));
-  const maxCol = Math.max(...TECH_TREE.map((tt) => tt.position?.col || 0));
+  // -- DESKTOP TECH TREE: grid layout with side panel --
+  const maxRow = Math.max(...TECH_UNLOCKS.map((tt) => tt.position?.row || 0));
+  const maxCol = Math.max(...TECH_UNLOCKS.map((tt) => tt.position?.col || 0));
   const CELL_SIZE = 130;
   const NODE_SIZE = 80;
   const gridWidth = (maxCol + 1) * CELL_SIZE;
@@ -315,10 +342,10 @@ export function TechTreePanel({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
         <div style={{ overflow: "auto", backgroundColor: t.bgAlt, border: `1px solid ${t.border}`, padding: "30px" }}>
           <div style={{ position: "relative", width: gridWidth, height: gridHeight }}>
             {/* Lines */}
-            {TECH_TREE.map((node) => {
+            {TECH_UNLOCKS.map((node) => {
               if (!node.dependencies?.length || !node.position) return null;
-              return node.dependencies.map((depId) => {
-                const dep = TECH_TREE.find((tt) => tt.id === depId);
+              return node.dependencies.map((depId: string) => {
+                const dep = TECH_UNLOCKS.find((tt) => tt.id === depId);
                 if (!dep?.position) return null;
                 const isDepUnlocked = techState[depId];
                 const x1 = dep.position.col * CELL_SIZE + NODE_SIZE / 2;
@@ -345,7 +372,7 @@ export function TechTreePanel({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
             })}
 
             {/* Nodes */}
-            {TECH_TREE.map((node) => {
+            {TECH_UNLOCKS.map((node) => {
               if (!node.position) return null;
               const status = getTechStatus(node);
               return (

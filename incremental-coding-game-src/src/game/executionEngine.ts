@@ -5,8 +5,50 @@
  * and manages the execution lifecycle (start, progress, cancel, errors).
  */
 
-import { validateCode } from "./techTree.js";
-import { createGameApi, API_FUNCTION_NAMES } from "./gameApi.js";
+import { validateCode } from './codeValidator';
+import { createAPI, ALL_API_FUNCTIONS } from './api';
+
+// ─── Types ────────────────────────────────────────────────────────────
+
+export type ExecutionEvent =
+  | { type: 'lineChange'; lineNumber: number }
+  | { type: 'functionStart'; lineNumber: number; functionName: string; duration: number }
+  | { type: 'functionProgress'; lineNumber: number; progress: number }
+  | { type: 'functionComplete'; lineNumber: number; functionName: string; duration: number }
+  | { type: 'loopIteration'; lineNumber: number; codeLine: string; duration: number; iterationCount: number }
+  | { type: 'log'; message: string }
+  | { type: 'error'; error: Error; lineNumber?: number }
+  | { type: 'complete' };
+
+export interface ExecutionCallbacks {
+  onEvent: (event: ExecutionEvent) => void;
+}
+
+interface SyntaxError {
+  lineNumber: number;
+  message: string;
+}
+
+interface ApiCallEntry {
+  lineNumber: number;
+  functionName: string;
+}
+
+interface LineMapEntry {
+  lineNumber: number;
+  functionName: string;
+  startCol: number;
+  endCol: number;
+}
+
+interface FunctionStackEntry {
+  name: string;
+  startLine: number;
+  isAsync: boolean;
+  hasAwait: boolean;
+  type: 'arrow' | 'regular';
+  entryBraceDepth: number;
+}
 
 // ─── Code Transformer ─────────────────────────────────────────────────
 
@@ -19,13 +61,13 @@ import { createGameApi, API_FUNCTION_NAMES } from "./gameApi.js";
  * 2. Adds `await` before API function calls (produceResourceA, etc.)
  * 3. Automatically adds `async` to user-defined functions that contain `await`
  *
- * @param {string} code - The user's source code
- * @param {boolean} insertSteps - Whether to insert step() calls (default true)
- * @returns {string} Transformed code ready for async execution
+ * @param code - The user's source code
+ * @param insertSteps - Whether to insert step() calls (default true)
+ * @returns Transformed code ready for async execution
  */
-export function transformCode(code, insertSteps = true) {
+export function transformCode(code: string, insertSteps: boolean = true): string {
   let lines = code.split(/\r?\n/);
-  const userAsyncFunctions = new Set();
+  const userAsyncFunctions = new Set<string>();
 
   // ── Phase 1: Insert step() calls after each statement ──
   if (insertSteps) {
@@ -57,7 +99,7 @@ export function transformCode(code, insertSteps = true) {
         /^(?:if|else|while|for|switch|case|default|try|catch|finally)\s*\(/.test(trimmed) ||
         /^(?:if|else|while|for|switch|case|default|try|catch|finally)\s*\{/.test(trimmed)
       ) {
-        const hasApiCall = API_FUNCTION_NAMES.some((fn) =>
+        const hasApiCall = ALL_API_FUNCTIONS.some((fn) =>
           new RegExp(`\\b${fn}\\s*\\(`).test(trimmed)
         );
 
@@ -102,7 +144,7 @@ export function transformCode(code, insertSteps = true) {
     const trimmed = line.trim();
     if (trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*")) return line;
     let result = line;
-    for (const funcName of API_FUNCTION_NAMES) {
+    for (const funcName of ALL_API_FUNCTIONS) {
       const pattern = new RegExp(
         `(^|[^\\w])(await\\s+)?(${funcName}\\s*\\()`,
         "g"
@@ -131,7 +173,7 @@ export function transformCode(code, insertSteps = true) {
     iterations++;
 
     // Track function scope via brace depth
-    const functionStack = [];
+    const functionStack: FunctionStackEntry[] = [];
     let braceDepth = 0;
 
     for (let i = 0; i < lines.length; i++) {
@@ -246,19 +288,19 @@ export function transformCode(code, insertSteps = true) {
  * Build a map of line numbers to API function calls in the transformed code.
  * Used to correlate executing API calls back to user's source lines.
  *
- * @param {string} transformedCode
- * @returns {Map<number, Array<{lineNumber, functionName, startCol, endCol}>>}
+ * @param transformedCode
+ * @returns Map of line numbers to arrays of API call entries
  */
-export function buildLineMap(transformedCode) {
-  const lineMap = new Map();
+export function buildLineMap(transformedCode: string): Map<number, Array<LineMapEntry>> {
+  const lineMap = new Map<number, Array<LineMapEntry>>();
 
   transformedCode.split("\n").forEach((line, index) => {
     const lineNumber = index + 1;
     const trimmed = line.trim();
     if (trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*")) return;
-    const calls = [];
+    const calls: LineMapEntry[] = [];
 
-    API_FUNCTION_NAMES.forEach((funcName) => {
+    ALL_API_FUNCTIONS.forEach((funcName) => {
       const pattern = new RegExp(`\\b${funcName}\\s*\\(`, "g");
       let match;
       while ((match = pattern.exec(line)) !== null) {
@@ -298,7 +340,14 @@ class CancellationError extends Error {
  * - Tracks progress, handles errors, supports cancellation
  */
 export class CodeExecutor {
-  constructor(callbacks) {
+  isRunning: boolean;
+  isCancelled: boolean;
+  currentLine: number | null;
+  lineMap: Map<number, Array<LineMapEntry>>;
+  callbacks: ExecutionCallbacks;
+  cancellationError: CancellationError | null;
+
+  constructor(callbacks: ExecutionCallbacks) {
     this.isRunning = false;
     this.isCancelled = false;
     this.currentLine = null;
@@ -310,10 +359,10 @@ export class CodeExecutor {
   /**
    * Execute user code.
    *
-   * @param {string} code - The user's source code
-   * @throws {Error} If code has syntax errors, validation errors, or runtime errors
+   * @param code - The user's source code
+   * @throws If code has syntax errors, validation errors, or runtime errors
    */
-  async execute(code) {
+  async execute(code: string): Promise<void> {
     if (this.isRunning) {
       throw new Error("Execution already in progress");
     }
@@ -363,7 +412,7 @@ export class CodeExecutor {
     this.lineMap = buildLineMap(transformedCode);
 
     // Build ordered list of API calls for tracking
-    const apiCallSequence = [];
+    const apiCallSequence: ApiCallEntry[] = [];
     Array.from(this.lineMap.keys())
       .sort((a, b) => a - b)
       .forEach((lineNum) => {
@@ -384,17 +433,17 @@ export class CodeExecutor {
       // ── Create execution context ──
       const executionContext = {
         functionName: "",
-        lineNumber: undefined,
+        lineNumber: undefined as number | undefined,
         isCancelled: () => this.isCancelled,
         throwIfCancelled: () => {
           if (this.isCancelled && this.cancellationError) {
             throw this.cancellationError;
           }
         },
-        onLog: (message) => {
+        onLog: (message: string) => {
           this.callbacks.onEvent({ type: "log", message });
         },
-        onStart: (lineNumber, functionName, duration) => {
+        onStart: (lineNumber: number, functionName: string, duration: number) => {
           if (this.isCancelled) return;
           this.currentLine = lineNumber;
           this.callbacks.onEvent({ type: "lineChange", lineNumber });
@@ -405,7 +454,7 @@ export class CodeExecutor {
             duration,
           });
         },
-        onProgress: (lineNumber, progress) => {
+        onProgress: (lineNumber: number, progress: number) => {
           if (this.isCancelled) return;
           this.callbacks.onEvent({
             type: "functionProgress",
@@ -413,7 +462,7 @@ export class CodeExecutor {
             progress,
           });
         },
-        onComplete: (lineNumber, functionName, duration) => {
+        onComplete: (lineNumber: number, functionName: string, duration: number) => {
           if (this.isCancelled) return;
           this.callbacks.onEvent({
             type: "functionComplete",
@@ -425,17 +474,17 @@ export class CodeExecutor {
       };
 
       // ── Create API with line tracking ──
-      const rawApi = createGameApi(executionContext);
+      const rawApi = createAPI(executionContext);
       const executor = this;
 
       // Proxy wraps API calls to update the execution context's line number
       // based on the expected sequence of API calls
       const trackedApi = new Proxy(rawApi, {
-        get(target, property) {
+        get(target: any, property: string) {
           const method = target[property];
           if (typeof method !== "function") return method;
 
-          return function (...args) {
+          return function (this: any, ...args: any[]) {
             if (apiCallSequence.length > 0) {
               const expectedIndex = callIndex % apiCallSequence.length;
               const expected = apiCallSequence[expectedIndex];
@@ -445,7 +494,7 @@ export class CodeExecutor {
                 executionContext.functionName = property;
               } else {
                 // Search for matching call in sequence
-                let found = null;
+                let found: ApiCallEntry | null = null;
                 let searchIndex = expectedIndex;
                 for (let i = 0; i < apiCallSequence.length && !found; i++) {
                   const candidate = apiCallSequence[searchIndex];
@@ -483,12 +532,12 @@ export class CodeExecutor {
 
       // ── Loop tracking state ──
       const codeLines = code.split(/\r?\n/);
-      const loopStartTimes = {}; // lineNumber -> timestamp of current iteration start
-      const loopIterationCounts = {}; // lineNumber -> count
+      const loopStartTimes: Record<number, number> = {}; // lineNumber -> timestamp of current iteration start
+      const loopIterationCounts: Record<number, number> = {}; // lineNumber -> count
 
       // ── Step function ──
       // Called between statements to track the current line and allow pausing
-      const step = async (lineNumber) => {
+      const step = async (lineNumber: number): Promise<void> => {
         if (this.isCancelled) throw this.cancellationError;
 
         const originalLine = codeLines[lineNumber - 1];
@@ -521,7 +570,7 @@ export class CodeExecutor {
 
         // Brief pause between statements (250ms)
         const STEP_DELAY = 250;
-        await new Promise((resolve) => setTimeout(resolve, STEP_DELAY));
+        await new Promise<void>((resolve) => setTimeout(resolve, STEP_DELAY));
 
         if (this.isCancelled) throw this.cancellationError;
       };
@@ -534,7 +583,7 @@ export class CodeExecutor {
         })(api, step);
       `;
 
-      let scriptFunction;
+      let scriptFunction: Function;
       try {
         scriptFunction = new Function("api", "step", wrappedCode);
       } catch (parseError) {
@@ -545,7 +594,7 @@ export class CodeExecutor {
         const message = error.message;
 
         // Try to extract line number from error
-        let errorLine;
+        let errorLine: number | undefined;
         const lineMatch = message.match(/(?:line|at line)\s+(\d+)/i);
         if (lineMatch) {
           errorLine = parseInt(lineMatch[1], 10);
@@ -609,7 +658,7 @@ export class CodeExecutor {
         }
 
         this.isCancelled = true;
-        let errorLine = this.currentLine || undefined;
+        let errorLine: number | undefined = this.currentLine || undefined;
 
         if (runtimeError instanceof Error) {
           // Try to extract line from error message
@@ -680,7 +729,7 @@ export class CodeExecutor {
   }
 
   /** Stop execution immediately */
-  stop() {
+  stop(): void {
     console.log("Executor: Stop requested");
     this.isCancelled = true;
     this.isRunning = false;
@@ -689,7 +738,7 @@ export class CodeExecutor {
   }
 
   /** Check if currently running */
-  getRunning() {
+  getRunning(): boolean {
     return this.isRunning;
   }
 
@@ -697,8 +746,8 @@ export class CodeExecutor {
    * Check for basic syntax errors in user code.
    * Currently checks for common arrow function declaration mistakes.
    */
-  checkSyntaxErrors(code) {
-    const errors = [];
+  checkSyntaxErrors(code: string): SyntaxError[] {
+    const errors: SyntaxError[] = [];
 
     code.split(/\r?\n/).forEach((line, index) => {
       const lineNumber = index + 1;

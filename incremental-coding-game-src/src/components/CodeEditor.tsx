@@ -17,28 +17,48 @@ import React, {
   useContext,
 } from "react";
 import Editor from "@monaco-editor/react";
-import { API_FUNCTION_NAMES } from "../gameApi.js";
-import { getAvailableFunctions, validateCode } from "../techTree.js";
-import { ThemeContext, THEMES } from "../themes.js";
+import { ALL_API_FUNCTIONS } from "../game/api";
+import { getAvailableFunctions } from "../game/tech";
+import { validateCode } from "../game/codeValidator";
+import { ThemeContext, THEMES } from "../themes";
 
-export const CodeEditor = forwardRef(
+interface ExecutionEvent {
+  type: "lineChange" | "functionProgress" | "functionComplete" | "complete";
+  lineNumber?: number;
+  progress?: number;
+}
+
+interface CodeEditorProps {
+  code: string;
+  onCodeChange: (code: string) => void;
+  executionEvents: ExecutionEvent[];
+  onOpenTechTree?: (techId?: string) => void;
+  scrollToLineNumber?: number | null;
+}
+
+export interface CodeEditorHandle {
+  scrollToLine: (line: number) => void;
+  insertText: (text: string) => void;
+}
+
+export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(
   ({ code, onCodeChange, executionEvents, onOpenTechTree, scrollToLineNumber }, ref) => {
     const theme = useContext(ThemeContext);
-    const editorRef = useRef(null);
-    const monacoRef = useRef(null);
-    const decorationsRef = useRef([]);
-    const markersRef = useRef([]);
+    const editorRef = useRef<any>(null);
+    const monacoRef = useRef<any>(null);
+    const decorationsRef = useRef<string[]>([]);
+    const markersRef = useRef<any[]>([]);
     const onOpenTechTreeRef = useRef(onOpenTechTree);
-    const validationInfoRef = useRef([]);
+    const validationInfoRef = useRef<Array<{ lineNumber: number; feature: string }>>([]);
 
     // Expose scrollToLine and insertText to parent
     useImperativeHandle(ref, () => ({
-      scrollToLine: (line) => {
+      scrollToLine: (line: number) => {
         if (editorRef.current) {
           editorRef.current.revealLineInCenter(line);
         }
       },
-      insertText: (text) => {
+      insertText: (text: string) => {
         if (editorRef.current) {
           const editor = editorRef.current;
           editor.focus();
@@ -59,13 +79,13 @@ export const CodeEditor = forwardRef(
       },
     }));
 
-    // Handle external scroll requests — only scroll, never move cursor
+    // Handle external scroll requests -- only scroll, never move cursor
     useEffect(() => {
       if (scrollToLineNumber != null && editorRef.current) {
         const editor = editorRef.current;
         const visibleRanges = editor.getVisibleRanges();
         const isVisible = visibleRanges.some(
-          (range) =>
+          (range: any) =>
             scrollToLineNumber >= range.startLineNumber &&
             scrollToLineNumber <= range.endLineNumber
         );
@@ -80,7 +100,7 @@ export const CodeEditor = forwardRef(
       onOpenTechTreeRef.current = onOpenTechTree;
     }, [onOpenTechTree]);
 
-    // ── Handle execution events (line highlighting, progress) ──
+    // -- Handle execution events (line highlighting, progress) --
     useEffect(() => {
       if (!editorRef.current) return;
       const editor = editorRef.current;
@@ -89,8 +109,8 @@ export const CodeEditor = forwardRef(
       // Clear existing decorations
       decorationsRef.current = editor.deltaDecorations(decorationsRef.current, []);
 
-      let currentLine = null;
-      let completedDecorations = [];
+      let currentLine: number | null = null;
+      let completedDecorations: string[] = [];
 
       executionEvents.forEach((event) => {
         if (event.type === "lineChange") {
@@ -99,7 +119,7 @@ export const CodeEditor = forwardRef(
             decorationsRef.current = editor.deltaDecorations(decorationsRef.current, []);
             completedDecorations = [];
           }
-          currentLine = event.lineNumber;
+          currentLine = event.lineNumber!;
 
           // Highlight the executing line
           decorationsRef.current = editor.deltaDecorations(decorationsRef.current, [
@@ -115,8 +135,8 @@ export const CodeEditor = forwardRef(
           ]);
         } else if (event.type === "functionProgress" && currentLine === event.lineNumber) {
           // Update progress bar
-          const progress = event.progress;
-          const element = document.querySelector(".executing-line");
+          const progress = event.progress!;
+          const element = document.querySelector(".executing-line") as HTMLElement | null;
           if (element) {
             element.style.setProperty("--progress", `${progress}%`);
           }
@@ -148,8 +168,8 @@ export const CodeEditor = forwardRef(
       });
     }, [executionEvents]);
 
-    // ── Editor mount handler ──
-    const handleEditorMount = (editor, monaco) => {
+    // -- Editor mount handler --
+    const handleEditorMount = (editor: any, monaco: any) => {
       editorRef.current = editor;
       monacoRef.current = monaco;
 
@@ -182,7 +202,7 @@ export const CodeEditor = forwardRef(
       });
 
       // Syntax highlighting with Monarch tokenizer
-      const apiFunctionPattern = new RegExp(`\\b(${API_FUNCTION_NAMES.join("|")})\\b`);
+      const apiFunctionPattern = new RegExp(`\\b(${ALL_API_FUNCTIONS.join("|")})\\b`);
 
       monaco.languages.setMonarchTokensProvider("game-script", {
         tokenizer: {
@@ -227,8 +247,8 @@ export const CodeEditor = forwardRef(
         ],
       });
 
-      // ── Autocomplete provider ──
-      const functionDocs = {
+      // -- Autocomplete provider --
+      const functionDocs: Record<string, { signature: string; description: string; insert: string; isSnippet?: boolean }> = {
         produceResourceA: {
           signature: "produceResourceA(): Promise<number>",
           description: "Produces 1 unit of resource A. Takes 2 seconds.",
@@ -259,10 +279,10 @@ export const CodeEditor = forwardRef(
       };
 
       // Extract user-defined variables and functions from code
-      function extractUserSymbols(model) {
+      function extractUserSymbols(model: any) {
         const text = model.getValue();
-        const symbols = [];
-        const seen = new Set();
+        const symbols: Array<{ label: string; kind: number; detail: string; insert?: string }> = [];
+        const seen = new Set<string>();
 
         // Variables: let/const/var name
         const varRegex = /\b(?:let|const|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g;
@@ -299,7 +319,7 @@ export const CodeEditor = forwardRef(
       ];
 
       const completionProvider = {
-        provideCompletionItems: (model, position) => {
+        provideCompletionItems: (model: any, position: any) => {
           const availableFunctions = getAvailableFunctions();
           const word = model.getWordUntilPosition(position);
           const range = {
@@ -309,11 +329,11 @@ export const CodeEditor = forwardRef(
             endColumn: word.endColumn,
           };
 
-          const suggestions = [];
+          const suggestions: any[] = [];
           let sortIndex = 0;
 
           // API functions (highest priority)
-          availableFunctions.forEach((funcName) => {
+          availableFunctions.forEach((funcName: string) => {
             const doc = functionDocs[funcName];
             if (!doc) return;
             suggestions.push({
@@ -357,17 +377,17 @@ export const CodeEditor = forwardRef(
 
           return { suggestions };
         },
-        triggerCharacters: [],
+        triggerCharacters: [] as string[],
       };
 
       monaco.languages.registerCompletionItemProvider("game-script", completionProvider);
 
-      // ── Code action provider (quick-fix to open tech tree) ──
+      // -- Code action provider (quick-fix to open tech tree) --
       monaco.languages.registerCodeActionProvider("game-script", {
-        provideCodeActions: (model, range, context) => {
-          const actions = [];
+        provideCodeActions: (model: any, range: any, context: any) => {
+          const actions: any[] = [];
 
-          context.markers.forEach((marker) => {
+          context.markers.forEach((marker: any) => {
             if (
               marker.source === "Validation" &&
               marker.message.includes("not unlocked yet")
@@ -407,12 +427,12 @@ export const CodeEditor = forwardRef(
         },
       });
 
-      // ── Listen for tech tree quick-fix trigger ──
-      editor.onDidChangeModelContent((changeEvent) => {
+      // -- Listen for tech tree quick-fix trigger --
+      editor.onDidChangeModelContent((changeEvent: any) => {
         const model = editor.getModel();
         if (!model) return;
 
-        changeEvent.changes.forEach((change) => {
+        changeEvent.changes.forEach((change: any) => {
           if (change.text.includes("__OPEN_TECH_TREE__")) {
             setTimeout(() => {
               const content = model.getValue();
@@ -430,8 +450,8 @@ export const CodeEditor = forwardRef(
         });
       });
 
-      // ── Register all themes ──
-      Object.values(THEMES).forEach((t) => {
+      // -- Register all themes --
+      Object.values(THEMES).forEach((t: any) => {
         monaco.editor.defineTheme(`game-script-${t.id}`, {
           base: t.monacoBase,
           inherit: true,
@@ -449,12 +469,12 @@ export const CodeEditor = forwardRef(
         // Initial validation
         setTimeout(() => {
           const errors = validateCode(code);
-          validationInfoRef.current = errors.map((e) => ({
+          validationInfoRef.current = errors.map((e: any) => ({
             lineNumber: e.lineNumber,
             feature: e.feature,
           }));
 
-          const markers = errors.map((e) => {
+          const markers = errors.map((e: any) => {
             const lineLength = model.getLineContent(e.lineNumber).length;
             return {
               severity: monaco.MarkerSeverity.Error,
@@ -473,7 +493,7 @@ export const CodeEditor = forwardRef(
       }
     };
 
-    // ── Re-validate on code changes ──
+    // -- Re-validate on code changes --
     useEffect(() => {
       if (!editorRef.current || !monacoRef.current) return;
       const model = editorRef.current.getModel();
@@ -481,12 +501,12 @@ export const CodeEditor = forwardRef(
 
       const timeout = setTimeout(() => {
         const errors = validateCode(code);
-        validationInfoRef.current = errors.map((e) => ({
+        validationInfoRef.current = errors.map((e: any) => ({
           lineNumber: e.lineNumber,
           feature: e.feature,
         }));
 
-        const markers = errors.map((e) => {
+        const markers = errors.map((e: any) => {
           const lineLength = model.getLineContent(e.lineNumber).length;
           return {
             severity: monacoRef.current.MarkerSeverity.Error,

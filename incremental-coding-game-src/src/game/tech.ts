@@ -1,12 +1,28 @@
 /**
- * Tech Tree Definitions & Validation
+ * Tech Tree Definitions
  *
  * Defines all unlockable technologies, their costs, dependencies,
  * and code validation rules that gate language features.
  */
 
-import { useGameStore } from "./gameStore.js";
-import { getMarketState } from "./marketEngine.js";
+import { useGameStore } from '../store/gameStore';
+import { getMarketState } from './marketEngine';
+import type { Resources, TechUnlocks, ResourceKey } from '../store/gameStore';
+
+export interface TechUnlock {
+  id: keyof TechUnlocks;
+  name: string;
+  description: string;
+  threshold: (resources: Resources) => boolean;
+  unlocked: boolean;
+  cost: Array<{ resource: ResourceKey; amount: number }>;
+  validationRegex?: RegExp;
+  validationErrorMessage?: string;
+  icon: string;
+  dependencies?: string[];
+  position?: { row: number; col: number };
+  progressInfo?: () => { current: number; target: number; label: string };
+}
 
 /**
  * All tech tree nodes.
@@ -22,7 +38,7 @@ import { getMarketState } from "./marketEngine.js";
  * - dependencies: Tech IDs that must be unlocked first
  * - position: Grid position in the tech tree UI { row, col }
  */
-export const TECH_TREE = [
+export const TECH_UNLOCKS: TechUnlock[] = [
   {
     id: "whileUnlocked",
     name: "While Loops",
@@ -33,7 +49,7 @@ export const TECH_TREE = [
     validationRegex: /\bwhile\s*\(/,
     validationErrorMessage:
       "While loops are not unlocked yet. Produce 5 A to unlock them.",
-    icon: "∞",
+    icon: "\u221E",
     dependencies: [],
     position: { row: 0, col: 0 },
   },
@@ -47,7 +63,7 @@ export const TECH_TREE = [
     validationRegex: /\bconvertAToB\s*\(/,
     validationErrorMessage:
       "convertAToB() is not unlocked yet. Produce 15 A to unlock it.",
-    icon: "🟪",
+    icon: "\uD83D\uDFEA",
     dependencies: ["whileUnlocked"],
     position: { row: 0, col: 1 },
   },
@@ -61,7 +77,7 @@ export const TECH_TREE = [
       { resource: "B", amount: 4 },
     ],
     unlocked: false,
-    icon: "🛒",
+    icon: "\uD83D\uDED2",
     dependencies: ["convertAToBUnlocked"],
     position: { row: 0, col: 2 },
   },
@@ -92,7 +108,7 @@ export const TECH_TREE = [
       /[+\-*/%]=|\+\+|--|[+\*/%]|[a-zA-Z0-9_\)\]\}]\s*-\s*[a-zA-Z0-9_\(\[\{]/,
     validationErrorMessage:
       "Math operators are not unlocked yet. Produce 10 B to unlock them.",
-    icon: "±",
+    icon: "\u00B1",
     dependencies: ["varsUnlocked"],
     position: { row: 2, col: 1 },
   },
@@ -109,14 +125,14 @@ export const TECH_TREE = [
     validationRegex: /\b(convertBToC|makeResourceC)\s*\(/,
     validationErrorMessage:
       "Resource C is not unlocked yet. Produce 10 B to unlock it.",
-    icon: "🟧",
+    icon: "\uD83D\uDFE7",
     dependencies: ["convertAToBUnlocked"],
     position: { row: 1, col: 2 },
   },
   {
     id: "ifStatementsUnlocked",
     name: "If Statements",
-    description: "Use conditional logic with if/else statements. You'll need these — functions now halt on failure!",
+    description: "Use conditional logic with if/else statements. You'll need these \u2014 functions now halt on failure!",
     threshold: (resources) => resources.B >= 5,
     cost: [{ resource: "B", amount: 5 }],
     unlocked: false,
@@ -138,7 +154,7 @@ export const TECH_TREE = [
       /\bfunction\s+\w+\s*\(|=\s*(async\s+)?(\([^)]*\)|[a-zA-Z_$][a-zA-Z0-9_$]*)\s*=>/,
     validationErrorMessage:
       "User functions are not unlocked yet. Produce 5 C to unlock them.",
-    icon: "ƒ",
+    icon: "\u0192",
     dependencies: ["ifStatementsUnlocked"],
     position: { row: 2, col: 1 },
   },
@@ -149,7 +165,7 @@ export const TECH_TREE = [
     threshold: (resources) => resources.B >= 20,
     cost: [{ resource: "B", amount: 20 }],
     unlocked: false,
-    icon: "⚡",
+    icon: "\u26A1",
     dependencies: ["mathFunctionsUnlocked"],
     position: { row: 3, col: 1 },
   },
@@ -199,17 +215,17 @@ export const TECH_TREE = [
  * 2. The tech is not already unlocked
  * 3. All dependency techs are unlocked
  */
-export function getAvailableUpgrades(resources, tech) {
+export function getAvailableUpgrades(resources?: Resources, tech?: TechUnlocks) {
   const currentResources = resources ?? useGameStore.getState().resources;
   const currentTech = tech ?? useGameStore.getState().tech;
-  const available = [];
+  const available: TechUnlock[] = [];
 
-  TECH_TREE.forEach((techNode) => {
+  TECH_UNLOCKS.forEach((techNode) => {
     const isUnlocked = currentTech[techNode.id];
     const meetsThreshold = techNode.threshold(currentResources);
     const dependenciesMet =
       !techNode.dependencies ||
-      techNode.dependencies.every((dep) => currentTech[dep]);
+      techNode.dependencies.every((dep) => currentTech[dep as keyof TechUnlocks]);
 
     if (meetsThreshold && !isUnlocked && dependenciesMet) {
       available.push(techNode);
@@ -223,7 +239,7 @@ export function getAvailableUpgrades(resources, tech) {
  * Get the list of currently available API function names
  * based on which techs are unlocked.
  */
-export function getAvailableFunctions() {
+export function getAvailableFunctions(): string[] {
   const tech = useGameStore.getState().tech;
   const functions = ["produceResourceA", "getResourceCount", "log"];
 
@@ -235,52 +251,9 @@ export function getAvailableFunctions() {
 }
 
 /**
- * Validate user code against locked tech features.
- * Returns an array of validation errors for features used before being unlocked.
- *
- * @param {string} code - The user's source code
- * @returns {Array<{lineNumber: number, message: string, feature: string}>}
- */
-export function validateCode(code) {
-  const tech = useGameStore.getState().tech;
-  const errors = [];
-
-  code.split(/\r?\n/).forEach((line, index) => {
-    const lineNumber = index + 1;
-    const trimmed = line.trim();
-
-    // Skip empty lines and comments
-    if (!trimmed || trimmed.startsWith("//")) return;
-
-    TECH_TREE.forEach((techNode) => {
-      // Skip if already unlocked or has no validation rule
-      if (tech[techNode.id] || !techNode.validationRegex || !techNode.validationErrorMessage) {
-        return;
-      }
-
-      // Test the line against the locked feature's regex
-      const regex = new RegExp(
-        techNode.validationRegex.source,
-        techNode.validationRegex.flags
-      );
-
-      if (regex.test(line)) {
-        errors.push({
-          lineNumber,
-          message: techNode.validationErrorMessage,
-          feature: techNode.id,
-        });
-      }
-    });
-  });
-
-  return errors;
-}
-
-/**
  * Maps tech IDs to documentation section IDs for the "View in Docs" feature.
  */
-export const TECH_TO_DOCS_SECTION = {
+export const TECH_TO_DOCS_SECTION: Record<string, string> = {
   whileUnlocked: "while-loops",
   convertAToBUnlocked: "resource-conversion",
   varsUnlocked: "variables",
@@ -292,7 +265,7 @@ export const TECH_TO_DOCS_SECTION = {
 };
 
 /** Resource colors used throughout the UI */
-export const RESOURCE_COLORS = {
+export const RESOURCE_COLORS: Record<ResourceKey, string> = {
   A: "#4a9eff", // Blue
   B: "#9d4edd", // Purple
   C: "#ff6b35", // Orange

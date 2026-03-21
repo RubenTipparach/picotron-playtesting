@@ -1,16 +1,71 @@
 /**
  * Game State Store
  *
- * Uses Zustand for state management. Manages resources (A, B, C),
+ * Uses Zustand for state management. Manages resources (A, B, C, D),
  * tech tree unlocks, and virtual time. Persists to localStorage.
  */
 
 import { create } from "zustand";
 
-const LOCAL_STORAGE_KEY = "incremental-coding-game-state";
+const STORAGE_KEY = "incremental-coding-game-state";
+
+// ─── Types & Interfaces ──────────────────────────────────────────────
+
+export interface Resources {
+  A: number;
+  B: number;
+  C: number;
+  D: number;
+}
+
+export const RESOURCE_KEYS = ['A', 'B', 'C', 'D'] as const;
+export type ResourceKey = (typeof RESOURCE_KEYS)[number];
+
+export interface TechUnlocks {
+  whileUnlocked: boolean;
+  convertAToBUnlocked: boolean;
+  varsUnlocked: boolean;
+  mathFunctionsUnlocked: boolean;
+  resourceCUnlocked: boolean;
+  ifStatementsUnlocked: boolean;
+  userFunctionsUnlocked: boolean;
+  processingSpeed1Unlocked: boolean;
+  shopUnlocked: boolean;
+  stockMarketUnlocked: boolean;
+  resourceDUnlocked: boolean;
+}
+
+export interface GameState {
+  resources: Resources;
+  tech: TechUnlocks;
+  virtualTime: number;
+  credits: number;
+  ram: number;
+  cpuLevel: number;
+  market: Record<string, unknown> | null;
+  testMode: boolean;
+}
+
+export interface GameActions {
+  setResources: (resources: Resources) => void;
+  setTech: (tech: TechUnlocks) => void;
+  addResource: (resourceName: ResourceKey, amount: number) => void;
+  consumeResource: (resourceName: ResourceKey, amount: number) => boolean;
+  consumeResources: (costs: Array<{ resource: ResourceKey; amount: number }>) => boolean;
+  unlockTech: (techId: keyof TechUnlocks) => void;
+  addVirtualTime: (seconds: number) => void;
+  addCredits: (amount: number) => void;
+  spendCredits: (amount: number) => boolean;
+  upgradeRam: (newRam: number) => void;
+  setMarket: (marketData: Record<string, unknown> | null) => void;
+  persistMarket: (marketData: Record<string, unknown> | null) => void;
+  upgradeCpu: () => void;
+  syncFromLocalStorage: () => void;
+  resetGameState: () => void;
+}
 
 // Default initial state
-const DEFAULT_STATE = {
+const defaultState: GameState = {
   resources: { A: 0, B: 0, C: 0, D: 0 },
   tech: {
     whileUnlocked: false,
@@ -32,39 +87,41 @@ const DEFAULT_STATE = {
   cpuLevel: 0,    // each level = 50% faster, cost doubles each level
   // Market state (persisted separately from live engine)
   market: null,
+  testMode: false,
 };
 
 /**
  * Load saved game state from localStorage, merging with defaults
  * to handle new fields added in updates.
  */
-function loadGameState() {
+function loadGameState(): GameState {
   try {
-    const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+    const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
       return {
-        resources: { ...DEFAULT_STATE.resources, ...parsed.resources },
-        tech: { ...DEFAULT_STATE.tech, ...parsed.tech },
-        virtualTime: parsed.virtualTime ?? DEFAULT_STATE.virtualTime,
-        credits: parsed.credits ?? DEFAULT_STATE.credits,
-        ram: parsed.ram ?? DEFAULT_STATE.ram,
-        cpuLevel: parsed.cpuLevel ?? DEFAULT_STATE.cpuLevel,
-        market: parsed.market ?? DEFAULT_STATE.market,
+        resources: { ...defaultState.resources, ...parsed.resources },
+        tech: { ...defaultState.tech, ...parsed.tech },
+        virtualTime: parsed.virtualTime ?? defaultState.virtualTime,
+        credits: parsed.credits ?? defaultState.credits,
+        ram: parsed.ram ?? defaultState.ram,
+        cpuLevel: parsed.cpuLevel ?? defaultState.cpuLevel,
+        market: parsed.market ?? defaultState.market,
+        testMode: false,
       };
     }
   } catch (error) {
     console.warn("Failed to load game state from localStorage", error);
   }
-  return { ...DEFAULT_STATE };
+  return { ...defaultState };
 }
 
 /**
  * Save game state to localStorage.
  */
-function saveGameState(state) {
+function saveGameStateToStorage(state: Omit<GameState, 'testMode'>): void {
   try {
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (error) {
     console.warn("Failed to save game state to localStorage", error);
   }
@@ -80,7 +137,7 @@ function saveGameState(state) {
  * - Sync with localStorage
  * - Reset progress
  */
-export const useGameStore = create((set, get) => {
+export const useGameStore = create<GameState & GameActions>((set, get) => {
   const initial = loadGameState();
 
   return {
@@ -91,39 +148,40 @@ export const useGameStore = create((set, get) => {
     ram: initial.ram,
     cpuLevel: initial.cpuLevel,
     market: initial.market,
+    testMode: false,
 
     /** Replace all resources */
-    setResources: (resources) => {
+    setResources: (resources: Resources) => {
       const state = { ...get(), resources };
-      saveGameState(state);
+      saveGameStateToStorage(state);
       set({ resources });
     },
 
     /** Replace all tech */
-    setTech: (tech) => {
+    setTech: (tech: TechUnlocks) => {
       const state = { ...get(), tech };
-      saveGameState(state);
+      saveGameStateToStorage(state);
       set({ tech });
     },
 
     /** Add amount to a single resource */
-    addResource: (resourceName, amount) => {
+    addResource: (resourceName: ResourceKey, amount: number) => {
       const current = get();
       const resources = { ...current.resources };
       resources[resourceName] += amount;
       const state = { ...current, resources };
-      saveGameState(state);
+      saveGameStateToStorage(state);
       set({ resources });
     },
 
     /** Consume a single resource. Returns true if successful, false if insufficient. */
-    consumeResource: (resourceName, amount) => {
+    consumeResource: (resourceName: ResourceKey, amount: number): boolean => {
       const current = get();
       if (current.resources[resourceName] >= amount) {
         const resources = { ...current.resources };
         resources[resourceName] -= amount;
         const state = { ...current, resources };
-        saveGameState(state);
+        saveGameStateToStorage(state);
         set({ resources });
         return true;
       }
@@ -132,10 +190,9 @@ export const useGameStore = create((set, get) => {
 
     /**
      * Consume multiple resources atomically.
-     * @param {Array<{resource: string, amount: number}>} costs
-     * @returns {boolean} true if all resources consumed, false if any insufficient
+     * @returns true if all resources consumed, false if any insufficient
      */
-    consumeResources: (costs) => {
+    consumeResources: (costs: Array<{ resource: ResourceKey; amount: number }>): boolean => {
       const current = get();
       // Check all resources are available first
       for (const cost of costs) {
@@ -147,46 +204,46 @@ export const useGameStore = create((set, get) => {
         resources[cost.resource] -= cost.amount;
       }
       const state = { ...current, resources };
-      saveGameState(state);
+      saveGameStateToStorage(state);
       set({ resources });
       return true;
     },
 
     /** Unlock a tech tree item by ID */
-    unlockTech: (techId) => {
+    unlockTech: (techId: keyof TechUnlocks) => {
       const current = get();
       const tech = { ...current.tech };
       tech[techId] = true;
       const state = { ...current, tech };
-      saveGameState(state);
+      saveGameStateToStorage(state);
       set({ tech });
     },
 
     /** Add seconds to virtual time */
-    addVirtualTime: (seconds) => {
+    addVirtualTime: (seconds: number) => {
       const current = get();
       const virtualTime = current.virtualTime + seconds;
       const state = { ...current, virtualTime };
-      saveGameState(state);
+      saveGameStateToStorage(state);
       set({ virtualTime });
     },
 
     /** Add credits */
-    addCredits: (amount) => {
+    addCredits: (amount: number) => {
       const current = get();
       const credits = current.credits + amount;
       const state = { ...current, credits };
-      saveGameState(state);
+      saveGameStateToStorage(state);
       set({ credits });
     },
 
     /** Spend credits. Returns true if successful. */
-    spendCredits: (amount) => {
+    spendCredits: (amount: number): boolean => {
       const current = get();
       if (current.credits >= amount) {
         const credits = current.credits - amount;
         const state = { ...current, credits };
-        saveGameState(state);
+        saveGameStateToStorage(state);
         set({ credits });
         return true;
       }
@@ -194,23 +251,23 @@ export const useGameStore = create((set, get) => {
     },
 
     /** Upgrade RAM capacity */
-    upgradeRam: (newRam) => {
+    upgradeRam: (newRam: number) => {
       const current = get();
       const state = { ...current, ram: newRam };
-      saveGameState(state);
+      saveGameStateToStorage(state);
       set({ ram: newRam });
     },
 
     /** Update market state in Zustand (fast, no localStorage) */
-    setMarket: (marketData) => {
+    setMarket: (marketData: Record<string, unknown> | null) => {
       set({ market: marketData });
     },
 
     /** Persist market state to localStorage (called less frequently) */
-    persistMarket: (marketData) => {
+    persistMarket: (marketData: Record<string, unknown> | null) => {
       const current = get();
       const state = { ...current, market: marketData };
-      saveGameState(state);
+      saveGameStateToStorage(state);
       set({ market: marketData });
     },
 
@@ -219,7 +276,7 @@ export const useGameStore = create((set, get) => {
       const current = get();
       const cpuLevel = current.cpuLevel + 1;
       const state = { ...current, cpuLevel };
-      saveGameState(state);
+      saveGameStateToStorage(state);
       set({ cpuLevel });
     },
 
@@ -239,15 +296,15 @@ export const useGameStore = create((set, get) => {
 
     /** Reset all game progress */
     resetGameState: () => {
-      localStorage.removeItem(LOCAL_STORAGE_KEY);
+      localStorage.removeItem(STORAGE_KEY);
       set({
-        resources: DEFAULT_STATE.resources,
-        tech: DEFAULT_STATE.tech,
-        virtualTime: DEFAULT_STATE.virtualTime,
-        credits: DEFAULT_STATE.credits,
-        ram: DEFAULT_STATE.ram,
-        cpuLevel: DEFAULT_STATE.cpuLevel,
-        market: DEFAULT_STATE.market,
+        resources: defaultState.resources,
+        tech: defaultState.tech,
+        virtualTime: defaultState.virtualTime,
+        credits: defaultState.credits,
+        ram: defaultState.ram,
+        cpuLevel: defaultState.cpuLevel,
+        market: defaultState.market,
       });
     },
   };

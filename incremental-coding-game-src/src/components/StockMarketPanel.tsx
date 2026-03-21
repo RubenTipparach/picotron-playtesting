@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { useGameStore } from "../gameStore.js";
-import { useTheme } from "../themes.js";
-import { RESOURCE_COLORS } from "../techTree.js";
+import { useGameStore } from "../store/gameStore";
+import { useTheme } from "../themes";
+import { RESOURCE_COLORS } from "../game/tech";
 import {
   getMarketState,
   getMarketEmotion,
@@ -14,7 +14,7 @@ import {
   executeBuy,
   executeSell,
   addMarketProfit,
-} from "../marketEngine.js";
+} from "../game/marketEngine";
 
 const GREEN = "#22cc44";
 const RED = "#ee3333";
@@ -30,15 +30,15 @@ const TIME_WINDOWS = [
 // Price axis label width in pixels (HTML overlay)
 const PRICE_AXIS_W = 42;
 
-// ─── Shared helpers ──────────────────────────────────────────────────
+// --- Shared helpers ---
 
-function toYPct(price, min, range) {
+function toYPct(price: number, min: number, range: number) {
   // Returns percentage from top (0% = top, 100% = bottom)
   return 100 - ((price - min) / range) * 100;
 }
 
-function makeGrid(min, range) {
-  const lines = [];
+function makeGrid(min: number, range: number) {
+  const lines: { pct: number; label: string }[] = [];
   for (let i = 0; i <= 3; i++) {
     const price = min + (range * i) / 3;
     lines.push({ pct: toYPct(price, min, range), label: price.toFixed(2) });
@@ -46,8 +46,17 @@ function makeGrid(min, range) {
   return lines;
 }
 
-/** HTML overlay for price axis labels — not affected by SVG stretching */
-function PriceAxis({ gridLines, currentPct, currentPrice, color, t, height }) {
+interface PriceAxisProps {
+  gridLines: { pct: number; label: string }[];
+  currentPct: number;
+  currentPrice: number;
+  color: string;
+  t: any;
+  height: number;
+}
+
+/** HTML overlay for price axis labels -- not affected by SVG stretching */
+function PriceAxis({ gridLines, currentPct, currentPrice, color, t, height }: PriceAxisProps) {
   return (
     <div style={{
       position: "absolute", top: 0, right: 0, bottom: 0,
@@ -74,7 +83,12 @@ function PriceAxis({ gridLines, currentPct, currentPrice, color, t, height }) {
   );
 }
 
-function NoData({ height, t }) {
+interface NoDataProps {
+  height: number;
+  t: any;
+}
+
+function NoData({ height, t }: NoDataProps) {
   return (
     <div style={{
       width: "100%", height,
@@ -87,9 +101,22 @@ function NoData({ height, t }) {
   );
 }
 
-// ─── Candlestick Chart ───────────────────────────────────────────────
+// --- Candlestick Chart ---
 
-function CandlestickChart({ candles, color, height = 80 }) {
+interface Candle {
+  open: number;
+  close: number;
+  high: number;
+  low: number;
+}
+
+interface CandlestickChartProps {
+  candles: Candle[];
+  color: string;
+  height?: number;
+}
+
+function CandlestickChart({ candles, color, height = 80 }: CandlestickChartProps) {
   const t = useTheme();
 
   if (!candles || candles.length < 2) return <NoData height={height} t={t} />;
@@ -105,7 +132,7 @@ function CandlestickChart({ candles, color, height = 80 }) {
 
   const VB_W = 200;
   const VB_H = 100;
-  const toY = (price) => VB_H - ((price - min) / range) * VB_H;
+  const toY = (price: number) => VB_H - ((price - min) / range) * VB_H;
 
   const candleW = (VB_W - 4) / candles.length;
   const gap = Math.max(0.5, candleW * 0.25);
@@ -117,7 +144,7 @@ function CandlestickChart({ candles, color, height = 80 }) {
 
   return (
     <div style={{ position: "relative", width: "100%", height, backgroundColor: `${t.bg}88` }}>
-      {/* SVG chart area — stretched, no text */}
+      {/* SVG chart area -- stretched, no text */}
       <svg
         viewBox={`0 0 ${VB_W} ${VB_H}`}
         preserveAspectRatio="none"
@@ -174,9 +201,19 @@ function CandlestickChart({ candles, color, height = 80 }) {
   );
 }
 
-// ─── Line Chart ──────────────────────────────────────────────────────
+// --- Line Chart ---
 
-function LineChart({ history, color, height = 80 }) {
+interface HistoryPoint {
+  price: number;
+}
+
+interface LineChartProps {
+  history: HistoryPoint[];
+  color: string;
+  height?: number;
+}
+
+function LineChart({ history, color, height = 80 }: LineChartProps) {
   const t = useTheme();
 
   if (!history || history.length < 2) return <NoData height={height} t={t} />;
@@ -190,7 +227,7 @@ function LineChart({ history, color, height = 80 }) {
 
   const VB_W = 200;
   const VB_H = 100;
-  const toY = (price) => VB_H - ((price - min) / range) * VB_H;
+  const toY = (price: number) => VB_H - ((price - min) / range) * VB_H;
 
   const points = prices.map((p, i) => {
     const x = (i / (prices.length - 1)) * VB_W;
@@ -250,9 +287,13 @@ function LineChart({ history, color, height = 80 }) {
   );
 }
 
-// ─── Emotions Gauge ──────────────────────────────────────────────────
+// --- Emotions Gauge ---
 
-function EmotionsGauge({ emotion }) {
+interface EmotionsGaugeProps {
+  emotion: number;
+}
+
+function EmotionsGauge({ emotion }: EmotionsGaugeProps) {
   const t = useTheme();
   const { label, color } = getEmotionLabel(emotion);
   const position = (emotion + 1) / 2;
@@ -281,9 +322,15 @@ function EmotionsGauge({ emotion }) {
   );
 }
 
-// ─── Time Window Selector ────────────────────────────────────────────
+// --- Time Window Selector ---
 
-function TimeWindowSelector({ value, onChange, t }) {
+interface TimeWindowSelectorProps {
+  value: string;
+  onChange: (label: string) => void;
+  t: any;
+}
+
+function TimeWindowSelector({ value, onChange, t }: TimeWindowSelectorProps) {
   return (
     <div style={{ display: "flex", gap: "2px" }}>
       {TIME_WINDOWS.map((tw) => {
@@ -311,7 +358,7 @@ function TimeWindowSelector({ value, onChange, t }) {
   );
 }
 
-// ─── Main Panel ──────────────────────────────────────────────────────
+// --- Main Panel ---
 
 export function StockMarketPanel() {
   const tech = useGameStore((s) => s.tech);
@@ -320,14 +367,14 @@ export function StockMarketPanel() {
   useGameStore((s) => s.market);
   const t = useTheme();
 
-  const [chartType, setChartType] = useState("candle");
+  const [chartType, setChartType] = useState<"candle" | "line">("candle");
   const [timeWindow, setTimeWindow] = useState("1m");
-  const [tradeAmounts, setTradeAmounts] = useState({});
+  const [tradeAmounts, setTradeAmounts] = useState<Record<string, number>>({});
 
-  const getTradeAmount = (r) => tradeAmounts[r] || 1;
-  const setTradeAmount = (r, amt) => setTradeAmounts((prev) => ({ ...prev, [r]: amt }));
+  const getTradeAmount = (r: string) => tradeAmounts[r] || 1;
+  const setTradeAmount = (r: string, amt: number) => setTradeAmounts((prev) => ({ ...prev, [r]: amt }));
 
-  const handleBuy = (r, amount) => {
+  const handleBuy = (r: string, amount: number) => {
     const result = executeBuy(r, amount);
     if (!result.success) return;
     const cost = Math.ceil(result.cost);
@@ -335,7 +382,7 @@ export function StockMarketPanel() {
     useGameStore.getState().addResource(r, amount);
   };
 
-  const handleSell = (r, amount) => {
+  const handleSell = (r: string, amount: number) => {
     const store = useGameStore.getState();
     const available = store.resources[r] || 0;
     const actual = Math.min(amount, available);

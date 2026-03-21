@@ -1,15 +1,25 @@
 import React, { useEffect, useRef } from "react";
-import { useTheme } from "../themes.js";
+import { useTheme } from "../themes";
 
-export function LogPanel({ logs }) {
-  const bottomRef = useRef(null);
+interface LogEntry {
+  type: "error" | "warning" | "unlock" | "info";
+  message: string;
+  timestamp: number;
+}
+
+interface LogPanelProps {
+  logs: LogEntry[];
+}
+
+export function LogPanel({ logs }: LogPanelProps) {
+  const bottomRef = useRef<HTMLDivElement>(null);
   const t = useTheme();
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs]);
 
-  const getLogColor = (type) => {
+  const getLogColor = (type: string): string => {
     switch (type) {
       case "error": return t.red;
       case "warning": return t.yellow;

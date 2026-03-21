@@ -1,8 +1,23 @@
 import React from "react";
-import { useGameStore } from "../gameStore.js";
-import { useTheme } from "../themes.js";
+import { useGameStore } from "../store/gameStore";
+import { useTheme } from "../themes";
 
-export function ResourceBar({
+interface ResourcePanelProps {
+  isRunning: boolean;
+  onRun: () => void;
+  onStop: () => void;
+  onSave: () => void;
+  hasUnsavedChanges: boolean;
+  onOpenSnippets: () => void;
+  onOpenTechTree: () => void;
+  onReset: () => void;
+  availableUpgradeCount: number;
+  hasSeenUpgrades: boolean;
+  onCycleTheme: () => void;
+  themeName: string;
+}
+
+export function ResourcePanel({
   isRunning,
   onRun,
   onStop,
@@ -15,21 +30,21 @@ export function ResourceBar({
   hasSeenUpgrades,
   onCycleTheme,
   themeName,
-}) {
+}: ResourcePanelProps) {
   const resources = useGameStore((s) => s.resources);
   const tech = useGameStore((s) => s.tech);
   const virtualTime = useGameStore((s) => s.virtualTime);
   const credits = useGameStore((s) => s.credits);
   const t = useTheme();
 
-  const formatTime = (seconds) => {
+  const formatTime = (seconds: number): string => {
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
     const s = (seconds % 60).toFixed(1);
     return `${h}:${m.toString().padStart(2, "0")}:${s.padStart(4, "0")}`;
   };
 
-  const btnStyle = (color, active) => ({
+  const btnStyle = (color: string, active: boolean): React.CSSProperties => ({
     padding: "3px 12px",
     fontSize: "11px",
     fontFamily: t.font,
@@ -147,7 +162,14 @@ export function ResourceBar({
   );
 }
 
-function ResCount({ label, count, color, t }) {
+interface ResCountProps {
+  label: string;
+  count: number;
+  color: string;
+  t: ReturnType<typeof useTheme>;
+}
+
+function ResCount({ label, count, color, t }: ResCountProps) {
   return (
     <span style={{ fontSize: "12px", fontFamily: t.font }}>
       <span style={{ color, fontWeight: "bold" }}>{label}</span>

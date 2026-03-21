@@ -1,10 +1,10 @@
 import React from "react";
-import { useGameStore } from "../gameStore.js";
-import { useTheme } from "../themes.js";
-import { getSellPrice, getBuyPrice, executeSell, executeBuy, addMarketProfit } from "../marketEngine.js";
+import { useGameStore } from "../store/gameStore";
+import { useTheme } from "../themes";
+import { getSellPrice, getBuyPrice, executeSell, executeBuy, addMarketProfit } from "../game/marketEngine";
 
-const BASE_SELL_PRICES = { A: 1, B: 5, C: 25 };
-const BASE_BUY_PRICES = { A: 2, B: 8, C: 35 };
+const BASE_SELL_PRICES: Record<string, number> = { A: 1, B: 5, C: 25 };
+const BASE_BUY_PRICES: Record<string, number> = { A: 2, B: 8, C: 35 };
 const SELL_AMOUNTS = [1, 5, 10];
 const BUY_AMOUNTS = [1, 5, 10];
 
@@ -28,21 +28,21 @@ export function ShopPanel() {
 
   const marketUnlocked = tech.stockMarketUnlocked;
 
-  const getSellPriceDisplay = (name) => {
+  const getSellPriceDisplay = (name: string) => {
     if (marketUnlocked) {
       return Math.floor(getSellPrice(name) * 100) / 100;
     }
     return BASE_SELL_PRICES[name];
   };
 
-  const getBuyPriceDisplay = (name) => {
+  const getBuyPriceDisplay = (name: string) => {
     if (marketUnlocked) {
       return Math.ceil(getBuyPrice(name) * 100) / 100;
     }
     return BASE_BUY_PRICES[name];
   };
 
-  const buyResource = (name, amount) => {
+  const buyResource = (name: string, amount: number) => {
     const price = getBuyPriceDisplay(name);
     const totalCost = Math.ceil(price * amount);
     if (credits < totalCost) return;
@@ -57,7 +57,7 @@ export function ShopPanel() {
     useGameStore.getState().addResource(name, amount);
   };
 
-  const sellResource = (name, amount) => {
+  const sellResource = (name: string, amount: number) => {
     const available = resources[name];
     const actual = Math.min(amount, available);
     if (actual <= 0) return;
@@ -76,7 +76,7 @@ export function ShopPanel() {
 
   const getPrice = getSellPriceDisplay;
 
-  const buyRam = (upgrade) => {
+  const buyRam = (upgrade: { ram: number; cost: number }) => {
     if (credits >= upgrade.cost && ram < upgrade.ram) {
       if (useGameStore.getState().spendCredits(upgrade.cost)) {
         useGameStore.getState().upgradeRam(upgrade.ram);
@@ -99,7 +99,7 @@ export function ShopPanel() {
   const nextIps = BASE_IPS * Math.pow(1.5, cpuLevel + 1);
   const ipsGain = nextIps - currentIps;
 
-  const btnStyle = (canAfford) => ({
+  const btnStyle = (canAfford: boolean): React.CSSProperties => ({
     padding: "2px 8px",
     fontSize: "11px",
     fontFamily: t.font,

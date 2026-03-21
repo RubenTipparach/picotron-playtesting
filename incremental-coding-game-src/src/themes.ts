@@ -6,9 +6,46 @@
 
 import { createContext, useContext } from "react";
 
+export interface MonacoRule {
+  token: string;
+  foreground: string;
+  fontStyle?: string;
+}
+
+export interface Theme {
+  id: string;
+  name: string;
+  bg: string;
+  bg2: string;
+  bg3: string;
+  bgAlt: string;
+  border: string;
+  borderBright: string;
+  primary: string;
+  primaryDim: string;
+  primaryDark: string;
+  text: string;
+  textDim: string;
+  textMuted: string;
+  accent: string;
+  red: string;
+  yellow: string;
+  cyan: string;
+  resourceA: string;
+  resourceB: string;
+  resourceC: string;
+  resourceD: string;
+  crt: boolean;
+  overlay: string | null;
+  font: string;
+  monacoBase: string;
+  monacoRules: MonacoRule[];
+  monacoColors: Record<string, string>;
+}
+
 const THEME_STORAGE_KEY = "incremental-coding-game-theme";
 
-export const THEMES = {
+export const THEMES: Record<string, Theme> = {
   hacker: {
     id: "hacker",
     name: "Hackerman",
@@ -175,13 +212,13 @@ export const THEMES = {
   },
 };
 
-export const ThemeContext = createContext(THEMES.hacker);
+export const ThemeContext = createContext<Theme>(THEMES.hacker);
 
-export function useTheme() {
+export function useTheme(): Theme {
   return useContext(ThemeContext);
 }
 
-export function loadThemeId() {
+export function loadThemeId(): string {
   try {
     const id = localStorage.getItem(THEME_STORAGE_KEY);
     if (id && THEMES[id]) return id;
@@ -189,10 +226,10 @@ export function loadThemeId() {
   return "hacker";
 }
 
-export function saveThemeId(id) {
+export function saveThemeId(id: string): void {
   try {
     localStorage.setItem(THEME_STORAGE_KEY, id);
   } catch {}
 }
 
-export const THEME_LIST = Object.values(THEMES);
+export const THEME_LIST: Theme[] = Object.values(THEMES);

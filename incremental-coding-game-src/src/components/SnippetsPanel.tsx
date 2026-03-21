@@ -1,9 +1,16 @@
 import React, { useState, useEffect } from "react";
-import { useTheme } from "../themes.js";
+import { useTheme } from "../themes";
 
 const SNIPPETS_KEY = "incremental-coding-game-snippets";
 
-function loadSnippets() {
+interface Snippet {
+  id: string;
+  name: string;
+  code: string;
+  createdAt: number;
+}
+
+function loadSnippets(): Snippet[] {
   try {
     const raw = localStorage.getItem(SNIPPETS_KEY);
     return raw ? JSON.parse(raw) : [];
@@ -12,23 +19,28 @@ function loadSnippets() {
   }
 }
 
-function saveSnippets(snippets) {
+function saveSnippets(snippets: Snippet[]) {
   localStorage.setItem(SNIPPETS_KEY, JSON.stringify(snippets));
 }
 
+interface SnippetsPanelProps {
+  currentCode: string;
+  onLoad: (code: string) => void;
+}
+
 /**
- * SnippetsPanel — save, name, rename, load, edit, and delete code snippets.
+ * SnippetsPanel -- save, name, rename, load, edit, and delete code snippets.
  *
  * Props:
- *   currentCode: string — the code currently in the editor
- *   onLoad: (code: string) => void — called when user loads a snippet into the editor
+ *   currentCode: string -- the code currently in the editor
+ *   onLoad: (code: string) => void -- called when user loads a snippet into the editor
  */
-export function SnippetsPanel({ currentCode, onLoad }) {
+export function SnippetsPanel({ currentCode, onLoad }: SnippetsPanelProps) {
   const t = useTheme();
-  const [snippets, setSnippets] = useState(loadSnippets);
-  const [renamingId, setRenamingId] = useState(null);
+  const [snippets, setSnippets] = useState<Snippet[]>(loadSnippets);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
-  const [editingId, setEditingId] = useState(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [savingNew, setSavingNew] = useState(false);
   const [newName, setNewName] = useState("");
@@ -38,12 +50,12 @@ export function SnippetsPanel({ currentCode, onLoad }) {
     saveSnippets(snippets);
   }, [snippets]);
 
-  const createSnippet = (name, code) => {
+  const createSnippet = (name: string, code: string) => {
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     setSnippets((prev) => [...prev, { id, name, code, createdAt: Date.now() }]);
   };
 
-  const deleteSnippet = (id) => {
+  const deleteSnippet = (id: string) => {
     const snippet = snippets.find((s) => s.id === id);
     if (!snippet) return;
     if (!window.confirm(`Delete snippet "${snippet.name}"?`)) return;
@@ -52,14 +64,14 @@ export function SnippetsPanel({ currentCode, onLoad }) {
     if (renamingId === id) setRenamingId(null);
   };
 
-  const renameSnippet = (id) => {
+  const renameSnippet = (id: string) => {
     const trimmed = renameValue.trim();
     if (!trimmed) return;
     setSnippets((prev) => prev.map((s) => s.id === id ? { ...s, name: trimmed } : s));
     setRenamingId(null);
   };
 
-  const saveEdit = (id) => {
+  const saveEdit = (id: string) => {
     setSnippets((prev) => prev.map((s) => s.id === id ? { ...s, code: editValue } : s));
     setEditingId(null);
   };
@@ -80,7 +92,7 @@ export function SnippetsPanel({ currentCode, onLoad }) {
     createSnippet(`Snippet ${snippets.length + 1}`, "");
   };
 
-  const btnStyle = (active = true) => ({
+  const btnStyle = (active = true): React.CSSProperties => ({
     padding: "3px 8px",
     fontSize: "10px",
     fontFamily: t.font,
@@ -91,7 +103,7 @@ export function SnippetsPanel({ currentCode, onLoad }) {
     letterSpacing: "0.5px",
   });
 
-  const inputStyle = {
+  const inputStyle: React.CSSProperties = {
     width: "100%",
     padding: "4px 6px",
     fontSize: "11px",
@@ -102,6 +114,8 @@ export function SnippetsPanel({ currentCode, onLoad }) {
     boxSizing: "border-box",
     outline: "none",
   };
+
+  const RED = "#ee3333";
 
   return (
     <div style={{
@@ -247,5 +261,3 @@ export function SnippetsPanel({ currentCode, onLoad }) {
     </div>
   );
 }
-
-const RED = "#ee3333";
