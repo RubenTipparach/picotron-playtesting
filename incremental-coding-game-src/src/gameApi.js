@@ -7,6 +7,12 @@
  */
 
 import { useGameStore } from "./gameStore.js";
+import {
+  getMarketValue as engineGetMarketValue,
+  executeBuy,
+  executeSell,
+  addMarketProfit,
+} from "./marketEngine.js";
 
 /** All API function names available in the game */
 export const API_FUNCTION_NAMES = [
@@ -14,7 +20,11 @@ export const API_FUNCTION_NAMES = [
   "convertAToB",
   "getResourceCount",
   "log",
+  "convertBToC",
   "makeResourceC",
+  "getMarketValue",
+  "buy",
+  "sell",
 ];
 
 // ─── Speed Configuration ──────────────────────────────────────────────
@@ -73,6 +83,13 @@ function getProcessingSpeed() {
   // Processing Speed I tech reduces time by 20%
   if (tech.processingSpeed1Unlocked) {
     speed *= 0.8;
+  }
+
+  // CPU upgrades: each level adds 50% more IPS (cumulative)
+  // IPS = 1.5^cpuLevel, so time multiplier = 1 / 1.5^cpuLevel
+  const cpuLevel = useGameStore.getState().cpuLevel;
+  if (cpuLevel > 0) {
+    speed /= Math.pow(1.5, cpuLevel);
   }
 
   return speed;
@@ -185,6 +202,24 @@ export async function executeWithDelay(baseDelayMs, context, action) {
   }
 }
 
+/**
+ * Format a value for log display, similar to console.log behavior.
+ */
+function formatLogValue(value) {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (typeof value === "string") return value;
+  if (typeof value === "function") return `[Function: ${value.name || "anonymous"}]`;
+  if (typeof value === "object") {
+    try { return JSON.stringify(value, null, 2); } catch { return String(value); }
+  }
+  return String(value);
+}
+
+function formatLogMessage(...args) {
+  return args.map(formatLogValue).join(" ");
+}
+
 // ─── API Function Factory ─────────────────────────────────────────────
 
 /**
@@ -195,6 +230,11 @@ export async function executeWithDelay(baseDelayMs, context, action) {
  * @returns {object} API object with all game functions
  */
 export function createGameApi(executionContext) {
+  /** Advance virtual time (market runs on its own timer now) */
+  function advanceTime(seconds) {
+    useGameStore.getState().addVirtualTime(seconds);
+  }
+
   return {
     /**
      * Produce 1 unit of Resource A.
@@ -211,7 +251,7 @@ export function createGameApi(executionContext) {
       await executeWithDelay(2000, context, () => {
         if (context.isCancelled?.()) return;
         useGameStore.getState().addResource("A", 1);
-        useGameStore.getState().addVirtualTime(2);
+        advanceTime(2);
       });
 
       return context.isCancelled?.() ? 0 : 1;
@@ -236,7 +276,7 @@ export function createGameApi(executionContext) {
         const store = useGameStore.getState();
         if (store.consumeResource("A", 2)) {
           store.addResource("B", 1);
-          store.addVirtualTime(3);
+          advanceTime(3);
           success = true;
         } else {
           const available = store.resources.A;
@@ -244,8 +284,8 @@ export function createGameApi(executionContext) {
             context.lineNumber !== undefined
               ? ` (line ${context.lineNumber})`
               : "";
-          executionContext.onLog?.(
-            `⚠️ Warning: convertAToB() failed${lineInfo} - insufficient resources. Required: 2 A, Available: ${available} A`
+          throw new Error(
+            `convertAToB() failed${lineInfo} — not enough A. Need 2, have ${available}. Use if/getResourceCount to check first!`
           );
         }
       });
@@ -274,8 +314,9 @@ export function createGameApi(executionContext) {
         if (resourceName === "A") count = resources.A;
         else if (resourceName === "B") count = resources.B;
         else if (resourceName === "C") count = resources.C;
+        else if (resourceName === "D") count = resources.D;
 
-        useGameStore.getState().addVirtualTime(1);
+        advanceTime(1);
       });
 
       return context.isCancelled?.() ? 0 : count;
@@ -286,7 +327,7 @@ export function createGameApi(executionContext) {
      * Takes 0.5 seconds. Adds 0.5 virtual seconds.
      * @param {string} message - Message to display
      */
-    async log(message) {
+    async log(...args) {
       const context = {
         ...executionContext,
         functionName: "log",
@@ -294,8 +335,8 @@ export function createGameApi(executionContext) {
       };
 
       await executeWithDelay(500, context, () => {
-        useGameStore.getState().addVirtualTime(0.5);
-        executionContext.onLog?.(message);
+        advanceTime(0.5);
+        executionContext.onLog?.(formatLogMessage(...args));
       });
     },
 
@@ -304,10 +345,10 @@ export function createGameApi(executionContext) {
      * Takes 3 seconds. Adds 3 virtual seconds.
      * @returns {number} 1 if successful, 0 if insufficient resources or cancelled
      */
-    async makeResourceC() {
+    async convertBToC() {
       const context = {
         ...executionContext,
-        functionName: "makeResourceC",
+        functionName: "convertBToC",
         lineNumber: executionContext.lineNumber,
       };
       let produced = 0;
@@ -323,7 +364,7 @@ export function createGameApi(executionContext) {
           ])
         ) {
           store.addResource("C", 1);
-          store.addVirtualTime(3);
+          advanceTime(3);
           produced = 1;
         } else {
           const availableA = store.resources.A;
@@ -332,14 +373,128 @@ export function createGameApi(executionContext) {
             context.lineNumber !== undefined
               ? ` (line ${context.lineNumber})`
               : "";
-          executionContext.onLog?.(
-            `⚠️ Warning: makeResourceC() failed${lineInfo} - insufficient resources. Required: 3 A, 1 B. Available: ${availableA} A, ${availableB} B`
+          throw new Error(
+            `convertBToC() failed${lineInfo} — not enough resources. Need 3 A + 1 B, have ${availableA} A + ${availableB} B. Use if/getResourceCount to check first!`
           );
-          produced = 0;
         }
       });
 
       return context.isCancelled?.() ? 0 : produced;
+    },
+
+    /** @deprecated Use convertBToC() instead */
+    async makeResourceC() {
+      return api.convertBToC();
+    },
+
+    /**
+     * Get the current market value of a resource.
+     * Takes 1 second. Adds 1 virtual second.
+     * @param {string} resource - "A", "B", "C", or "D"
+     * @returns {number} Current market price
+     */
+    async getMarketValue(resource) {
+      const context = {
+        ...executionContext,
+        functionName: "getMarketValue",
+        lineNumber: executionContext.lineNumber,
+      };
+      let price = 0;
+
+      await executeWithDelay(1000, context, () => {
+        if (context.isCancelled?.()) return;
+        advanceTime(1);
+        price = engineGetMarketValue(resource);
+      });
+
+      return context.isCancelled?.() ? 0 : price;
+    },
+
+    /**
+     * Buy a resource from the market using credits.
+     * Takes 2 seconds. Adds 2 virtual seconds.
+     * @param {string} resource - "A", "B", "C", or "D"
+     * @param {number} amount - How many to buy (default 1)
+     * @returns {number} Amount bought, or 0 on failure
+     */
+    async buy(resource, amount = 1) {
+      const context = {
+        ...executionContext,
+        functionName: "buy",
+        lineNumber: executionContext.lineNumber,
+      };
+      let bought = 0;
+
+      await executeWithDelay(2000, context, () => {
+        if (context.isCancelled?.()) return;
+        advanceTime(2);
+
+        const store = useGameStore.getState();
+        const r = String(resource).toUpperCase();
+        const result = executeBuy(r, amount);
+        if (!result.success) {
+          const lineInfo = context.lineNumber !== undefined ? ` (line ${context.lineNumber})` : "";
+          throw new Error(`buy("${resource}", ${amount}) failed${lineInfo} — invalid resource.`);
+        }
+
+        const cost = Math.ceil(result.cost);
+        if (!store.spendCredits(cost)) {
+          const lineInfo = context.lineNumber !== undefined ? ` (line ${context.lineNumber})` : "";
+          throw new Error(
+            `buy("${resource}", ${amount}) failed${lineInfo} — not enough credits. Need $${cost}, have $${store.credits}. Sell resources in Shop first!`
+          );
+        }
+
+        store.addResource(r, amount);
+        bought = amount;
+      });
+
+      return context.isCancelled?.() ? 0 : bought;
+    },
+
+    /**
+     * Sell a resource on the market for credits.
+     * Takes 2 seconds. Adds 2 virtual seconds.
+     * @param {string} resource - "A", "B", "C", or "D"
+     * @param {number} amount - How many to sell (default 1)
+     * @returns {number} Credits received, or 0 on failure
+     */
+    async sell(resource, amount = 1) {
+      const context = {
+        ...executionContext,
+        functionName: "sell",
+        lineNumber: executionContext.lineNumber,
+      };
+      let revenue = 0;
+
+      await executeWithDelay(2000, context, () => {
+        if (context.isCancelled?.()) return;
+        advanceTime(2);
+
+        const store = useGameStore.getState();
+        const r = String(resource).toUpperCase();
+        if (!store.consumeResource(r, amount)) {
+          const available = store.resources[r] || 0;
+          const lineInfo = context.lineNumber !== undefined ? ` (line ${context.lineNumber})` : "";
+          throw new Error(
+            `sell("${resource}", ${amount}) failed${lineInfo} — not enough ${r}. Need ${amount}, have ${available}.`
+          );
+        }
+
+        const result = executeSell(r, amount);
+        if (!result.success) {
+          store.addResource(r, amount);
+          const lineInfo = context.lineNumber !== undefined ? ` (line ${context.lineNumber})` : "";
+          throw new Error(`sell("${resource}", ${amount}) failed${lineInfo} — invalid resource.`);
+        }
+
+        const earned = result.revenue;
+        store.addCredits(earned);
+        addMarketProfit(earned);
+        revenue = earned;
+      });
+
+      return context.isCancelled?.() ? 0 : revenue;
     },
   };
 }

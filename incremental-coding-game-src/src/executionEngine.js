@@ -99,6 +99,8 @@ export function transformCode(code, insertSteps = true) {
 
   // ── Phase 2: Add `await` before API function calls ──
   lines = lines.map((line) => {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*")) return line;
     let result = line;
     for (const funcName of API_FUNCTION_NAMES) {
       const pattern = new RegExp(
@@ -109,17 +111,8 @@ export function transformCode(code, insertSteps = true) {
         // Already has await - leave it
         if (awaitKeyword) return match;
 
-        // Don't add await to function declarations
-        const trimmedPrefix = prefix.trim();
-        if (
-          trimmedPrefix.endsWith("function") ||
-          trimmedPrefix.endsWith("const") ||
-          trimmedPrefix.endsWith("let") ||
-          trimmedPrefix.endsWith("var") ||
-          trimmedPrefix.endsWith("=")
-        ) {
-          return match;
-        }
+        // The regex captures at most 1 non-word char as prefix,
+        // so no keyword checks are needed here. Always add await.
 
         return prefix + "await " + call;
       });
@@ -261,6 +254,8 @@ export function buildLineMap(transformedCode) {
 
   transformedCode.split("\n").forEach((line, index) => {
     const lineNumber = index + 1;
+    const trimmed = line.trim();
+    if (trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*")) return;
     const calls = [];
 
     API_FUNCTION_NAMES.forEach((funcName) => {
@@ -486,16 +481,43 @@ export class CodeExecutor {
         },
       });
 
+      // ── Loop tracking state ──
+      const codeLines = code.split(/\r?\n/);
+      const loopStartTimes = {}; // lineNumber -> timestamp of current iteration start
+      const loopIterationCounts = {}; // lineNumber -> count
+
       // ── Step function ──
       // Called between statements to track the current line and allow pausing
       const step = async (lineNumber) => {
         if (this.isCancelled) throw this.cancellationError;
 
-        const originalLine = code.split(/\r?\n/)[lineNumber - 1];
+        const originalLine = codeLines[lineNumber - 1];
         if (!originalLine || originalLine.trim().length === 0) return;
+        if (originalLine.trim().startsWith("//")) return;
 
         this.currentLine = lineNumber;
         this.callbacks.onEvent({ type: "lineChange", lineNumber });
+
+        // Detect loop headers for loop timing
+        const trimmed = originalLine.trim();
+        const isLoopHeader = /^(?:while|for)\s*\(/.test(trimmed);
+        if (isLoopHeader) {
+          const now = performance.now();
+          if (loopStartTimes[lineNumber] != null) {
+            // End of previous iteration — emit timing
+            const iterDuration = now - loopStartTimes[lineNumber];
+            loopIterationCounts[lineNumber] = (loopIterationCounts[lineNumber] || 0) + 1;
+            this.callbacks.onEvent({
+              type: "loopIteration",
+              lineNumber,
+              codeLine: trimmed,
+              duration: iterDuration,
+              iterationCount: loopIterationCounts[lineNumber],
+            });
+          }
+          // Start timing next iteration
+          loopStartTimes[lineNumber] = now;
+        }
 
         // Brief pause between statements (250ms)
         const STEP_DELAY = 250;
@@ -507,7 +529,7 @@ export class CodeExecutor {
       // ── Build and execute the script ──
       const wrappedCode = `
         return (async function(api, step) {
-          const { produceResourceA, convertAToB, getResourceCount, log, makeResourceC } = api;
+          const { produceResourceA, convertAToB, getResourceCount, log, convertBToC, makeResourceC, getMarketValue, buy, sell } = api;
           ${transformedCode}
         })(api, step);
       `;
