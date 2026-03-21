@@ -4,7 +4,7 @@ import { useTheme } from "../themes";
 import { trackRender } from "../utils/perfMonitor";
 import { formatMoney, formatPrice } from "../utils/format";
 import { getSellPrice, getBuyPrice, executeSell, executeBuy, addMarketProfit } from "../game/marketEngine";
-import { getEffectiveCpuSpeed, getCpuUpgradeCost, getMotherboardSpec, RAM_TIER_COSTS } from "../game/hardware";
+import { getEffectiveCpuSpeed, getCpuUpgradeCost, getMotherboardSpec, RAM_TIER_COSTS, RAM_TIER_TOKENS, getMaxTradeVolume } from "../game/hardware";
 
 const BASE_SELL_PRICES: Record<string, number> = { A: 1, B: 5, C: 25 };
 const BASE_BUY_PRICES: Record<string, number> = { A: 2, B: 8, C: 35 };
@@ -25,6 +25,9 @@ export const ShopPanel = React.memo(function ShopPanel() {
   const t = useTheme();
 
   const marketUnlocked = tech.stockMarketUnlocked;
+  const maxVolume = getMaxTradeVolume(internetLevel);
+  const availableSellAmounts = SELL_AMOUNTS.filter((a) => a <= maxVolume);
+  const availableBuyAmounts = BUY_AMOUNTS.filter((a) => a <= maxVolume);
 
   const getSellPriceDisplay = (name: string) => {
     if (marketUnlocked) {
@@ -100,6 +103,14 @@ export const ShopPanel = React.memo(function ShopPanel() {
     }
   };
 
+  const sellRamModule = (index: number) => {
+    const tier = useGameStore.getState().removeRamModule(index);
+    if (tier > 0) {
+      const refund = (RAM_TIER_COSTS[tier] || 10) * 0.5;
+      useGameStore.getState().addCredits(refund);
+    }
+  };
+
   const nextCpuCost = getCpuUpgradeCost(cpuLevel);
   const buyCpu = () => {
     if (credits >= nextCpuCost) {
@@ -148,7 +159,7 @@ export const ShopPanel = React.memo(function ShopPanel() {
               <span style={{ color: t.primary, width: "90px", fontSize: "12px" }}>
                 {name} (${formatPrice(marketUnlocked ? price : price)}ea)
               </span>
-              {SELL_AMOUNTS.map((amt) => (
+              {availableSellAmounts.map((amt) => (
                 <button
                   key={amt}
                   onClick={() => sellResource(name, amt)}
@@ -177,7 +188,7 @@ export const ShopPanel = React.memo(function ShopPanel() {
               <span style={{ color: t.primary, width: "90px", fontSize: "12px" }}>
                 {name} (${formatPrice(marketUnlocked ? price : price)}ea)
               </span>
-              {BUY_AMOUNTS.map((amt) => {
+              {availableBuyAmounts.map((amt) => {
                 const totalCost = price * amt;
                 return (
                   <button
@@ -213,8 +224,32 @@ export const ShopPanel = React.memo(function ShopPanel() {
           [ RAM — {ram} TOKENS ]
         </div>
         <div style={{ fontSize: "11px", color: t.primaryDim, marginBottom: "6px" }}>
-          {slotsUsed}/{mbSpec.maxRamSlots} modules installed (+8 tokens each)
+          {slotsUsed}/{mbSpec.maxRamSlots} modules installed
         </div>
+
+        {/* Installed modules with sell buttons */}
+        {ramModules.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginBottom: "6px" }}>
+            {ramModules.map((tier, i) => (
+              <div key={i} style={{
+                display: "inline-flex", alignItems: "center", gap: "4px",
+                padding: "2px 6px", fontSize: "10px", fontFamily: t.font,
+                backgroundColor: t.bg3, border: `1px solid ${t.border}`, color: t.primaryDim,
+              }}>
+                T{tier}
+                <span
+                  onClick={() => sellRamModule(i)}
+                  style={{ color: t.red, cursor: "pointer", fontSize: "9px" }}
+                  title={`Sell for ${formatMoney((RAM_TIER_COSTS[tier] || 10) * 0.5)}`}
+                >
+                  [x]
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Buy buttons */}
         {slotsFull ? (
           <div style={{ color: t.primaryDark, fontSize: "11px" }}>
             {motherboardLevel < 3 ? "SLOTS FULL — Research next motherboard" : "ALL SLOTS FULL"}
@@ -237,7 +272,7 @@ export const ShopPanel = React.memo(function ShopPanel() {
                     textAlign: "left",
                   }}
                 >
-                  T{tier} Module (+8 tokens) — {formatMoney(cost)}
+                  T{tier} Module (+{RAM_TIER_TOKENS[tier] || 8} tokens) — {formatMoney(cost)}
                 </button>
               );
             })}

@@ -10,10 +10,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { useGameStore } from './store/gameStore';
-import { validateCode } from './game/codeValidator';
 import { getAvailableUpgrades } from './game/tech';
-import { CodeExecutor } from './game/executionEngine';
-import type { ExecutionEvent } from './game/executionEngine';
 import {
   hasSeenHint,
   markHintAsSeen,
@@ -38,8 +35,7 @@ import { THEMES, ThemeContext, loadThemeId, saveThemeId } from './themes';
 import { initMarket, setDUnlocked, startMarketTimer, stopMarketTimer, setPlayerResourcesGetter } from './game/marketEngine';
 import { PerfOverlay } from './components/PerfOverlay';
 import { trackRender, trackEvent } from './utils/perfMonitor';
-
-const CODE_STORAGE_KEY = "incremental-coding-game-code";
+import { useMultiCore } from './hooks/useMultiCore';
 
 interface LogEntry {
   type: string;
@@ -173,22 +169,11 @@ export function App(): React.ReactElement {
     saveThemeId(next);
   }, [themeId]);
 
-  // ── Code state ──
-  const [savedCode, setSavedCode] = useState<string>(
-    localStorage.getItem(CODE_STORAGE_KEY) || "produceResourceA()"
-  );
-  const [code, setCode] = useState<string>(savedCode);
-  const hasUnsavedChanges = code !== savedCode;
-  const [isSnippetsOpen, setIsSnippetsOpen] = useState<boolean>(false);
-
-  const [showPerf, setShowPerf] = useState(false);
-
-  // ── Execution state ──
-  const [isRunning, setIsRunning] = useState<boolean>(false);
+  // ── Logs ──
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const logsRef = useRef<LogEntry[]>([]);
   const logFlushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const appendLog = (entry: LogEntry) => {
+  const appendLog = useCallback((entry: LogEntry) => {
     logsRef.current.push(entry);
     if (!logFlushTimer.current) {
       logFlushTimer.current = setTimeout(() => {
@@ -196,9 +181,53 @@ export function App(): React.ReactElement {
         setLogs([...logsRef.current]);
       }, 250);
     }
-  };
-  const [executor, setExecutor] = useState<CodeExecutor | null>(null);
+  }, []);
+
+  // ── Multi-core state ──
+  const cpuCores = useGameStore((s: any) => s.cpuCores);
   const [stats, setStats] = useState<Stats>({ totalTime: 0, functionTimes: {}, isRunning: false });
+
+  const handleStatsEvent = useCallback((event: any, coreIndex: number, coreSavedCode: string) => {
+    if (event.type === "functionStart") {
+      setStats((prev) => ({ ...prev, isRunning: true }));
+    } else if (event.type === "functionComplete") {
+      const key = `${event.functionName}:${event.lineNumber}`;
+      const codeLine = coreSavedCode.split(/\r?\n/)[event.lineNumber - 1]?.trim() || "";
+      setStats((prev) => {
+        const detail = prev.functionDetails?.[key] || { calls: 0, totalTime: 0, lineNumber: event.lineNumber, functionName: event.functionName, codeLine };
+        return {
+          ...prev,
+          functionTimes: { ...prev.functionTimes, [event.functionName]: (prev.functionTimes[event.functionName] || 0) + event.duration },
+          functionDetails: { ...prev.functionDetails, [key]: { ...detail, calls: detail.calls + 1, totalTime: detail.totalTime + event.duration } },
+          totalTime: prev.totalTime + event.duration,
+        };
+      });
+    } else if (event.type === "loopIteration") {
+      const key = `loop:${event.lineNumber}`;
+      setStats((prev) => {
+        const detail = prev.loopDetails?.[key] || { iterations: 0, totalTime: 0, lineNumber: event.lineNumber, codeLine: event.codeLine };
+        return {
+          ...prev,
+          loopDetails: { ...prev.loopDetails, [key]: { ...detail, iterations: detail.iterations + 1, totalTime: detail.totalTime + event.duration } },
+        };
+      });
+    } else if (event.type === "complete") {
+      setStats((prev) => ({ ...prev, isRunning: false }));
+    }
+  }, []);
+
+  const { cores, internals, setCode: setCoreCode, loadCode: loadCoreCode, saveCode: saveCoreCode, saveAllCodes, runAll, stopAll, pauseAll, resumeAll, stepAll, isAnyRunning, isAnyPaused } = useMultiCore(cpuCores, appendLog, handleStatsEvent);
+  const [activeCore, setActiveCore] = useState(0);
+  const [splitView, setSplitView] = useState(false);
+  const [isSnippetsOpen, setIsSnippetsOpen] = useState<boolean>(false);
+  const [showPerf, setShowPerf] = useState(false);
+
+  // Convenience aliases for active core
+  const code = cores[activeCore]?.code || "";
+  const savedCode = cores[activeCore]?.savedCode || "";
+  const isRunning = isAnyRunning;
+  const hasUnsavedChanges = cores.some((c) => c.code !== c.savedCode);
+  const editorRef = internals[activeCore]?.editorRef || { current: null };
 
   // ── Panel state ──
   const [rightTab, setRightTab] = useState<string>("docs"); // docs | profiler | hints | shop | market
@@ -218,7 +247,6 @@ export function App(): React.ReactElement {
   const completionsSinceUpgradeRef = useRef<number>(0);
 
   // ── Refs ──
-  const editorRef = useRef<any>(null);
   const lastCodeHashRef = useRef<string>("");
   const resources = useGameStore((state: any) => state.resources);
   const tech = useGameStore((state: any) => state.tech);
@@ -257,31 +285,24 @@ export function App(): React.ReactElement {
     if (restored.length > 0) setDismissedHints(restored);
   }, []);
 
-  // ── Persist saved code ──
-  useEffect(() => {
-    localStorage.setItem(CODE_STORAGE_KEY, savedCode);
-  }, [savedCode]);
-
   // ── Auto-save when not running ──
   useEffect(() => {
     if (!isRunning) {
-      setSavedCode(code);
+      saveAllCodes();
     }
-  }, [code, isRunning]);
+  }, [isRunning, saveAllCodes]);
 
   // ── Save handler — stops & restarts execution so cursor stays in sync ──
   const pendingRestartRef = useRef<boolean>(false);
   const handleSave = useCallback(() => {
     const wasRunning = isRunning;
-    if (wasRunning && executor) {
-      executor.stop();
-      setIsRunning(false);
+    if (wasRunning) {
+      stopAll();
       setStats((prev) => ({ ...prev, isRunning: false }));
-      editorRef.current?.clearDecorations?.();
       pendingRestartRef.current = true;
     }
-    setSavedCode(code);
-  }, [code, isRunning, executor]);
+    saveAllCodes();
+  }, [isRunning, stopAll, saveAllCodes]);
 
   // ── Sync market engine with tech tree ──
   useEffect(() => {
@@ -362,157 +383,37 @@ export function App(): React.ReactElement {
     prevTechRef.current = tech;
   }, [tech.whileUnlocked, dismissHint]);
 
-  // ── Initialize executor ──
-  useEffect(() => {
-    const exec = new CodeExecutor({
-      onEvent: (event: ExecutionEvent) => {
-        trackEvent(`evt:${event.type}`);
-        // Push visual events directly to editor (no React state, no re-render)
-        if (editorRef.current?.pushEvent) {
-          editorRef.current.pushEvent(event);
-        }
-        if (event.type === "log") {
-          const msg = String(event.message);
-          const isWarning = msg.startsWith("\u26A0\uFE0F Warning:");
-          appendLog({ type: isWarning ? "warning" : "log", message: event.message, timestamp: Date.now() });
-        } else if (event.type === "error") {
-          setIsRunning(false);
-          setStats((prev) => ({ ...prev, isRunning: false }));
-          setHasError(true);
-          appendLog({ type: "error", message: `ERROR: ${event.error.message}${event.lineNumber ? ` (line ${event.lineNumber})` : ""}`, timestamp: Date.now() });
-        } else if (event.type === "functionStart") {
-          setStats((prev) => ({ ...prev, isRunning: true }));
-        } else if (event.type === "functionComplete") {
-          const key = `${event.functionName}:${event.lineNumber}`;
-          const codeLine = savedCode.split(/\r?\n/)[event.lineNumber - 1]?.trim() || "";
-          setStats((prev) => {
-            const detail = prev.functionDetails[key] || { calls: 0, totalTime: 0, lineNumber: event.lineNumber, functionName: event.functionName, codeLine };
-            return {
-              ...prev,
-              functionTimes: { ...prev.functionTimes, [event.functionName]: (prev.functionTimes[event.functionName] || 0) + event.duration },
-              functionDetails: { ...prev.functionDetails, [key]: { ...detail, calls: detail.calls + 1, totalTime: detail.totalTime + event.duration } },
-              totalTime: prev.totalTime + event.duration,
-            };
-          });
-        } else if (event.type === "loopIteration") {
-          const key = `loop:${event.lineNumber}`;
-          setStats((prev) => {
-            const detail = prev.loopDetails[key] || { iterations: 0, totalTime: 0, lineNumber: event.lineNumber, codeLine: event.codeLine };
-            return {
-              ...prev,
-              loopDetails: { ...prev.loopDetails, [key]: { ...detail, iterations: detail.iterations + 1, totalTime: detail.totalTime + event.duration } },
-            };
-          });
-        } else if (event.type === "complete") {
-          setIsRunning(false);
-          setStats((prev) => ({ ...prev, isRunning: false }));
-          editorRef.current?.clearDecorations?.();
-        }
-      },
-    });
-    setExecutor(exec);
-  }, []);
-
-  // ── Run code ──
+  // ── Run code (all cores) ──
   const handleRun = useCallback(async () => {
-    if (!executor || isRunning) return;
+    if (isRunning) return;
 
-    // RAM check against saved code (comments excluded)
-    const codeSize = countTokens(savedCode);
-    if (codeSize > ram) {
-      appendLog({ type: "error", message: `ERROR: Code exceeds RAM limit (${codeSize}/${ram} tokens). Buy more RAM in the Shop.`, timestamp: Date.now() });
-      return;
-    }
-
-    const errors = validateCode(savedCode);
-    const codeHash = hashCode(savedCode);
-
-    if (errors.length > 0) {
-      if (codeHash !== lastCodeHashRef.current) {
-        clearErrorRunAttempts(lastCodeHashRef.current);
-        lastCodeHashRef.current = codeHash;
-      }
-      incrementErrorRunAttempts(codeHash);
-
-      const attempts = getErrorRunAttempts(codeHash);
-      if (attempts === 1 && !hasSeenHint("error-run")) {
-        const hint: HintData = {
-          id: "error-run", title: "Code Has Errors",
-          message: "Your code has errors. Check the red markers in the editor.",
-          isTutorial: true,
-          onDismiss: () => { markHintAsSeen("error-run"); dismissHint("error-run", hint); },
-        };
-        setActiveHints((prev) => prev.find((h) => h.id === "error-run") ? prev : [...prev, hint]);
-      } else if (attempts >= 3 && hasSeenHint("error-run")) {
-        setDismissedHints((prev) => prev.filter((h) => h.id !== "error-run-specific"));
-        const messages = errors.map((e: any) => `Line ${e.lineNumber}: ${e.message}`).join("\n");
-        const hint: HintData = {
-          id: "error-run-specific", title: "Fix These Errors",
-          message: `Errors found:\n\n${messages}`,
-          isTutorial: true,
-          onDismiss: () => dismissHint("error-run-specific", hint),
-        };
-        setActiveHints((prev) => {
-          const filtered = prev.filter((h) => h.id !== "error-run");
-          return filtered.find((h) => h.id === "error-run-specific") ? filtered : [...filtered, hint];
-        });
-      }
-      return;
-    }
-
-    clearErrorRunAttempts(codeHash);
-    lastCodeHashRef.current = codeHash;
-    setActiveHints((prev) => prev.filter((h) => h.id !== "error-run-specific"));
-
-    setIsRunning(true);
-    editorRef.current?.clearDecorations?.();
     setStats({ totalTime: 0, functionTimes: {}, functionDetails: {}, loopDetails: {}, isRunning: true });
     setHasError(false);
-    editorRef.current?.clearDecorations?.();
     appendLog({ type: "log", message: "--- Execution started ---", timestamp: Date.now() });
 
-    try {
-      await executor.execute(savedCode);
-      if (availableUpgradeCount > 0) {
-        completionsSinceUpgradeRef.current += 1;
-        if (completionsSinceUpgradeRef.current >= 3 && !hasSeenHint("upgrades-available")) {
-          const hint: HintData = {
-            id: "upgrades-available", title: "Upgrades Available",
-            message: `${availableUpgradeCount} upgrade${availableUpgradeCount > 1 ? "s" : ""} available! Open the Tech Tree (Ctrl+U).`,
-            isTutorial: true,
-            onDismiss: () => { markHintAsSeen("upgrades-available"); dismissHint("upgrades-available", hint); },
-          };
-          setActiveHints((prev) => prev.find((h) => h.id === "upgrades-available") ? prev : [...prev, hint]);
-        }
-      } else {
-        completionsSinceUpgradeRef.current = 0;
-      }
-    } catch (error) {
-      appendLog({ type: "error", message: `Execution failed: ${error instanceof Error ? error.message : String(error)}`, timestamp: Date.now() });
-      setIsRunning(false);
+    const error = runAll(ram, countTokens);
+    if (error) {
+      appendLog({ type: "error", message: `ERROR: ${error}`, timestamp: Date.now() });
       setStats((prev) => ({ ...prev, isRunning: false }));
-      editorRef.current?.clearDecorations?.();
+      return;
     }
-  }, [executor, isRunning, savedCode, ram, availableUpgradeCount, dismissHint]);
+  }, [isRunning, ram, runAll, appendLog]);
 
   const handleStop = useCallback(() => {
-    if (!executor || !isRunning) return;
-    executor.stop();
-    setIsRunning(false);
+    if (!isRunning) return;
+    stopAll();
     setStats((prev) => ({ ...prev, isRunning: false }));
-    editorRef.current?.clearDecorations?.();
-    editorRef.current?.clearDecorations?.();
     appendLog({ type: "log", message: "--- Execution stopped ---", timestamp: Date.now() });
-  }, [executor, isRunning]);
+  }, [isRunning, stopAll, appendLog]);
 
   // ── Auto-restart after save-while-running ──
   useEffect(() => {
-    if (pendingRestartRef.current && !isRunning && executor) {
+    if (pendingRestartRef.current && !isRunning) {
       pendingRestartRef.current = false;
       const id = setTimeout(() => handleRun(), 50);
       return () => clearTimeout(id);
     }
-  }, [isRunning, savedCode, executor, handleRun]);
+  }, [isRunning, savedCode, handleRun]);
 
   const handleReset = useCallback(() => {
     if (!window.confirm("RESET ALL PROGRESS? This cannot be undone.")) return;
@@ -575,8 +476,9 @@ export function App(): React.ReactElement {
     };
   }, []);
 
-  const tokenCount = countTokens(code);
-  const ramPercent = Math.min(100, (tokenCount / ram) * 100);
+  const totalTokenCount = cores.reduce((sum, c) => sum + countTokens(c.code), 0);
+  const tokenCount = countTokens(code); // active core only (for display)
+  const ramPercent = Math.min(100, (totalTokenCount / ram) * 100);
   const ramColor = ramPercent > 90 ? theme.red : ramPercent > 70 ? theme.yellow : theme.primary;
 
   const startDrag = (type: string, cursor: string) => { draggingRef.current = type; document.body.style.cursor = cursor; document.body.style.userSelect = "none"; };
@@ -621,8 +523,12 @@ export function App(): React.ReactElement {
 
         <ResourcePanel
           isRunning={isRunning}
+          isPaused={isAnyPaused}
           onRun={handleRun}
           onStop={handleStop}
+          onPause={pauseAll}
+          onResume={resumeAll}
+          onStep={stepAll}
           onSave={handleSave}
           hasUnsavedChanges={hasUnsavedChanges}
           onOpenTechTree={() => { setIsTechTreeOpen(true); setTechTreeSelectedId(undefined); }}
@@ -639,16 +545,16 @@ export function App(): React.ReactElement {
           {/* All panels are absolutely positioned so they don't fight for flex space */}
           <div style={{ position: "absolute", inset: 0, display: mobilePanel === "code" ? "flex" : "none", flexDirection: "column" }}>
             <CodeEditor
-              ref={editorRef}
+              ref={internals[activeCore]?.editorRef}
               code={code}
-              onCodeChange={setCode}
+              onCodeChange={(v: string) => setCoreCode(activeCore, v)}
               onOpenTechTree={(techId: string) => { setIsTechTreeOpen(true); setTechTreeSelectedId(techId); }}
             />
             <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "3px", backgroundColor: theme.bg3 }}>
               <div style={{ height: "100%", width: `${ramPercent}%`, backgroundColor: ramColor, transition: "width 0.2s, background-color 0.3s" }} />
             </div>
             <div style={{ position: "absolute", bottom: "6px", right: "8px", fontSize: "10px", fontFamily: theme.font, color: ramColor, opacity: 0.8 }}>
-              {tokenCount}/{ram}
+              {totalTokenCount}/{ram}
             </div>
           </div>
 
@@ -727,7 +633,7 @@ export function App(): React.ReactElement {
                 <button onClick={() => setIsSnippetsOpen(false)} style={{ fontFamily: theme.font, fontSize: "12px", color: theme.primary, backgroundColor: "transparent", border: "none", cursor: "pointer" }}>X</button>
               </div>
               <div style={{ flex: 1, overflowY: "auto" }}>
-                <SnippetsPanel currentCode={code} onLoad={(snippetCode: string) => { setCode(snippetCode); setSavedCode(snippetCode); setIsSnippetsOpen(false); }} />
+                <SnippetsPanel currentCode={code} onLoad={(snippetCode: string) => { loadCoreCode(activeCore, snippetCode); setIsSnippetsOpen(false); }} />
               </div>
             </div>
           </div>
@@ -762,18 +668,90 @@ export function App(): React.ReactElement {
       <div ref={mainContentRef} style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         {/* LEFT PANEL: Editor + Output */}
         <div ref={leftPanelRef} style={{ flex: 1, display: "flex", flexDirection: "column", borderRight: `1px solid ${theme.border}`, minWidth: 0 }}>
+          {/* Core tab bar */}
+          {cpuCores > 1 && (
+            <div style={{ display: "flex", alignItems: "center", borderBottom: `1px solid ${theme.border}`, backgroundColor: theme.bg, flexShrink: 0 }}>
+              {cores.slice(0, cpuCores).map((core, i) => {
+                const isActive = activeCore === i;
+                const status = core.isRunning
+                  ? `L${core.currentLine || "?"}${core.currentFunction ? `: ${core.currentFunction}` : ""}`
+                  : "idle";
+                return (
+                  <button
+                    key={i}
+                    onClick={() => setActiveCore(i)}
+                    style={{
+                      padding: "4px 8px", fontSize: "10px", fontFamily: theme.font,
+                      backgroundColor: isActive ? theme.bg3 : theme.bg,
+                      color: isActive ? theme.primary : theme.primaryDark,
+                      border: "none", borderRight: `1px solid ${theme.border}`,
+                      borderBottom: isActive ? `2px solid ${theme.primary}` : "2px solid transparent",
+                      cursor: "pointer", whiteSpace: "nowrap",
+                      width: "130px", overflow: "hidden", textOverflow: "ellipsis", textAlign: "left",
+                    }}
+                  >
+                    C{i + 1} {core.isRunning ? "\u25B6" : "\u25CF"} {status}
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => setSplitView((v) => !v)}
+                style={{
+                  marginLeft: "auto", padding: "4px 8px", fontSize: "10px", fontFamily: theme.font,
+                  backgroundColor: splitView ? theme.primary : theme.bg,
+                  color: splitView ? theme.bg : theme.primaryDark,
+                  border: `1px solid ${theme.border}`, cursor: "pointer",
+                }}
+                title="Toggle split view"
+              >
+                {splitView ? "\u229E" : "\u229E"}
+              </button>
+            </div>
+          )}
+
           <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
-            <CodeEditor
-              ref={editorRef}
-              code={code}
-              onCodeChange={setCode}
-              onOpenTechTree={(techId: string) => { setIsTechTreeOpen(true); setTechTreeSelectedId(techId); }}
-            />
+            {splitView && cpuCores > 1 ? (
+              /* Split view: grid of editors */
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: cpuCores <= 2 ? "1fr 1fr" : "1fr 1fr",
+                gridTemplateRows: cpuCores <= 2 ? "1fr" : "1fr 1fr",
+                height: "100%", gap: "1px", backgroundColor: theme.border,
+              }}>
+                {cores.slice(0, cpuCores).map((core, i) => (
+                  <div key={i} style={{ position: "relative", overflow: "hidden", backgroundColor: theme.bg }}>
+                    <div style={{
+                      position: "absolute", top: "2px", left: "4px", zIndex: 10,
+                      fontSize: "9px", fontFamily: theme.font, color: theme.primaryDark,
+                      backgroundColor: `${theme.bg}cc`, padding: "1px 4px",
+                    }}>
+                      C{i + 1} {core.isRunning ? "\u25B6" : ""}
+                    </div>
+                    <CodeEditor
+                      ref={internals[i]?.editorRef}
+                      code={core.code}
+                      onCodeChange={(v: string) => setCoreCode(i, v)}
+                      onOpenTechTree={(techId: string) => { setIsTechTreeOpen(true); setTechTreeSelectedId(techId); }}
+                      coreId={i}
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              /* Tabbed view: single editor */
+              <CodeEditor
+                ref={internals[activeCore]?.editorRef}
+                code={code}
+                onCodeChange={(v: string) => setCoreCode(activeCore, v)}
+                onOpenTechTree={(techId: string) => { setIsTechTreeOpen(true); setTechTreeSelectedId(techId); }}
+                coreId={activeCore}
+              />
+            )}
             <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "3px", backgroundColor: theme.bg3 }}>
               <div style={{ height: "100%", width: `${ramPercent}%`, backgroundColor: ramColor, transition: "width 0.2s, background-color 0.3s" }} />
             </div>
             <div style={{ position: "absolute", bottom: "6px", right: "8px", fontSize: "10px", fontFamily: theme.font, color: ramColor, opacity: 0.8 }}>
-              {tokenCount}/{ram}
+              {totalTokenCount}/{ram}
             </div>
           </div>
 
@@ -866,7 +844,7 @@ export function App(): React.ReactElement {
               <button onClick={() => setIsSnippetsOpen(false)} style={{ fontFamily: theme.font, fontSize: "12px", color: theme.primary, backgroundColor: "transparent", border: "none", cursor: "pointer" }}>X</button>
             </div>
             <div style={{ flex: 1, overflowY: "auto" }}>
-              <SnippetsPanel currentCode={code} onLoad={(snippetCode: string) => { setCode(snippetCode); setSavedCode(snippetCode); setIsSnippetsOpen(false); }} />
+              <SnippetsPanel currentCode={code} onLoad={(snippetCode: string) => { loadCoreCode(activeCore, snippetCode); setIsSnippetsOpen(false); }} />
             </div>
           </div>
         </div>

@@ -424,8 +424,8 @@ export const TECH_UNLOCKS: TechUnlock[] = [
     cost: [{ resource: "C", amount: 500 }],
     creditCost: 2000,
     unlocked: false,
-    validationRegex: /\bsync\s*\(/,
-    validationErrorMessage: "sync() is not unlocked yet. Research Sync to unlock it.",
+    validationRegex: /\b(sync|send)\s*\(/,
+    validationErrorMessage: "sync()/send() are not unlocked yet. Research Sync to unlock them.",
     icon: "\uD83D\uDD04",
     dependencies: ["cpuCore2Unlocked"],
     position: { row: 3, col: 6 },
@@ -472,6 +472,7 @@ export function getAvailableFunctions(): string[] {
   if (tech.resourceCUnlocked) functions.push("convertABToC", "makeResourceC");
   if (tech.stockMarketUnlocked) functions.push("getMarketValue", "buy", "sell");
   if (tech.waitUnlocked) functions.push("wait");
+  if (tech.syncFunctionUnlocked) functions.push("sync", "send");
 
   return functions;
 }
@@ -488,6 +489,7 @@ export const TECH_TO_DOCS_SECTION: Record<string, string> = {
   ifStatementsUnlocked: "if-statements",
   userFunctionsUnlocked: "user-functions",
   stockMarketUnlocked: "stock-market",
+  syncFunctionUnlocked: "sync",
 };
 
 /** Resource colors used throughout the UI */

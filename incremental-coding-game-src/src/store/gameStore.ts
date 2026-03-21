@@ -6,6 +6,7 @@
  */
 
 import { create } from "zustand";
+import { getEffectiveRam } from "../game/hardware";
 
 const STORAGE_KEY = "incremental-coding-game-state";
 
@@ -82,6 +83,7 @@ export interface GameActions {
   addShopBSold: (amount: number) => void;
   upgradeRam: (newRam: number) => void;
   installRamModule: (tier: number) => void;
+  removeRamModule: (index: number) => number;
   setMotherboardLevel: (level: number) => void;
   setInternetLevel: (level: number) => void;
   addCpuCore: () => void;
@@ -152,16 +154,32 @@ function loadGameState(): GameState {
       const parsed = JSON.parse(saved);
       // Migrate old RAM to module system
       let ramModules = parsed.ramModules ?? defaultState.ramModules;
-      let ram = parsed.ram ?? defaultState.ram;
       if (!parsed.ramModules && parsed.ram && parsed.ram > 8) {
         const moduleCount = Math.floor((parsed.ram - 8) / 8);
         ramModules = Array(moduleCount).fill(1);
-        ram = 8 + moduleCount * 8;
       }
+      // Always recompute ram from modules (handles tier token changes)
+      const ram = getEffectiveRam(ramModules);
+
+      // Derive hardware levels from tech flags (handles saves from before onUnlock existed)
+      const tech = { ...defaultState.tech, ...parsed.tech };
+      let internetLevel = parsed.internetLevel ?? defaultState.internetLevel;
+      if (tech.internet3Unlocked) internetLevel = Math.max(internetLevel, 3);
+      else if (tech.internet2Unlocked) internetLevel = Math.max(internetLevel, 2);
+      else if (tech.internet1Unlocked) internetLevel = Math.max(internetLevel, 1);
+
+      let motherboardLevel = parsed.motherboardLevel ?? defaultState.motherboardLevel;
+      if (tech.motherboard3Unlocked) motherboardLevel = Math.max(motherboardLevel, 3);
+      else if (tech.motherboard2Unlocked) motherboardLevel = Math.max(motherboardLevel, 2);
+
+      let cpuCores = parsed.cpuCores ?? defaultState.cpuCores;
+      if (tech.cpuCore4Unlocked) cpuCores = Math.max(cpuCores, 4);
+      else if (tech.cpuCore3Unlocked) cpuCores = Math.max(cpuCores, 3);
+      else if (tech.cpuCore2Unlocked) cpuCores = Math.max(cpuCores, 2);
 
       return {
         resources: { ...defaultState.resources, ...parsed.resources },
-        tech: { ...defaultState.tech, ...parsed.tech },
+        tech,
         virtualTime: parsed.virtualTime ?? defaultState.virtualTime,
         credits: parsed.credits ?? defaultState.credits,
         ram,
@@ -169,9 +187,9 @@ function loadGameState(): GameState {
         market: parsed.market ?? defaultState.market,
         shopBSold: parsed.shopBSold ?? defaultState.shopBSold,
         ramModules,
-        motherboardLevel: parsed.motherboardLevel ?? defaultState.motherboardLevel,
-        cpuCores: parsed.cpuCores ?? defaultState.cpuCores,
-        internetLevel: parsed.internetLevel ?? defaultState.internetLevel,
+        motherboardLevel,
+        cpuCores,
+        internetLevel,
         testMode: false,
       };
     }
@@ -362,10 +380,23 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
     installRamModule: (tier: number) => {
       const current = get();
       const ramModules = [...current.ramModules, tier];
-      const ram = 8 + ramModules.length * 8;
+      const ram = getEffectiveRam(ramModules);
       const state = { ...current, ramModules, ram };
       saveGameStateToStorage(state);
       set({ ramModules, ram });
+    },
+
+    /** Remove a RAM module by index, returns its tier for refund calculation */
+    removeRamModule: (index: number): number => {
+      const current = get();
+      if (index < 0 || index >= current.ramModules.length) return 0;
+      const tier = current.ramModules[index];
+      const ramModules = current.ramModules.filter((_, i) => i !== index);
+      const ram = getEffectiveRam(ramModules);
+      const state = { ...current, ramModules, ram };
+      saveGameStateToStorage(state);
+      set({ ramModules, ram });
+      return tier;
     },
 
     /** Set motherboard level */

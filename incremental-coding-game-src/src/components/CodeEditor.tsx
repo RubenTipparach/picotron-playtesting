@@ -28,10 +28,13 @@ interface ExecutionEvent {
   progress?: number;
 }
 
+const CORE_COLORS = ["#22cc44", "#4499ff", "#aa55ff", "#ff8833"];
+
 interface CodeEditorProps {
   code: string;
   onCodeChange: (code: string) => void;
   onOpenTechTree?: (techId?: string) => void;
+  coreId?: number;
 }
 
 export interface CodeEditorHandle {
@@ -42,7 +45,7 @@ export interface CodeEditorHandle {
 }
 
 export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(
-  ({ code, onCodeChange, onOpenTechTree }, ref) => {
+  ({ code, onCodeChange, onOpenTechTree, coreId = 0 }, ref) => {
     const theme = useContext(ThemeContext);
     const editorRef = useRef<any>(null);
     const monacoRef = useRef<any>(null);

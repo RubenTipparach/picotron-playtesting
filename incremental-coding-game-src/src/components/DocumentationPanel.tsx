@@ -47,6 +47,8 @@ export function DocumentationPanel({ isOpen, onClose, scrollToSection, inline, o
     buy: { description: "Buys resource from market using credits. Takes 2s.", example: "buy('A', 5)", returns: "Returns: amount bought", sectionId: "stock-market" },
     sell: { description: "Sells resource on market for credits. Takes 2s.", example: "sell('A', 5)", returns: "Returns: credits received", sectionId: "stock-market" },
     wait: { description: "Sleeps for ms milliseconds. wait() or wait(0) sleeps for 1 CPU cycle.", example: "wait(1000)", returns: "Returns: nothing" },
+    send: { description: "Queue a message at a named sync point.", example: "send('data', 42)", returns: "Returns: nothing", sectionId: "sync" },
+    sync: { description: "Block until n messages arrive at syncId. Returns all messages.", example: "sync('data', 2)", returns: "Returns: array of messages", sectionId: "sync" },
   };
 
   const content = (
@@ -110,6 +112,13 @@ export function DocumentationPanel({ isOpen, onClose, scrollToSection, inline, o
           <DocCard dataSectionId="stock-market" t={t}>
             <DocText t={t}>Stock Market — prices fluctuate based on supply and demand:</DocText>
             <CodeBlock t={t} onInsertCode={onInsertCode}>{"// Check price before trading\nlet price = getMarketValue('A')\nif (price > 1.5) {\n  sell('A', 10)\n}\n// Buy low\nif (price < 0.8) {\n  buy('A', 5)\n}"}</CodeBlock>
+          </DocCard>
+        )}
+
+        {tech.syncFunctionUnlocked && (
+          <DocCard dataSectionId="sync" t={t}>
+            <DocText t={t}>Sync — coordinate between CPU cores:</DocText>
+            <CodeBlock t={t} onInsertCode={onInsertCode}>{"// Core 1:\nsend('data', 42)\n\n// Core 2:\nlet msgs = sync('data', 1)\nlog(msgs[0]) // 42"}</CodeBlock>
           </DocCard>
         )}
       </Section>

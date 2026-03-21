@@ -14,6 +14,7 @@ import {
   addMarketProfit,
 } from "./marketEngine";
 import { getEffectiveCpuSpeed, getMaxTradeVolume } from "./hardware";
+import { busSend, busSync } from "./syncBus";
 
 // ─── Types & Interfaces ──────────────────────────────────────────────
 
@@ -40,6 +41,8 @@ export interface API {
   buy(resource: string, amount?: number): Promise<number>;
   sell(resource: string, amount?: number): Promise<number>;
   wait(ms?: number): Promise<void>;
+  sync(syncId: string, n: number): Promise<any[]>;
+  send(syncId: string, msg: any): Promise<void>;
 }
 
 /** All API function names available in the game */
@@ -55,6 +58,8 @@ export const ALL_API_FUNCTIONS: string[] = [
   "buy",
   "sell",
   "wait",
+  "sync",
+  "send",
 ];
 
 // ─── Speed Configuration ──────────────────────────────────────────────
@@ -571,6 +576,59 @@ export function createAPI(executionContext: APICallContext): API {
       await executeWithDelay(delay, context, () => {
         // No-op — just sleeps
       });
+    },
+
+    /**
+     * Queue a message at a named sync point.
+     * Takes 0.5 seconds.
+     * @param syncId - Name of the sync point
+     * @param msg - Data to send
+     */
+    async send(syncId: string, msg: any): Promise<void> {
+      const context: APICallContext = {
+        ...executionContext,
+        functionName: "send",
+        lineNumber: executionContext.lineNumber,
+      };
+
+      await executeWithDelay(500, context, () => {
+        if (context.isCancelled?.()) return;
+        busSend(syncId, msg);
+      });
+    },
+
+    /**
+     * Block until n messages arrive at the named sync point.
+     * Returns all messages and clears them from the queue.
+     * @param syncId - Name of the sync point
+     * @param n - Number of messages to wait for
+     * @returns Array of messages
+     */
+    async sync(syncId: string, n: number): Promise<any[]> {
+      const context: APICallContext = {
+        ...executionContext,
+        functionName: "sync",
+        lineNumber: executionContext.lineNumber,
+      };
+      let messages: any[] = [];
+
+      // Show start event
+      const lineNumber = context.lineNumber || 0;
+      if (!context.isCancelled?.()) {
+        context.onStart?.(lineNumber, "sync", 0);
+      }
+
+      try {
+        messages = await busSync(syncId, n, {
+          throwIfCancelled: context.throwIfCancelled,
+        });
+      } finally {
+        if (!context.isCancelled?.()) {
+          context.onComplete?.(lineNumber, "sync", 0);
+        }
+      }
+
+      return context.isCancelled?.() ? [] : messages;
     },
   };
 

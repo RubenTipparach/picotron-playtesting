@@ -6,8 +6,12 @@ import { formatNumber, formatMoney } from "../utils/format";
 
 interface ResourcePanelProps {
   isRunning: boolean;
+  isPaused: boolean;
   onRun: () => void;
   onStop: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onStep: () => void;
   onSave: () => void;
   hasUnsavedChanges: boolean;
   onOpenSnippets: () => void;
@@ -21,8 +25,12 @@ interface ResourcePanelProps {
 
 export function ResourcePanel({
   isRunning,
+  isPaused,
   onRun,
   onStop,
+  onPause,
+  onResume,
+  onStep,
   onSave,
   hasUnsavedChanges,
   onOpenSnippets,
@@ -73,11 +81,27 @@ export function ResourcePanel({
         flexShrink: 0,
       }}
     >
-      {/* Run/Stop */}
+      {/* Run/Stop/Pause */}
       {isRunning ? (
-        <button onClick={onStop} style={btnStyle(t.red, true)}>
-          [STOP]
-        </button>
+        <>
+          <button onClick={onStop} style={btnStyle(t.red, true)}>
+            [STOP]
+          </button>
+          {isPaused ? (
+            <>
+              <button onClick={onResume} style={btnStyle(t.primary, true)}>
+                [RESUME]
+              </button>
+              <button onClick={onStep} style={btnStyle(t.yellow, true)} title="Step one line">
+                [STEP]
+              </button>
+            </>
+          ) : (
+            <button onClick={onPause} style={btnStyle(t.yellow, true)}>
+              [PAUSE]
+            </button>
+          )}
+        </>
       ) : (
         <button onClick={onRun} style={btnStyle(t.primary, true)}>
           [RUN]

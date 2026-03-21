@@ -53,9 +53,9 @@ export const BASE_RAM_TOKENS = 8;
 export const RAM_TIER_TOKENS: Record<number, number> = {
   1: 8,
   2: 16,
-  3: 32,
-  4: 64,
-  5: 128,
+  3: 16,
+  4: 32,
+  5: 64,
 };
 
 /** Cost per RAM module by tier */

@@ -347,16 +347,20 @@ class CancellationError extends Error {
 export class CodeExecutor {
   isRunning: boolean;
   isCancelled: boolean;
+  isPaused: boolean;
   currentLine: number | null;
   lineMap: Map<number, Array<LineMapEntry>>;
   callbacks: ExecutionCallbacks;
   cancellationError: CancellationError | null;
+  breakpoints: Set<number>;
 
   constructor(callbacks: ExecutionCallbacks) {
     this.isRunning = false;
     this.isCancelled = false;
+    this.isPaused = false;
     this.currentLine = null;
     this.lineMap = new Map();
+    this.breakpoints = new Set();
     this.callbacks = callbacks;
     this.cancellationError = null;
   }
@@ -573,6 +577,23 @@ export class CodeExecutor {
           loopStartTimes[lineNumber] = now;
         }
 
+        // Step-once: re-pause immediately
+        if (this._stepOnce) {
+          this._stepOnce = false;
+          this.isPaused = true;
+        }
+
+        // Check breakpoints — auto-pause if we hit one
+        if (this.breakpoints.has(lineNumber)) {
+          this.isPaused = true;
+        }
+
+        // Wait while paused (check every 100ms)
+        while (this.isPaused) {
+          if (this.isCancelled) throw this.cancellationError;
+          await new Promise<void>((resolve) => setTimeout(resolve, 100));
+        }
+
         // Brief pause between statements (250ms)
         const STEP_DELAY = 250;
         await new Promise<void>((resolve) => setTimeout(resolve, STEP_DELAY));
@@ -583,7 +604,7 @@ export class CodeExecutor {
       // ── Build and execute the script ──
       const wrappedCode = `
         return (async function(api, step) {
-          const { produceResourceA, convertAToB, getResourceCount, getBalance, log, convertABToC, makeResourceC, getMarketValue, buy, sell, wait } = api;
+          const { produceResourceA, convertAToB, getResourceCount, getBalance, log, convertABToC, makeResourceC, getMarketValue, buy, sell, wait, sync, send } = api;
           ${transformedCode}
         })(api, step);
       `;
@@ -737,14 +758,51 @@ export class CodeExecutor {
   stop(): void {
     console.log("Executor: Stop requested");
     this.isCancelled = true;
+    this.isPaused = false;
     this.isRunning = false;
     this.currentLine = null;
     this.callbacks.onEvent({ type: "complete" });
   }
 
+  /** Pause execution at current position */
+  pause(): void {
+    if (this.isRunning && !this.isCancelled) {
+      this.isPaused = true;
+    }
+  }
+
+  /** Resume execution from paused state */
+  resume(): void {
+    this.isPaused = false;
+  }
+
+  /** Execute one step then pause again */
+  stepOnce(): void {
+    if (this.isPaused) {
+      this.isPaused = false;
+      // Will re-pause at next step() call due to _stepOnce flag
+      this._stepOnce = true;
+    }
+  }
+  private _stepOnce: boolean = false;
+
   /** Check if currently running */
   getRunning(): boolean {
     return this.isRunning;
+  }
+
+  /** Toggle a breakpoint on a line */
+  toggleBreakpoint(line: number): void {
+    if (this.breakpoints.has(line)) {
+      this.breakpoints.delete(line);
+    } else {
+      this.breakpoints.add(line);
+    }
+  }
+
+  /** Get all breakpoints */
+  getBreakpoints(): Set<number> {
+    return this.breakpoints;
   }
 
   /**
