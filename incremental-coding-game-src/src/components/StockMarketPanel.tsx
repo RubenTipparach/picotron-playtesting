@@ -393,18 +393,18 @@ export const StockMarketPanel = React.memo(function StockMarketPanel() {
     if (!result.success) return;
     const cost = result.cost;
     if (!useGameStore.getState().spendCredits(cost)) return;
-    useGameStore.getState().addResource(r, amount);
+    useGameStore.getState().addResource(r as any, amount);
   };
 
   const handleSell = (r: string, amount: number) => {
     const store = useGameStore.getState();
-    const available = store.resources[r] || 0;
+    const available = (store.resources as any)[r] || 0;
     const actual = Math.min(amount, available);
     if (actual <= 0) return;
-    if (!store.consumeResource(r, actual)) return;
+    if (!store.consumeResource(r as any, actual)) return;
     const result = executeSell(r, actual);
     if (!result.success) {
-      store.addResource(r, actual);
+      store.addResource(r as any, actual);
       return;
     }
     const earned = result.revenue;
@@ -475,7 +475,7 @@ export const StockMarketPanel = React.memo(function StockMarketPanel() {
           {tradeableResources.map((r) => {
             const units = Math.floor(marketUnits[r] || 0);
             const clr = RESOURCE_COLORS[r] || t.primary;
-            const playerHold = resources[r] || 0;
+            const playerHold = (resources as any)[r] || 0;
             const total = units + playerHold;
             const playerPct = total > 0 ? ((playerHold / total) * 100).toFixed(1) : "0.0";
             return (
@@ -539,7 +539,7 @@ export const StockMarketPanel = React.memo(function StockMarketPanel() {
             {(() => {
               const selectedAmt = getTradeAmount(r);
               const maxBuyAmt = Math.min(maxVolume, buyP > 0 ? Math.floor(credits / buyP) : 0);
-              const maxSellAmt = Math.min(maxVolume, resources[r] || 0);
+              const maxSellAmt = Math.min(maxVolume, (resources as any)[r] || 0);
               const isMax = selectedAmt === -1;
               const buyAmt = isMax ? maxBuyAmt : selectedAmt;
               const sellAmt = isMax ? maxSellAmt : Math.min(selectedAmt, maxSellAmt);
@@ -582,7 +582,7 @@ export const StockMarketPanel = React.memo(function StockMarketPanel() {
                       </button>
                     )}
                     <span style={{ marginLeft: "auto", fontSize: "10px", color: t.primaryDim }}>
-                      HOLD: {resources[r] || 0}
+                      HOLD: {(resources as any)[r] || 0}
                     </span>
                   </div>
                   {/* Buy / Sell buttons with cost preview */}

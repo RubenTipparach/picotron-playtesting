@@ -33,8 +33,8 @@ interface LoopDetail {
 interface Stats {
   isRunning: boolean;
   totalTime: number;
-  functionDetails: Record<string, FunctionDetail>;
-  loopDetails: Record<string, LoopDetail>;
+  functionDetails?: Record<string, FunctionDetail>;
+  loopDetails?: Record<string, LoopDetail>;
 }
 
 interface CPUPanelProps {

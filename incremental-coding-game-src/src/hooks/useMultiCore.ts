@@ -55,7 +55,11 @@ interface UseMultiCoreResult {
   saveAllCodes: () => void;
   runAll: (ram: number, countTokens: (s: string) => number) => string | null;
   stopAll: () => void;
+  pauseAll: () => void;
+  resumeAll: () => void;
+  stepAll: () => void;
   isAnyRunning: boolean;
+  isAnyPaused: boolean;
 }
 
 export function useMultiCore(

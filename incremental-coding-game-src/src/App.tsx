@@ -258,7 +258,7 @@ export function App(): React.ReactElement {
     useGameStore.getState().syncFromLocalStorage();
     const state = useGameStore.getState();
     initMarket(state.market);
-    setPlayerResourcesGetter(() => useGameStore.getState().resources);
+    setPlayerResourcesGetter(() => useGameStore.getState().resources as unknown as Record<string, number>);
     if (state.tech.resourceDUnlocked) setDUnlocked(true);
 
     // Start market timer if stock market is unlocked
@@ -505,7 +505,7 @@ export function App(): React.ReactElement {
       case "market": return <StockMarketPanel />;
       case "docs": return <DocumentationPanel isOpen={true} onClose={() => {}} scrollToSection={docsScrollSection} inline onInsertCode={(text: string) => { if (editorRef.current?.insertText) editorRef.current.insertText(text); }} />;
       case "profiler": return <CPUPanel stats={stats} onScrollToLine={(line: number) => { if (editorRef.current?.scrollToLine) editorRef.current.scrollToLine(line); }} />;
-      case "hints": return <HintsPanel activeHints={activeHints} dismissedHints={dismissedHints} onHintClick={() => {}} onReopenHint={reopenHint} inline />;
+      case "hints": return <HintsPanel activeHints={activeHints} dismissedHints={dismissedHints} onReopenHint={reopenHint} inline />;
       default: return null;
     }
   };
@@ -652,8 +652,12 @@ export function App(): React.ReactElement {
 
       <ResourcePanel
         isRunning={isRunning}
+        isPaused={isAnyPaused}
         onRun={handleRun}
         onStop={handleStop}
+        onPause={pauseAll}
+        onResume={resumeAll}
+        onStep={stepAll}
         onSave={handleSave}
         hasUnsavedChanges={hasUnsavedChanges}
         onOpenSnippets={() => setIsSnippetsOpen(true)}

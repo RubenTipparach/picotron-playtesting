@@ -327,7 +327,7 @@ export const TECH_UNLOCKS: TechUnlock[] = [
   {
     id: "ramTier2Unlocked",
     name: "RAM Tier 2",
-    description: "Research faster RAM. Modules cost $100 each (+8 tokens).",
+    description: "Research faster RAM. Modules cost $100 each (+16 tokens).",
     threshold: (resources) => useGameStore.getState().credits >= 100 && resources.A >= 100,
     cost: [{ resource: "A", amount: 100 }],
     creditCost: 100,
@@ -340,7 +340,7 @@ export const TECH_UNLOCKS: TechUnlock[] = [
   {
     id: "ramTier3Unlocked",
     name: "RAM Tier 3",
-    description: "Research DDR3 RAM. Modules cost $1,000 each (+8 tokens).",
+    description: "Research DDR3 RAM. Modules cost $1,000 each (+32 tokens).",
     threshold: (resources) => useGameStore.getState().credits >= 1000 && resources.B >= 1000,
     cost: [{ resource: "B", amount: 1000 }],
     creditCost: 1000,
@@ -353,7 +353,7 @@ export const TECH_UNLOCKS: TechUnlock[] = [
   {
     id: "ramTier4Unlocked",
     name: "RAM Tier 4",
-    description: "Research DDR4 RAM. Modules cost $10,000 each (+8 tokens).",
+    description: "Research DDR4 RAM. Modules cost $10,000 each (+64 tokens).",
     threshold: (resources) => useGameStore.getState().credits >= 10000 && resources.C >= 10000,
     cost: [{ resource: "C", amount: 10000 }],
     creditCost: 10000,
@@ -365,7 +365,7 @@ export const TECH_UNLOCKS: TechUnlock[] = [
   {
     id: "ramTier5Unlocked",
     name: "RAM Tier 5",
-    description: "Research DDR5 RAM. Modules cost $100,000 each (+8 tokens).",
+    description: "Research DDR5 RAM. Modules cost $100,000 each (+128 tokens).",
     threshold: (resources) => useGameStore.getState().credits >= 100000 && resources.D >= 100000,
     cost: [{ resource: "D", amount: 100000 }],
     creditCost: 100000,

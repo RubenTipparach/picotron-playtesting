@@ -55,14 +55,14 @@ export const ShopPanel = React.memo(function ShopPanel() {
     } else {
       if (!useGameStore.getState().spendCredits(totalCost)) return;
     }
-    useGameStore.getState().addResource(name, amount);
+    useGameStore.getState().addResource(name as any, amount);
   };
 
   const sellResource = (name: string, amount: number) => {
-    const available = resources[name];
+    const available = (resources as any)[name];
     const actual = Math.min(amount, available);
     if (actual <= 0) return;
-    useGameStore.getState().consumeResource(name, actual);
+    useGameStore.getState().consumeResource(name as any, actual);
     if (marketUnlocked) {
       const result = executeSell(name, actual);
       const earned = result.revenue;

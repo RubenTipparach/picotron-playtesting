@@ -3,7 +3,7 @@ import { useTheme } from "../themes";
 import { trackRender } from "../utils/perfMonitor";
 
 interface LogEntry {
-  type: "error" | "warning" | "unlock" | "info";
+  type: string;
   message: string;
   timestamp: number;
 }

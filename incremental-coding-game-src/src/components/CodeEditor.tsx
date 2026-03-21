@@ -23,9 +23,10 @@ import { validateCode } from "../game/codeValidator";
 import { ThemeContext, THEMES } from "../themes";
 
 interface ExecutionEvent {
-  type: "lineChange" | "functionProgress" | "functionComplete" | "complete";
+  type: string;
   lineNumber?: number;
   progress?: number;
+  [key: string]: any;
 }
 
 const CORE_COLORS = ["#22cc44", "#4499ff", "#aa55ff", "#ff8833"];

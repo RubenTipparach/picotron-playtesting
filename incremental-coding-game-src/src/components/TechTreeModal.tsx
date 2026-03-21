@@ -415,7 +415,7 @@ export function TechTreeModal({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
                     isUnlocked={status === "unlocked"}
                     isAvailable={status === "available"}
                     isSelected={selectedTechId === node.id}
-                    resources={resources}
+                    resources={resources as any}
                     onClick={() => setSelectedTechId(node.id)}
                     size={NODE_SIZE}
                     t={t}
