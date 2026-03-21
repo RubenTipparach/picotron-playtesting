@@ -62,6 +62,7 @@ export interface TechUnlocks {
   gpuTier3Unlocked: boolean;
   gpuTier4Unlocked: boolean;
   gpuTier5Unlocked: boolean;
+  eMarketUnlocked: boolean;
   // Storage
   kvStoreUnlocked: boolean;
   hddTier2Unlocked: boolean;
@@ -87,6 +88,7 @@ export interface GameState {
   miningLevel: number;
   totalEMined: number;
   foundSuffixes: string[];
+  foundHashes: string[];
   gpuTier: number;
   eMarketActive: boolean;
   testMode: boolean;
@@ -113,6 +115,7 @@ export interface GameActions {
   addCpuCore: () => void;
   advanceMiningLevel: () => void;
   addFoundSuffix: (suffix: string) => void;
+  addFoundHash: (hash: string) => void;
   setGpuTier: (tier: number) => void;
   setEMarketActive: () => void;
   setMarket: (marketData: Record<string, unknown> | null) => void;
@@ -169,6 +172,7 @@ const defaultState: GameState = {
     gpuTier3Unlocked: false,
     gpuTier4Unlocked: false,
     gpuTier5Unlocked: false,
+    eMarketUnlocked: false,
     // Storage
     kvStoreUnlocked: false,
     hddTier2Unlocked: false,
@@ -192,6 +196,7 @@ const defaultState: GameState = {
   miningLevel: 1,
   totalEMined: 0,
   foundSuffixes: [],
+  foundHashes: [],
   gpuTier: 0,
   eMarketActive: false,
   testMode: false,
@@ -250,6 +255,7 @@ function loadGameState(): GameState {
         miningLevel: parsed.miningLevel ?? defaultState.miningLevel,
         totalEMined: parsed.totalEMined ?? defaultState.totalEMined,
         foundSuffixes: parsed.foundSuffixes ?? defaultState.foundSuffixes,
+        foundHashes: parsed.foundHashes ?? defaultState.foundHashes,
         gpuTier: parsed.gpuTier ?? defaultState.gpuTier,
         eMarketActive: parsed.eMarketActive ?? defaultState.eMarketActive,
         testMode: false,
@@ -328,6 +334,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
     miningLevel: initial.miningLevel,
     totalEMined: initial.totalEMined,
     foundSuffixes: initial.foundSuffixes,
+    foundHashes: initial.foundHashes,
     gpuTier: initial.gpuTier,
     eMarketActive: initial.eMarketActive,
     testMode: false,
@@ -496,20 +503,31 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
     advanceMiningLevel: () => {
       const current = get();
       const miningLevel = current.miningLevel + 1;
-      const state = { ...current, miningLevel, foundSuffixes: [] };
+      const state = { ...current, miningLevel, foundSuffixes: [], foundHashes: [] };
       saveGameStateToStorage(state);
-      set({ miningLevel, foundSuffixes: [] });
+      set({ miningLevel, foundSuffixes: [], foundHashes: [] });
     },
 
-    /** Record a found mining suffix */
+    /** Record a found mining suffix (for level advancement tracking) */
     addFoundSuffix: (suffix: string) => {
       const current = get();
-      const foundSuffixes = [...current.foundSuffixes, suffix];
+      const foundSuffixes = current.foundSuffixes.includes(suffix)
+        ? current.foundSuffixes
+        : [...current.foundSuffixes, suffix];
       const totalEMined = current.totalEMined + 1;
       const eMarketActive = totalEMined >= 1000 || current.eMarketActive;
       const state = { ...current, foundSuffixes, totalEMined, eMarketActive };
       saveGameStateToStorage(state);
       set({ foundSuffixes, totalEMined, eMarketActive });
+    },
+
+    /** Record a found hash value (prevents duplicate submissions) */
+    addFoundHash: (hash: string) => {
+      const current = get();
+      const foundHashes = [...current.foundHashes, hash];
+      const state = { ...current, foundHashes };
+      saveGameStateToStorage(state);
+      set({ foundHashes });
     },
 
     /** Set GPU tier */
@@ -625,6 +643,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
         miningLevel: loaded.miningLevel,
         totalEMined: loaded.totalEMined,
         foundSuffixes: loaded.foundSuffixes,
+        foundHashes: loaded.foundHashes,
         gpuTier: loaded.gpuTier,
         eMarketActive: loaded.eMarketActive,
         kvStore: loaded.kvStore,
@@ -650,6 +669,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
         miningLevel: defaultState.miningLevel,
         totalEMined: defaultState.totalEMined,
         foundSuffixes: defaultState.foundSuffixes,
+        foundHashes: defaultState.foundHashes,
         gpuTier: defaultState.gpuTier,
         eMarketActive: defaultState.eMarketActive,
         kvStore: defaultState.kvStore,

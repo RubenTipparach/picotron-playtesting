@@ -2,7 +2,9 @@
  * Mining Engine
  *
  * Hash-based mining system for Resource E.
- * Players hash strings to find trailing zeros, earning 1 E per unique zero-suffix.
+ * Players hash strings to find trailing zeros, earning 1 E per unique hash value.
+ * Multiple hashes with the same number of trailing zeros are allowed,
+ * but the exact same hash output cannot be submitted twice.
  * GPU upgrades allow batch hashing for faster mining.
  */
 
@@ -84,6 +86,7 @@ export function getPossibleSuffixes(level: number): string[] {
 /**
  * Validate and submit a hash for mining.
  * Returns 1 if E was earned, throws on invalid submission.
+ * Rejects duplicate hash values, but allows same suffix pattern multiple times.
  */
 export function submitHashResult(input: string): number {
   const store = useGameStore.getState();
@@ -101,21 +104,24 @@ export function submitHashResult(input: string): number {
     throw new Error(`submitHash() failed — hash "${hex}" has no trailing zeros. Keep searching!`);
   }
 
-  const suffix = buildSuffix(zeros);
-  const foundSuffixes = store.foundSuffixes;
-
-  if (foundSuffixes.includes(suffix)) {
-    throw new Error(`submitHash() failed — suffix "${suffix}" already found at this level.`);
+  // Check for duplicate input
+  if (store.foundHashes.includes(input)) {
+    throw new Error(`submitHash() failed — input "${input}" already submitted.`);
   }
 
-  // Award 1 E
+  const suffix = buildSuffix(zeros);
+
+  // Award 1 E and record the input
   store.addResource("E", 1);
+  store.addFoundHash(input);
   store.addFoundSuffix(suffix);
 
-  // Check if all suffixes at this level are found
+  // Check if all suffix patterns at this level have been seen at least once
   const allSuffixes = getPossibleSuffixes(level);
-  const newFound = [...foundSuffixes, suffix];
-  if (allSuffixes.every((s) => newFound.includes(s))) {
+  const currentSuffixes = store.foundSuffixes.includes(suffix)
+    ? store.foundSuffixes
+    : [...store.foundSuffixes, suffix];
+  if (allSuffixes.every((s) => currentSuffixes.includes(s))) {
     store.advanceMiningLevel();
   }
 
@@ -162,6 +168,7 @@ export function getMiningSummary() {
     outputFormat: `${digits} hex digits (0-${"F".repeat(digits)})`,
     suffixesFound: store.foundSuffixes.length,
     suffixesTotal: possibleSuffixes.length,
+    hashesFound: store.foundHashes.length,
     totalMined: store.totalEMined,
     eMarketActive: store.eMarketActive,
     marketAt: 1000,
@@ -190,15 +197,14 @@ export function testHashResult(input: string) {
     return { valid: false, hash: hex, trailingZeros: 0, suffix: "", alreadyFound: false, reason: "No trailing zeros" };
   }
 
-  const suffix = "0".repeat(zeros);
-  const alreadyFound = store.foundSuffixes.includes(suffix);
+  const alreadyFound = store.foundHashes.includes(input);
 
   return {
     valid: !alreadyFound,
     hash: hex,
     trailingZeros: zeros,
-    suffix,
+    suffix: "0".repeat(zeros),
     alreadyFound,
-    reason: alreadyFound ? `Suffix "${suffix}" already found` : "Valid — call submitHash() to claim",
+    reason: alreadyFound ? `Input "${input}" already submitted` : "Valid — call submitHash() to claim",
   };
 }

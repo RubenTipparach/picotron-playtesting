@@ -49,7 +49,7 @@ export function DocumentationPanel({ isOpen, onClose, scrollToSection, inline, o
     wait: { description: "Sleeps for ms milliseconds. wait() or wait(0) sleeps for 1 CPU cycle.", example: "wait(1000)", returns: "Returns: nothing" },
     send: { description: "Queue a message at a named sync point.", example: "send('data', 42)", returns: "Returns: nothing", sectionId: "sync" },
     sync: { description: "Block until n messages arrive at syncId. Returns all messages.", example: "sync('data', 2)", returns: "Returns: array of messages", sectionId: "sync" },
-    hash: { description: "Hash a string (up to 16 chars) into hex digits. Takes 0.5s.", example: "hash('test')", returns: "Returns: { hashValue: 'a3f0', hashTest: true/false, hashFound: true/false }", sectionId: "mining" },
+    hash: { description: "Hash a string (up to 16 chars) into hex digits. Takes 0.5s.", example: "hash('test')", returns: "Returns: { hashValue: 'a3f0', hashTest: true if trailing zeros, hashFound: true if this hash was already submitted }", sectionId: "mining" },
     submitHash: { description: "Submit a string whose hash ends in zeros to mine 1 E. Crashes if invalid.", example: "submitHash('mystring')", returns: "Returns: 1 on success", sectionId: "mining" },
     gpuHash: { description: "Batch hash using GPU cores. Array size must equal GPU core count.", example: "gpuHash(['str1', 'str2', ...])", returns: "Returns: [{input, output}, ...]", sectionId: "mining" },
     getMiningInfo: { description: "Get mining stats: input/output sizes, suffixes found, total mined, GPU info.", example: "let info = getMiningInfo()\nlog(info)", returns: "Returns: { level, inputSize, outputSize, suffixesFound, suffixesTotal, totalMined, gpuCores, ... }", sectionId: "mining" },
@@ -181,8 +181,8 @@ export function DocumentationPanel({ isOpen, onClose, scrollToSection, inline, o
       {tech.resourceEUnlocked && (
         <Section title="MINING" t={t} sectionId="mining">
           <DocCard t={t}>
-            <DocText t={t}>Mining — hash strings to find trailing zeros and earn E:</DocText>
-            <CodeBlock t={t} onInsertCode={onInsertCode}>{"// Try different strings\nlet h = hash('test123')\nlog(h.hashValue) // e.g. 'a3f0'\nlog(h.hashTest)  // true if ends in zeros\nlog(h.hashFound) // true if already submitted\n// If hashTest is true, submit it!\nsubmitHash('test123') // earns 1 E"}</CodeBlock>
+            <DocText t={t}>Mining — hash strings to find trailing zeros and earn E. Same trailing zero pattern can be found multiple times, but each unique hash value can only be submitted once:</DocText>
+            <CodeBlock t={t} onInsertCode={onInsertCode}>{"// Try different strings\nlet h = hash('test123')\nlog(h.hashValue) // e.g. 'a3f0'\nlog(h.hashTest)  // true if ends in zeros\nlog(h.hashFound) // true if this hash already submitted\n// If hashTest && !hashFound, submit it!\nsubmitHash('test123') // earns 1 E"}</CodeBlock>
           </DocCard>
           <DocCard t={t}>
             <DocText t={t}>Auto-mine — brute force search for hashes:</DocText>

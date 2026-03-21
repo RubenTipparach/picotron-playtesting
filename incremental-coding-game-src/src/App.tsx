@@ -31,6 +31,7 @@ import { ShopPanel } from './components/ShopPanel';
 import { StockMarketPanel } from './components/StockMarketPanel';
 import { SnippetsPanel } from './components/SnippetsPanel';
 import { HintPopover, HintsPanel } from './components/HintPopover';
+import { DbExplorerPanel } from './components/DbExplorerPanel';
 import { THEMES, ThemeContext, loadThemeId, saveThemeId } from './themes';
 import { initMarket, setDUnlocked, setEUnlocked, startMarketTimer, stopMarketTimer, setPlayerResourcesGetter } from './game/marketEngine';
 import { PerfOverlay } from './components/PerfOverlay';
@@ -493,6 +494,7 @@ export function App(): React.ReactElement {
   const desktopTabs: string[] = [
     ...(tech.shopUnlocked ? ["shop"] : []),
     ...(tech.stockMarketUnlocked ? ["market"] : []),
+    ...(tech.kvStoreUnlocked ? ["drive"] : []),
     "docs", "profiler", "hints",
   ];
   const mobileTabs: { id: string; label: string }[] = [
@@ -500,6 +502,7 @@ export function App(): React.ReactElement {
     { id: "output", label: "LOG" },
     ...(tech.shopUnlocked ? [{ id: "shop", label: "SHOP" }] : []),
     ...(tech.stockMarketUnlocked ? [{ id: "market", label: "MKT" }] : []),
+    ...(tech.kvStoreUnlocked ? [{ id: "drive", label: "HDD" }] : []),
     { id: "docs", label: "DOCS" },
     { id: "profiler", label: "CPU" },
   ];
@@ -509,6 +512,7 @@ export function App(): React.ReactElement {
     switch (tab) {
       case "shop": return <ShopPanel />;
       case "market": return <StockMarketPanel />;
+      case "drive": return <DbExplorerPanel />;
       case "docs": return <DocumentationPanel isOpen={true} onClose={() => {}} scrollToSection={docsScrollSection} inline onInsertCode={(text: string) => { if (editorRef.current?.insertText) editorRef.current.insertText(text); }} />;
       case "profiler": return <CPUPanel stats={stats} onScrollToLine={(line: number) => { if (editorRef.current?.scrollToLine) editorRef.current.scrollToLine(line); }} />;
       case "hints": return <HintsPanel activeHints={activeHints} dismissedHints={dismissedHints} onReopenHint={reopenHint} inline />;

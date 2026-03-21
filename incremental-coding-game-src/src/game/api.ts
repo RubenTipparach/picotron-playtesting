@@ -672,11 +672,10 @@ export function createAPI(executionContext: APICallContext): API {
         const digits = getHashDigits(level);
         const hex = gameHash(input, digits);
         const zeros = hex.length - hex.replace(/0+$/, "").length;
-        const suffix = "0".repeat(zeros);
         result = {
           hashValue: hex,
           hashTest: zeros > 0,
-          hashFound: zeros > 0 && store.foundSuffixes.includes(suffix),
+          hashFound: zeros > 0 && store.foundHashes.includes(hex),
         };
       });
 

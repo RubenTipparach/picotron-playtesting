@@ -484,6 +484,22 @@ export const TECH_UNLOCKS: TechUnlock[] = [
     dependencies: ["resourceEUnlocked"],
     position: { row: 6, col: 2 },
   },
+  {
+    id: "eMarketUnlocked",
+    name: "E Trading",
+    description: "Mine 1000 E to unlock E on the stock market.",
+    threshold: () => useGameStore.getState().totalEMined >= 1000,
+    cost: [],
+    unlocked: false,
+    icon: "E",
+    dependencies: ["resourceEUnlocked"],
+    position: { row: 6, col: 4 },
+    progressInfo: () => {
+      const total = useGameStore.getState().totalEMined;
+      return { current: Math.min(total, 1000), target: 1000, label: "E mined" };
+    },
+    onUnlock: () => useGameStore.getState().setEMarketActive(),
+  },
   // ─── Storage: Hard Drive ───────────────────────────────────────────
   {
     id: "kvStoreUnlocked",
