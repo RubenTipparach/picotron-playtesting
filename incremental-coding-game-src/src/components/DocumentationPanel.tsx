@@ -50,9 +50,11 @@ export function DocumentationPanel({ isOpen, onClose, scrollToSection, inline, o
     send: { description: "Queue a message at a named sync point.", example: "send('data', 42)", returns: "Returns: nothing", sectionId: "sync" },
     sync: { description: "Block until n messages arrive at syncId. Returns all messages.", example: "sync('data', 2)", returns: "Returns: array of messages", sectionId: "sync" },
     hash: { description: "Hash a string (up to 16 chars) into hex digits. Takes 0.5s.", example: "hash('test')", returns: "Returns: { hashValue: 'a3f0', hashTest: true if trailing zeros, hashFound: true if this hash was already submitted }", sectionId: "mining" },
-    submitHash: { description: "Submit a string whose hash ends in zeros to mine 1 E. Crashes if invalid.", example: "submitHash('mystring')", returns: "Returns: 1 on success", sectionId: "mining" },
-    gpuHash: { description: "Batch hash using GPU cores. Array size must equal GPU core count.", example: "gpuHash(['str1', 'str2', ...])", returns: "Returns: [{input, output}, ...]", sectionId: "mining" },
-    getMiningInfo: { description: "Get mining stats: input/output sizes, suffixes found, total mined, GPU info.", example: "let info = getMiningInfo()\nlog(info)", returns: "Returns: { level, inputSize, outputSize, suffixesFound, suffixesTotal, totalMined, gpuCores, ... }", sectionId: "mining" },
+    submitHash: { description: "Submit a string or array to mine E. Single string crashes if invalid. Array skips invalid entries.", example: "submitHash('mystring')\n// or batch:\nsubmitHash(valid) // from gpuQuery", returns: "Returns: number of E earned", sectionId: "mining" },
+    gpuHash: { description: "Run a gpuProc on all GPU cores in parallel. Each core calls your proc with its coreId (string) and hashes the returned string.", example: "let results = gpuHash(gpuProc(coreId) {\n  return 'mine' + coreId\n})\nlog(results)", returns: "Returns: [{input, output}, ...]", sectionId: "gpu" },
+    gpuQuery: { description: "Filter GPU hash results using a gpuProc. Return true to keep. Takes 0.5s.", example: "let valid = gpuQuery(results, gpuProc(r) {\n  return r.output.match(/0$/)\n})", returns: "Returns: [{input, output}, ...] — filtered results", sectionId: "gpu" },
+    getGpuCores: { description: "Get total GPU cores across all installed modules. Takes 0.5s.", example: "let cores = getGpuCores()\nlog(cores)", returns: "Returns: number of cores (e.g. 32)", sectionId: "gpu" },
+    getMiningInfo: { description: "Get mining stats: level, suffixes, total mined, GPU cores installed.", example: "let info = getMiningInfo()\nlog(info)", returns: "Returns: { level, inputSize, outputSize, suffixesFound, suffixesTotal, totalMined, gpuModules, gpuCores, ... }", sectionId: "gpu" },
     dbGet: { description: "Get a value from the persistent key-value store. Takes 0.5s.", example: "dbGet('mykey')", returns: "Returns: string value or null", sectionId: "storage" },
     dbSet: { description: "Store a key-value pair on the hard drive. Takes 0.5s.", example: "dbSet('mykey', 'myvalue')", returns: "Returns: true if stored, false if drive full", sectionId: "storage" },
     dbDelete: { description: "Delete a key from the store. Takes 0.5s.", example: "dbDelete('mykey')", returns: "Returns: true if key existed", sectionId: "storage" },
@@ -82,6 +84,7 @@ export function DocumentationPanel({ isOpen, onClose, scrollToSection, inline, o
             ...(tech.stockMarketUnlocked ? [{ label: "Trading", id: "stock-market" }] : []),
             ...(tech.syncFunctionUnlocked ? [{ label: "Sync", id: "sync" }] : []),
             ...(tech.resourceEUnlocked ? [{ label: "Mining", id: "mining" }] : []),
+            ...(tech.gpuTier1Unlocked ? [{ label: "GPU", id: "gpu" }] : []),
             ...(tech.kvStoreUnlocked ? [{ label: "Storage", id: "storage" }] : []),
             { label: "Tips", id: "tips" },
           ].map((item) => (
@@ -191,6 +194,33 @@ export function DocumentationPanel({ isOpen, onClose, scrollToSection, inline, o
           <DocCard t={t}>
             <DocText t={t}>Check mining stats:</DocText>
             <CodeBlock t={t} onInsertCode={onInsertCode}>{"let info = getMiningInfo()\nlog(info)"}</CodeBlock>
+          </DocCard>
+        </Section>
+      )}
+
+      {/* GPU */}
+      {tech.gpuTier1Unlocked && (
+        <Section title="GPU" t={t} sectionId="gpu">
+          <DocCard t={t}>
+            <DocText t={t}>GPU mining workflow — hash, filter, submit:</DocText>
+            <CodeBlock t={t} onInsertCode={onInsertCode}>{"let results = gpuHash(gpuProc(coreId) {\n  return 'mine' + coreId\n})\nlet valid = gpuQuery(results, gpuProc(r) {\n  return r.output.match(/0$/)\n})\nlet earned = submitHash(valid)\nlog(earned)"}</CodeBlock>
+          </DocCard>
+          <DocCard t={t}>
+            <DocText t={t}>gpuHash(proc) — runs your proc on every GPU core in parallel. coreId is a string. Returns [{"{"}input, output{"}"}].</DocText>
+          </DocCard>
+          <DocCard t={t}>
+            <DocText t={t}>gpuQuery(results, proc) — filters results using your proc. Return true to keep the entry.</DocText>
+            <CodeBlock t={t} onInsertCode={onInsertCode}>{"// Match hashes ending in zeros\ngpuQuery(results, gpuProc(r) {\n  return r.output.match(/0$/)\n})"}</CodeBlock>
+          </DocCard>
+          <DocCard t={t}>
+            <DocText t={t}>submitHash(valid) — accepts a single string or an array from gpuQuery. Returns total E earned.</DocText>
+          </DocCard>
+          <DocCard t={t}>
+            <DocText t={t}>gpuProc only supports basic math and string ops — no CPU functions like log() or hash() inside.</DocText>
+          </DocCard>
+          <DocCard t={t}>
+            <DocText t={t}>getMiningInfo() — returns all mining and GPU stats:</DocText>
+            <CodeBlock t={t} onInsertCode={onInsertCode}>{"let info = getMiningInfo()\nlog(info.gpuCores)      // total GPU cores\nlog(info.gpuModules)    // number of GPUs installed\nlog(info.level)         // current mining level\nlog(info.totalMined)    // total E mined\nlog(info.suffixesFound) // suffix patterns found\nlog(info.suffixesTotal) // suffixes needed for next level\nlog(info.hashesFound)   // unique hashes submitted\nlog(info.outputSize)    // hex digits in hash output"}</CodeBlock>
           </DocCard>
         </Section>
       )}

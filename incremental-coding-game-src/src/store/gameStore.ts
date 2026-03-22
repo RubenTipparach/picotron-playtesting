@@ -42,6 +42,10 @@ export interface TechUnlocks {
   motherboard2Unlocked: boolean;
   motherboard3Unlocked: boolean;
   motherboard4Unlocked: boolean;
+  motherboard5Unlocked: boolean;
+  motherboard6Unlocked: boolean;
+  motherboard7Unlocked: boolean;
+  motherboard8Unlocked: boolean;
   ramTier2Unlocked: boolean;
   ramTier3Unlocked: boolean;
   ramTier4Unlocked: boolean;
@@ -90,6 +94,7 @@ export interface GameState {
   foundSuffixes: string[];
   foundHashes: string[];
   gpuTier: number;
+  gpuModules: number[];
   eMarketActive: boolean;
   testMode: boolean;
   // Storage
@@ -117,6 +122,8 @@ export interface GameActions {
   addFoundSuffix: (suffix: string) => void;
   addFoundHash: (hash: string) => void;
   setGpuTier: (tier: number) => void;
+  installGpuModule: (tier: number) => void;
+  removeGpuModule: (index: number) => number;
   setEMarketActive: () => void;
   setMarket: (marketData: Record<string, unknown> | null) => void;
   persistMarket: (marketData: Record<string, unknown> | null) => void;
@@ -152,6 +159,10 @@ const defaultState: GameState = {
     motherboard2Unlocked: false,
     motherboard3Unlocked: false,
     motherboard4Unlocked: false,
+    motherboard5Unlocked: false,
+    motherboard6Unlocked: false,
+    motherboard7Unlocked: false,
+    motherboard8Unlocked: false,
     ramTier2Unlocked: false,
     ramTier3Unlocked: false,
     ramTier4Unlocked: false,
@@ -198,6 +209,7 @@ const defaultState: GameState = {
   foundSuffixes: [],
   foundHashes: [],
   gpuTier: 0,
+  gpuModules: [],
   eMarketActive: false,
   testMode: false,
   // Storage
@@ -230,7 +242,11 @@ function loadGameState(): GameState {
       else if (tech.internet1Unlocked) internetLevel = Math.max(internetLevel, 1);
 
       let motherboardLevel = parsed.motherboardLevel ?? defaultState.motherboardLevel;
-      if (tech.motherboard4Unlocked) motherboardLevel = Math.max(motherboardLevel, 4);
+      if (tech.motherboard8Unlocked) motherboardLevel = Math.max(motherboardLevel, 8);
+      else if (tech.motherboard7Unlocked) motherboardLevel = Math.max(motherboardLevel, 7);
+      else if (tech.motherboard6Unlocked) motherboardLevel = Math.max(motherboardLevel, 6);
+      else if (tech.motherboard5Unlocked) motherboardLevel = Math.max(motherboardLevel, 5);
+      else if (tech.motherboard4Unlocked) motherboardLevel = Math.max(motherboardLevel, 4);
       else if (tech.motherboard3Unlocked) motherboardLevel = Math.max(motherboardLevel, 3);
       else if (tech.motherboard2Unlocked) motherboardLevel = Math.max(motherboardLevel, 2);
 
@@ -257,6 +273,7 @@ function loadGameState(): GameState {
         foundSuffixes: parsed.foundSuffixes ?? defaultState.foundSuffixes,
         foundHashes: parsed.foundHashes ?? defaultState.foundHashes,
         gpuTier: parsed.gpuTier ?? defaultState.gpuTier,
+        gpuModules: parsed.gpuModules ?? defaultState.gpuModules,
         eMarketActive: parsed.eMarketActive ?? defaultState.eMarketActive,
         testMode: false,
         kvStore: parsed.kvStore ?? defaultState.kvStore,
@@ -336,6 +353,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
     foundSuffixes: initial.foundSuffixes,
     foundHashes: initial.foundHashes,
     gpuTier: initial.gpuTier,
+    gpuModules: initial.gpuModules,
     eMarketActive: initial.eMarketActive,
     testMode: false,
     kvStore: initial.kvStore,
@@ -538,6 +556,27 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
       set({ gpuTier: tier });
     },
 
+    /** Install a GPU module */
+    installGpuModule: (tier: number) => {
+      const current = get();
+      const gpuModules = [...current.gpuModules, tier];
+      const state = { ...current, gpuModules };
+      saveGameStateToStorage(state);
+      set({ gpuModules });
+    },
+
+    /** Remove a GPU module by index. Returns the tier of the removed module. */
+    removeGpuModule: (index: number): number => {
+      const current = get();
+      const tier = current.gpuModules[index];
+      if (tier === undefined) return 0;
+      const gpuModules = current.gpuModules.filter((_, i) => i !== index);
+      const state = { ...current, gpuModules };
+      saveGameStateToStorage(state);
+      set({ gpuModules });
+      return tier;
+    },
+
     /** Activate E market (after 1000 E mined) */
     setEMarketActive: () => {
       const current = get();
@@ -645,6 +684,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
         foundSuffixes: loaded.foundSuffixes,
         foundHashes: loaded.foundHashes,
         gpuTier: loaded.gpuTier,
+        gpuModules: loaded.gpuModules,
         eMarketActive: loaded.eMarketActive,
         kvStore: loaded.kvStore,
       });
@@ -671,6 +711,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => {
         foundSuffixes: defaultState.foundSuffixes,
         foundHashes: defaultState.foundHashes,
         gpuTier: defaultState.gpuTier,
+        gpuModules: defaultState.gpuModules,
         eMarketActive: defaultState.eMarketActive,
         kvStore: defaultState.kvStore,
       });

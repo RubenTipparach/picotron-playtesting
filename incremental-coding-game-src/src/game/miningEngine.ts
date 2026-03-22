@@ -9,7 +9,7 @@
  */
 
 import { useGameStore } from "../store/gameStore";
-import { GPU_TIER_CORES } from "./hardware";
+import { GPU_TIER_CORES, getEffectiveGpuCores } from "./hardware";
 
 // ─── Hash Function ───────────────────────────────────────────────────
 
@@ -130,19 +130,9 @@ export function submitHashResult(input: string): number {
 
 /**
  * Batch hash for GPU mining.
- * Array length must exactly equal GPU core count.
  * Returns array of {input, output} pairs.
  */
-export function gpuBatchHash(inputs: string[], gpuTier: number): Array<{ input: string; output: string }> {
-  if (gpuTier <= 0) {
-    throw new Error("gpuHash() failed — no GPU installed. Research GPU Tier 1.");
-  }
-
-  const requiredCores = GPU_TIER_CORES[gpuTier] || 0;
-  if (inputs.length !== requiredCores) {
-    throw new Error(`gpuHash() failed — array must have exactly ${requiredCores} elements (GPU T${gpuTier} has ${requiredCores} cores). Got ${inputs.length}.`);
-  }
-
+export function gpuBatchHash(inputs: string[]): Array<{ input: string; output: string }> {
   const level = useGameStore.getState().miningLevel;
   const digits = getHashDigits(level);
 
@@ -172,8 +162,8 @@ export function getMiningSummary() {
     totalMined: store.totalEMined,
     eMarketActive: store.eMarketActive,
     marketAt: 1000,
-    gpuTier: store.gpuTier,
-    gpuCores: GPU_TIER_CORES[store.gpuTier] || 0,
+    gpuModules: store.gpuModules.length,
+    gpuCores: getEffectiveGpuCores(store.gpuModules),
   };
 }
 

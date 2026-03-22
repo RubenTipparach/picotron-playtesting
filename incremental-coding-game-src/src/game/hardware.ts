@@ -9,16 +9,21 @@
 export interface MotherboardSpec {
   maxRamSlots: number;
   maxCpuCores: number;
+  maxGpuSlots: number;
   name: string;
 }
 
 export function getMotherboardSpec(level: number): MotherboardSpec {
   switch (level) {
-    case 1: return { maxRamSlots: 4, maxCpuCores: 1, name: "M1" };
-    case 2: return { maxRamSlots: 8, maxCpuCores: 2, name: "M2" };
-    case 3: return { maxRamSlots: 16, maxCpuCores: 4, name: "M3" };
-    case 4: return { maxRamSlots: 32, maxCpuCores: 4, name: "M4" };
-    default: return { maxRamSlots: 4, maxCpuCores: 1, name: "M1" };
+    case 1: return { maxRamSlots: 4,   maxCpuCores: 1, maxGpuSlots: 0,  name: "M1" };
+    case 2: return { maxRamSlots: 8,   maxCpuCores: 2, maxGpuSlots: 0,  name: "M2" };
+    case 3: return { maxRamSlots: 16,  maxCpuCores: 4, maxGpuSlots: 0,  name: "M3" };
+    case 4: return { maxRamSlots: 32,  maxCpuCores: 4, maxGpuSlots: 1,  name: "M4" };
+    case 5: return { maxRamSlots: 48,  maxCpuCores: 4, maxGpuSlots: 4,  name: "M5" };
+    case 6: return { maxRamSlots: 64,  maxCpuCores: 4, maxGpuSlots: 8,  name: "M6" };
+    case 7: return { maxRamSlots: 96,  maxCpuCores: 4, maxGpuSlots: 12, name: "M7" };
+    case 8: return { maxRamSlots: 128, maxCpuCores: 4, maxGpuSlots: 16, name: "M8" };
+    default: return { maxRamSlots: 4,  maxCpuCores: 1, maxGpuSlots: 0,  name: "M1" };
   }
 }
 
@@ -77,7 +82,7 @@ export function getEffectiveRam(ramModules: number[]): number {
 
 // ─── GPU (Mining) ────────────────────────────────────────────────────
 
-/** GPU parallel cores by tier */
+/** GPU cores per module tier */
 export const GPU_TIER_CORES: Record<number, number> = {
   0: 0,
   1: 16,
@@ -87,14 +92,22 @@ export const GPU_TIER_CORES: Record<number, number> = {
   5: 4096,
 };
 
-/** Credit cost to research each GPU tier */
+/** Credit cost per GPU module by tier */
 export const GPU_TIER_COSTS: Record<number, number> = {
-  1: 500,
-  2: 5000,
-  3: 50000,
-  4: 500000,
-  5: 5000000,
+  1: 50000,
+  2: 250000,
+  3: 1000000,
+  4: 5000000,
+  5: 25000000,
 };
+
+/**
+ * Compute total GPU cores from installed modules.
+ */
+export function getEffectiveGpuCores(gpuModules: number[]): number {
+  if (!gpuModules || !Array.isArray(gpuModules)) return 0;
+  return gpuModules.reduce((sum, tier) => sum + (GPU_TIER_CORES[tier] || 0), 0);
+}
 
 // ─── Internet / Trade Volume ─────────────────────────────────────────
 

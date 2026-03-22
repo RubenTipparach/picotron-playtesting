@@ -13,7 +13,7 @@ import {
   executeSell,
   addMarketProfit,
 } from "./marketEngine";
-import { getEffectiveCpuSpeed, getMaxTradeVolume } from "./hardware";
+import { getEffectiveCpuSpeed, getMaxTradeVolume, getEffectiveGpuCores } from "./hardware";
 import { busSend, busSync } from "./syncBus";
 import { gameHash, getHashDigits, submitHashResult, gpuBatchHash, getMiningSummary, testHashResult } from "./miningEngine";
 
@@ -45,8 +45,10 @@ export interface API {
   sync(syncId: string, n: number): Promise<any[]>;
   send(syncId: string, msg: any): Promise<void>;
   hash(input: string): Promise<{ hashValue: string; hashTest: boolean; hashFound: boolean }>;
-  submitHash(input: string): Promise<number>;
-  gpuHash(inputs: string[]): Promise<Array<{ input: string; output: string }>>;
+  submitHash(input: string | string[]): Promise<number>;
+  gpuHash(shader: (coreId: string) => string): Promise<Array<{ input: string; output: string }>>;
+  gpuQuery(results: Array<{ input: string; output: string }>, filter: (r: { input: string; output: string }) => boolean): Promise<Array<{ input: string; output: string }>>;
+  getGpuCores(): Promise<number>;
   getMiningInfo(): Promise<any>;
   testHash(input: string): Promise<any>;
   dbGet(key: string): Promise<string | null>;
@@ -74,6 +76,8 @@ export const ALL_API_FUNCTIONS: string[] = [
   "hash",
   "submitHash",
   "gpuHash",
+  "gpuQuery",
+  "getGpuCores",
   "getMiningInfo",
   "testHash",
   "dbGet",
@@ -687,7 +691,7 @@ export function createAPI(executionContext: APICallContext): API {
      * Takes 1 second. Throws if hash is invalid (no trailing zeros).
      * @returns 1 on success
      */
-    async submitHash(input: string): Promise<number> {
+    async submitHash(input: string | string[]): Promise<number> {
       const context: APICallContext = {
         ...executionContext,
         functionName: "submitHash",
@@ -697,19 +701,26 @@ export function createAPI(executionContext: APICallContext): API {
 
       await executeWithDelay(1000, context, () => {
         if (context.isCancelled?.()) return;
-        earned = submitHashResult(input);
+        if (Array.isArray(input)) {
+          for (const item of input) {
+            const s = typeof item === "string" ? item : (item && typeof item === "object" && "input" in item) ? (item as any).input : String(item);
+            try { earned += submitHashResult(s); } catch { /* skip invalid */ }
+          }
+        } else {
+          earned = submitHashResult(input);
+        }
       });
 
       return context.isCancelled?.() ? 0 : earned;
     },
 
     /**
-     * Batch hash strings using GPU cores.
-     * Array length must exactly equal GPU core count.
+     * Run a shader function on all GPU cores in parallel.
+     * The shader receives a coreId (0 to N-1) and returns a string to hash.
      * Takes 2 seconds.
      * @returns Array of {input, output} pairs
      */
-    async gpuHash(inputs: string[]): Promise<Array<{ input: string; output: string }>> {
+    async gpuHash(shader: (coreId: string) => string): Promise<Array<{ input: string; output: string }>> {
       const context: APICallContext = {
         ...executionContext,
         functionName: "gpuHash",
@@ -719,11 +730,76 @@ export function createAPI(executionContext: APICallContext): API {
 
       await executeWithDelay(2000, context, () => {
         if (context.isCancelled?.()) return;
-        const gpuTier = useGameStore.getState().gpuTier;
-        results = gpuBatchHash(inputs, gpuTier);
+        if (typeof shader !== "function") {
+          throw new Error("gpuHash() requires a shader function: gpuHash(function(coreId) { return 'str' + coreId })");
+        }
+        // Run shader on each core to build inputs
+        const store = useGameStore.getState();
+        const totalCores = getEffectiveGpuCores(store.gpuModules);
+        if (totalCores <= 0) {
+          throw new Error("gpuHash() failed — no GPU modules installed. Buy GPUs in the Shop.");
+        }
+        const inputs: string[] = [];
+        for (let i = 0; i < totalCores; i++) {
+          const val = shader(String(i));
+          inputs.push(typeof val === "string" ? val : String(val));
+        }
+        results = gpuBatchHash(inputs);
       });
 
       return context.isCancelled?.() ? [] : results;
+    },
+
+    /**
+     * Filter GPU hash results using a gpuProc filter function.
+     * The filter receives each {input, output} and returns true to keep it.
+     * Takes 0.5 seconds.
+     */
+    async gpuQuery(results: Array<{ input: string; output: string }>, filter: (r: { input: string; output: string }) => boolean): Promise<Array<{ input: string; output: string }>> {
+      const context: APICallContext = {
+        ...executionContext,
+        functionName: "gpuQuery",
+        lineNumber: executionContext.lineNumber,
+      };
+      let filtered: Array<{ input: string; output: string }> = [];
+
+      await executeWithDelay(500, context, () => {
+        if (context.isCancelled?.()) return;
+        if (!Array.isArray(results)) {
+          throw new Error("gpuQuery() requires an array of {input, output} from gpuHash().");
+        }
+        if (typeof filter !== "function") {
+          throw new Error("gpuQuery() requires a filter gpuProc: gpuQuery(results, gpuProc(r) { return r.output.match(/0$/) })");
+        }
+        for (const r of results) {
+          if (!r || typeof r.input !== "string" || typeof r.output !== "string") continue;
+          try {
+            if (filter(r)) filtered.push(r);
+          } catch { /* skip errors in filter */ }
+        }
+      });
+
+      return context.isCancelled?.() ? [] : filtered;
+    },
+
+    /**
+     * Get total GPU cores across all installed modules.
+     * Takes 0.5 seconds.
+     */
+    async getGpuCores(): Promise<number> {
+      const context: APICallContext = {
+        ...executionContext,
+        functionName: "getGpuCores",
+        lineNumber: executionContext.lineNumber,
+      };
+      let cores = 0;
+
+      await executeWithDelay(500, context, () => {
+        if (context.isCancelled?.()) return;
+        cores = getEffectiveGpuCores(useGameStore.getState().gpuModules);
+      });
+
+      return context.isCancelled?.() ? 0 : cores;
     },
 
     /**

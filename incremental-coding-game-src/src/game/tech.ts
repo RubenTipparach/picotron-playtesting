@@ -340,7 +340,7 @@ export const TECH_UNLOCKS: TechUnlock[] = [
   {
     id: "motherboard4Unlocked",
     name: "Motherboard IV",
-    description: "M4 board: 32 RAM slots, 4 CPU cores, GPU slot.",
+    description: "M4 board: 32 RAM slots, 4 CPU cores, 1 GPU slot.",
     threshold: (resources) => useGameStore.getState().credits >= 10000 && resources.E >= 10,
     cost: [{ resource: "E", amount: 10 }],
     creditCost: 10000,
@@ -349,6 +349,58 @@ export const TECH_UNLOCKS: TechUnlock[] = [
     dependencies: ["motherboard3Unlocked"],
     position: { row: 5, col: 4 },
     onUnlock: () => useGameStore.getState().setMotherboardLevel(4),
+  },
+  {
+    id: "motherboard5Unlocked",
+    name: "Motherboard V",
+    description: "M5 board: 48 RAM slots, 4 CPU cores, 6 GPU slots.",
+    threshold: (resources) => useGameStore.getState().credits >= 100000 && resources.E >= 100,
+    cost: [{ resource: "E", amount: 100 }],
+    creditCost: 100000,
+    unlocked: false,
+    icon: "\uD83D\uDCBB",
+    dependencies: ["motherboard4Unlocked"],
+    position: { row: 6, col: 4 },
+    onUnlock: () => useGameStore.getState().setMotherboardLevel(5),
+  },
+  {
+    id: "motherboard6Unlocked",
+    name: "Motherboard VI",
+    description: "M6 board: 64 RAM slots, 4 CPU cores, 8 GPU slots.",
+    threshold: (resources) => useGameStore.getState().credits >= 500000 && resources.E >= 500,
+    cost: [{ resource: "E", amount: 500 }],
+    creditCost: 500000,
+    unlocked: false,
+    icon: "\uD83D\uDCBB",
+    dependencies: ["motherboard5Unlocked"],
+    position: { row: 7, col: 4 },
+    onUnlock: () => useGameStore.getState().setMotherboardLevel(6),
+  },
+  {
+    id: "motherboard7Unlocked",
+    name: "Motherboard VII",
+    description: "M7 board: 96 RAM slots, 4 CPU cores, 12 GPU slots.",
+    threshold: (resources) => useGameStore.getState().credits >= 2500000 && resources.E >= 2000,
+    cost: [{ resource: "E", amount: 2000 }],
+    creditCost: 2500000,
+    unlocked: false,
+    icon: "\uD83D\uDCBB",
+    dependencies: ["motherboard6Unlocked"],
+    position: { row: 8, col: 4 },
+    onUnlock: () => useGameStore.getState().setMotherboardLevel(7),
+  },
+  {
+    id: "motherboard8Unlocked",
+    name: "Motherboard VIII",
+    description: "M8 board: 128 RAM slots, 4 CPU cores, 16 GPU slots.",
+    threshold: (resources) => useGameStore.getState().credits >= 10000000 && resources.E >= 10000,
+    cost: [{ resource: "E", amount: 10000 }],
+    creditCost: 10000000,
+    unlocked: false,
+    icon: "\uD83D\uDCBB",
+    dependencies: ["motherboard7Unlocked"],
+    position: { row: 9, col: 4 },
+    onUnlock: () => useGameStore.getState().setMotherboardLevel(8),
   },
   // ─── Hardware: RAM Tiers ───────────────────────────────────────────
   {
@@ -466,7 +518,7 @@ export const TECH_UNLOCKS: TechUnlock[] = [
     cost: [{ resource: "D", amount: 1000 }],
     creditCost: 10000,
     unlocked: false,
-    validationRegex: /\b(hash|submitHash|testHash|gpuHash|getMiningInfo)\s*\(/,
+    validationRegex: /\b(hash|submitHash|testHash|getMiningInfo)\s*\(/,
     validationErrorMessage: "Mining functions are not unlocked yet. Research Resource E.",
     icon: "E",
     dependencies: ["resourceDUnlocked"],
@@ -493,7 +545,7 @@ export const TECH_UNLOCKS: TechUnlock[] = [
     unlocked: false,
     icon: "E",
     dependencies: ["resourceEUnlocked"],
-    position: { row: 6, col: 4 },
+    position: { row: 5, col: 3 },
     progressInfo: () => {
       const total = useGameStore.getState().totalEMined;
       return { current: Math.min(total, 1000), target: 1000, label: "E mined" };
@@ -551,24 +603,25 @@ export const TECH_UNLOCKS: TechUnlock[] = [
     dependencies: ["hddTier3Unlocked"],
     position: { row: 9, col: 1 },
   },
-  // ─── Mining: GPU Tiers ─────────────────────────────────────────────
+  // ─── Mining: GPU ───────────────────────────────────────────────────
   {
     id: "gpuTier1Unlocked",
-    name: "GPU Tier 1",
-    description: "16-core GPU. Call gpuHash(array) to hash 16 strings at once.",
+    name: "GPU Slot",
+    description: "Unlocks GPU slots and gpuHash(). Buy GPU modules in the Shop.",
     threshold: (resources) => useGameStore.getState().credits >= 500 && resources.E >= 10,
     cost: [{ resource: "E", amount: 10 }],
     creditCost: 500,
     unlocked: false,
+    validationRegex: /\b(gpuHash|gpuQuery|getGpuCores)\s*\(/,
+    validationErrorMessage: "GPU functions are not unlocked yet. Research GPU Slot.",
     icon: "\uD83C\uDFAE",
-    dependencies: ["digitalMiningUnlocked", "motherboard4Unlocked"],
+    dependencies: ["digitalMiningUnlocked"],
     position: { row: 6, col: 3 },
-    onUnlock: () => useGameStore.getState().setGpuTier(1),
   },
   {
     id: "gpuTier2Unlocked",
     name: "GPU Tier 2",
-    description: "64-core GPU. Hash 64 strings per gpuHash() call.",
+    description: "Unlocks T2 GPU modules (64 cores) in the Shop.",
     threshold: (resources) => useGameStore.getState().credits >= 5000 && resources.E >= 50,
     cost: [{ resource: "E", amount: 50 }],
     creditCost: 5000,
@@ -576,12 +629,11 @@ export const TECH_UNLOCKS: TechUnlock[] = [
     icon: "\uD83C\uDFAE",
     dependencies: ["gpuTier1Unlocked"],
     position: { row: 7, col: 3 },
-    onUnlock: () => useGameStore.getState().setGpuTier(2),
   },
   {
     id: "gpuTier3Unlocked",
     name: "GPU Tier 3",
-    description: "256-core GPU. Hash 256 strings per gpuHash() call.",
+    description: "Unlocks T3 GPU modules (256 cores) in the Shop.",
     threshold: (resources) => useGameStore.getState().credits >= 50000 && resources.E >= 200,
     cost: [{ resource: "E", amount: 200 }],
     creditCost: 50000,
@@ -589,12 +641,11 @@ export const TECH_UNLOCKS: TechUnlock[] = [
     icon: "\uD83C\uDFAE",
     dependencies: ["gpuTier2Unlocked"],
     position: { row: 8, col: 3 },
-    onUnlock: () => useGameStore.getState().setGpuTier(3),
   },
   {
     id: "gpuTier4Unlocked",
     name: "GPU Tier 4",
-    description: "1024-core GPU. Hash 1024 strings per gpuHash() call.",
+    description: "Unlocks T4 GPU modules (1024 cores) in the Shop.",
     threshold: (resources) => useGameStore.getState().credits >= 500000 && resources.E >= 1000,
     cost: [{ resource: "E", amount: 1000 }],
     creditCost: 500000,
@@ -602,12 +653,11 @@ export const TECH_UNLOCKS: TechUnlock[] = [
     icon: "\uD83C\uDFAE",
     dependencies: ["gpuTier3Unlocked"],
     position: { row: 9, col: 3 },
-    onUnlock: () => useGameStore.getState().setGpuTier(4),
   },
   {
     id: "gpuTier5Unlocked",
     name: "GPU Tier 5",
-    description: "4096-core GPU. Hash 4096 strings per gpuHash() call.",
+    description: "Unlocks T5 GPU modules (4096 cores) in the Shop.",
     threshold: (resources) => useGameStore.getState().credits >= 5000000 && resources.E >= 5000,
     cost: [{ resource: "E", amount: 5000 }],
     creditCost: 5000000,
@@ -615,7 +665,6 @@ export const TECH_UNLOCKS: TechUnlock[] = [
     icon: "\uD83C\uDFAE",
     dependencies: ["gpuTier4Unlocked"],
     position: { row: 10, col: 3 },
-    onUnlock: () => useGameStore.getState().setGpuTier(5),
   },
 ];
 
@@ -662,7 +711,7 @@ export function getAvailableFunctions(): string[] {
   if (tech.syncFunctionUnlocked) functions.push("sync", "send");
   if (tech.resourceEUnlocked) functions.push("hash", "submitHash", "testHash");
   if (tech.digitalMiningUnlocked) functions.push("getMiningInfo");
-  if (tech.gpuTier1Unlocked) functions.push("gpuHash");
+  if (tech.gpuTier1Unlocked) functions.push("gpuHash", "gpuQuery", "getGpuCores");
   if (tech.kvStoreUnlocked) functions.push("dbGet", "dbSet", "dbDelete", "dbExists", "dbSize");
 
   return functions;
@@ -682,6 +731,7 @@ export const TECH_TO_DOCS_SECTION: Record<string, string> = {
   tryCatchUnlocked: "try-catch",
   stockMarketUnlocked: "stock-market",
   syncFunctionUnlocked: "sync",
+  gpuTier1Unlocked: "gpu",
   kvStoreUnlocked: "storage",
 };
 
