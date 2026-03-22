@@ -219,7 +219,9 @@ export function App(): React.ReactElement {
 
   const { cores, internals, setCode: setCoreCode, loadCode: loadCoreCode, saveCode: saveCoreCode, saveAllCodes, runAll, stopAll, toggleCore, pauseAll, resumeAll, stepAll, isAnyRunning, isAnyPaused } = useMultiCore(cpuCores, appendLog, handleStatsEvent);
   const [activeCore, setActiveCore] = useState(0);
-  const [splitView, setSplitView] = useState(false);
+  const [splitView, setSplitView] = useState(() => {
+    try { return localStorage.getItem("split-view") === "true"; } catch { return false; }
+  });
   const [isSnippetsOpen, setIsSnippetsOpen] = useState<boolean>(false);
   const [showPerf, setShowPerf] = useState(false);
 
@@ -643,7 +645,7 @@ export function App(): React.ReactElement {
                 <button onClick={() => setIsSnippetsOpen(false)} style={{ fontFamily: theme.font, fontSize: "12px", color: theme.primary, backgroundColor: "transparent", border: "none", cursor: "pointer" }}>X</button>
               </div>
               <div style={{ flex: 1, overflowY: "auto" }}>
-                <SnippetsPanel currentCode={code} onLoad={(snippetCode: string) => { loadCoreCode(activeCore, snippetCode); setIsSnippetsOpen(false); }} />
+                <SnippetsPanel currentCode={code} onLoad={(snippetCode: string) => { loadCoreCode(activeCore, snippetCode); setIsSnippetsOpen(false); }} onInsert={(snippetCode: string) => { if (editorRef.current?.insertText) editorRef.current.insertText(snippetCode); }} />
               </div>
             </div>
           </div>
@@ -730,7 +732,7 @@ export function App(): React.ReactElement {
                 );
               })}
               <button
-                onClick={() => setSplitView((v) => !v)}
+                onClick={() => setSplitView((v) => { const next = !v; try { localStorage.setItem("split-view", String(next)); } catch {} return next; })}
                 style={{
                   marginLeft: "auto", padding: "4px 8px", fontSize: "10px", fontFamily: theme.font,
                   backgroundColor: splitView ? theme.primary : theme.bg,
@@ -760,7 +762,7 @@ export function App(): React.ReactElement {
                       fontSize: "9px", fontFamily: theme.font, color: theme.primaryDark,
                       backgroundColor: `${theme.bg}cc`, padding: "1px 4px",
                     }}>
-                      C{i + 1} {core.isRunning ? "\u25B6" : ""}
+                      C{i + 1} {!core.enabled ? "\u25CB" : core.isRunning ? "\u25B6" : ""}
                     </div>
                     <CodeEditor
                       ref={internals[i]?.editorRef}
@@ -769,18 +771,22 @@ export function App(): React.ReactElement {
                       onOpenTechTree={(techId: string) => { setIsTechTreeOpen(true); setTechTreeSelectedId(techId); }}
                       coreId={i}
                     />
+                    {!core.enabled && <div style={{ position: "absolute", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", zIndex: 5 }} />}
                   </div>
                 ))}
               </div>
             ) : (
               /* Tabbed view: single editor */
-              <CodeEditor
-                ref={internals[activeCore]?.editorRef}
-                code={code}
-                onCodeChange={(v: string) => setCoreCode(activeCore, v)}
-                onOpenTechTree={(techId: string) => { setIsTechTreeOpen(true); setTechTreeSelectedId(techId); }}
-                coreId={activeCore}
-              />
+              <div style={{ height: "100%", position: "relative" }}>
+                <CodeEditor
+                  ref={internals[activeCore]?.editorRef}
+                  code={code}
+                  onCodeChange={(v: string) => setCoreCode(activeCore, v)}
+                  onOpenTechTree={(techId: string) => { setIsTechTreeOpen(true); setTechTreeSelectedId(techId); }}
+                  coreId={activeCore}
+                />
+                {!cores[activeCore]?.enabled && <div style={{ position: "absolute", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", zIndex: 5 }} />}
+              </div>
             )}
             <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "3px", backgroundColor: theme.bg3 }}>
               <div style={{ height: "100%", width: `${ramPercent}%`, backgroundColor: ramColor, transition: "width 0.2s, background-color 0.3s" }} />
@@ -879,7 +885,7 @@ export function App(): React.ReactElement {
               <button onClick={() => setIsSnippetsOpen(false)} style={{ fontFamily: theme.font, fontSize: "12px", color: theme.primary, backgroundColor: "transparent", border: "none", cursor: "pointer" }}>X</button>
             </div>
             <div style={{ flex: 1, overflowY: "auto" }}>
-              <SnippetsPanel currentCode={code} onLoad={(snippetCode: string) => { loadCoreCode(activeCore, snippetCode); setIsSnippetsOpen(false); }} />
+              <SnippetsPanel currentCode={code} onLoad={(snippetCode: string) => { loadCoreCode(activeCore, snippetCode); setIsSnippetsOpen(false); }} onInsert={(snippetCode: string) => { if (editorRef.current?.insertText) editorRef.current.insertText(snippetCode); }} />
             </div>
           </div>
         </div>

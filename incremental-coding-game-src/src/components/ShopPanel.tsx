@@ -4,7 +4,7 @@ import { useTheme } from "../themes";
 import { trackRender } from "../utils/perfMonitor";
 import { formatMoney, formatPrice } from "../utils/format";
 import { getSellPrice, getBuyPrice, executeSell, executeBuy, addMarketProfit } from "../game/marketEngine";
-import { getEffectiveCpuSpeed, getCpuUpgradeCost, getMotherboardSpec, RAM_TIER_COSTS, RAM_TIER_TOKENS, getMaxTradeVolume } from "../game/hardware";
+import { getEffectiveCpuSpeed, getCpuUpgradeCost, getMotherboardSpec, RAM_TIER_COSTS, RAM_TIER_TOKENS, GPU_TIER_COSTS, GPU_TIER_CORES, getEffectiveGpuCores, getMaxTradeVolume } from "../game/hardware";
 
 const BASE_SELL_PRICES: Record<string, number> = { A: 1, B: 5, C: 25 };
 const BASE_BUY_PRICES: Record<string, number> = { A: 2, B: 8, C: 35 };
@@ -19,6 +19,7 @@ export const ShopPanel = React.memo(function ShopPanel() {
   const cpuLevel = useGameStore((s) => s.cpuLevel);
   const tech = useGameStore((s) => s.tech);
   const ramModules = useGameStore((s) => s.ramModules);
+  const gpuModules = useGameStore((s) => s.gpuModules);
   const motherboardLevel = useGameStore((s) => s.motherboardLevel);
   const internetLevel = useGameStore((s) => s.internetLevel);
   const cpuCores = useGameStore((s) => s.cpuCores);
@@ -107,6 +108,36 @@ export const ShopPanel = React.memo(function ShopPanel() {
     const tier = useGameStore.getState().removeRamModule(index);
     if (tier > 0) {
       const refund = (RAM_TIER_COSTS[tier] || 10) * 0.5;
+      useGameStore.getState().addCredits(refund);
+    }
+  };
+
+  const gpuSlotsUsed = gpuModules.length;
+  const gpuSlotsFull = gpuSlotsUsed >= mbSpec.maxGpuSlots;
+  const totalGpuCores = getEffectiveGpuCores(gpuModules);
+  const getMaxGpuTier = () => {
+    if (tech.gpuTier5Unlocked) return 5;
+    if (tech.gpuTier4Unlocked) return 4;
+    if (tech.gpuTier3Unlocked) return 3;
+    if (tech.gpuTier2Unlocked) return 2;
+    if (tech.gpuTier1Unlocked) return 1;
+    return 0;
+  };
+  const maxGpuTier = getMaxGpuTier();
+
+  const buyGpuModule = (tier: number) => {
+    const cost = GPU_TIER_COSTS[tier] || 500;
+    if (credits >= cost && !gpuSlotsFull) {
+      if (useGameStore.getState().spendCredits(cost)) {
+        useGameStore.getState().installGpuModule(tier);
+      }
+    }
+  };
+
+  const sellGpuModule = (index: number) => {
+    const tier = useGameStore.getState().removeGpuModule(index);
+    if (tier > 0) {
+      const refund = (GPU_TIER_COSTS[tier] || 500) * 0.5;
       useGameStore.getState().addCredits(refund);
     }
   };
@@ -214,6 +245,7 @@ export const ShopPanel = React.memo(function ShopPanel() {
         <div style={{ fontSize: "11px", color: t.primaryDim, display: "flex", gap: "12px" }}>
           <span>RAM: {slotsUsed}/{mbSpec.maxRamSlots} slots</span>
           <span>CPU: {cpuCores}/{mbSpec.maxCpuCores} cores</span>
+          {mbSpec.maxGpuSlots > 0 && <span>GPU: {gpuSlotsUsed}/{mbSpec.maxGpuSlots} slots</span>}
           <span>NET: Lv{internetLevel}</span>
         </div>
       </div>
@@ -279,6 +311,69 @@ export const ShopPanel = React.memo(function ShopPanel() {
           </div>
         )}
       </div>
+
+      {/* GPU Modules */}
+      {tech.gpuTier1Unlocked && (
+        <div style={{ marginBottom: "16px" }}>
+          <div style={{ color: t.primaryDim, fontSize: "11px", marginBottom: "8px", letterSpacing: "2px" }}>
+            [ GPU — {totalGpuCores} CORES ]
+          </div>
+          <div style={{ fontSize: "11px", color: t.primaryDim, marginBottom: "6px" }}>
+            {gpuSlotsUsed}/{mbSpec.maxGpuSlots} modules installed
+          </div>
+
+          {gpuModules.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginBottom: "6px" }}>
+              {gpuModules.map((tier, i) => (
+                <div key={i} style={{
+                  display: "inline-flex", alignItems: "center", gap: "4px",
+                  padding: "2px 6px", fontSize: "10px", fontFamily: t.font,
+                  backgroundColor: t.bg3, border: `1px solid ${t.border}`, color: t.primaryDim,
+                }}>
+                  T{tier} ({GPU_TIER_CORES[tier]}c)
+                  <span
+                    onClick={() => sellGpuModule(i)}
+                    style={{ color: t.red, cursor: "pointer", fontSize: "9px" }}
+                    title={`Sell for ${formatMoney((GPU_TIER_COSTS[tier] || 500) * 0.5)}`}
+                  >
+                    [x]
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {gpuSlotsFull ? (
+            <div style={{ color: t.primaryDark, fontSize: "11px" }}>
+              {mbSpec.maxGpuSlots === 0 ? "NO GPU SLOTS — Research next motherboard" : "GPU SLOTS FULL — Research next motherboard"}
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+              {Array.from({ length: maxGpuTier }, (_, i) => i + 1).map((tier) => {
+                const cost = GPU_TIER_COSTS[tier];
+                const cores = GPU_TIER_CORES[tier];
+                const canAfford = credits >= cost;
+                return (
+                  <button
+                    key={tier}
+                    onClick={() => buyGpuModule(tier)}
+                    disabled={!canAfford}
+                    style={{
+                      ...btnStyle(canAfford),
+                      padding: "4px 12px",
+                      fontSize: "11px",
+                      width: "100%",
+                      textAlign: "left",
+                    }}
+                  >
+                    T{tier} GPU (+{cores} cores) — {formatMoney(cost)}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* CPU Upgrade */}
       <div style={{ marginBottom: "16px" }}>

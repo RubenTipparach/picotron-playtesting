@@ -26,6 +26,7 @@ function saveSnippets(snippets: Snippet[]) {
 interface SnippetsPanelProps {
   currentCode: string;
   onLoad: (code: string) => void;
+  onInsert?: (code: string) => void;
 }
 
 /**
@@ -35,7 +36,7 @@ interface SnippetsPanelProps {
  *   currentCode: string -- the code currently in the editor
  *   onLoad: (code: string) => void -- called when user loads a snippet into the editor
  */
-export function SnippetsPanel({ currentCode, onLoad }: SnippetsPanelProps) {
+export function SnippetsPanel({ currentCode, onLoad, onInsert }: SnippetsPanelProps) {
   const t = useTheme();
   const [snippets, setSnippets] = useState<Snippet[]>(loadSnippets);
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -234,19 +235,11 @@ export function SnippetsPanel({ currentCode, onLoad }: SnippetsPanelProps) {
             {!isEditing && !isRenaming && (
               <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
                 <button onClick={() => onLoad(snippet.code)} style={btnStyle()}>LOAD</button>
-                <button onClick={() => { setRenamingId(snippet.id); setRenameValue(snippet.name); }} style={btnStyle()}>RENAME</button>
                 <button onClick={() => { setEditingId(snippet.id); setEditValue(snippet.code); }} style={btnStyle()}>EDIT</button>
-                <button
-                  onClick={() => {
-                    const updated = snippet.code !== currentCode ? currentCode : snippet.code;
-                    if (snippet.code === currentCode) return;
-                    setSnippets((prev) => prev.map((s) => s.id === snippet.id ? { ...s, code: updated } : s));
-                  }}
-                  style={btnStyle(snippet.code !== currentCode)}
-                  title="Overwrite this snippet with current editor code"
-                >
-                  OVERWRITE
-                </button>
+                {onInsert && (
+                  <button onClick={() => onInsert(snippet.code)} style={btnStyle()}>INSERT</button>
+                )}
+                <button onClick={() => { setRenamingId(snippet.id); setRenameValue(snippet.name); }} style={btnStyle()}>RENAME</button>
                 <button
                   onClick={() => deleteSnippet(snippet.id)}
                   style={{ ...btnStyle(), color: RED, borderColor: `${RED}66` }}

@@ -66,6 +66,33 @@ interface FunctionStackEntry {
  * @returns Transformed code ready for async execution
  */
 export function transformCode(code: string, insertSteps: boolean = true): string {
+  // Extract gpuProc blocks before transformation so they don't get step() calls
+  const gpuProcBlocks: string[] = [];
+  let extractedCode = "";
+  let ci = 0;
+  while (ci < code.length) {
+    const procMatch = code.slice(ci).match(/^gpuProc\s*\(([^)]*)\)\s*\{/);
+    if (procMatch) {
+      const startBody = ci + procMatch[0].length;
+      let depth = 1;
+      let j = startBody;
+      while (j < code.length && depth > 0) {
+        if (code[j] === "{") depth++;
+        else if (code[j] === "}") depth--;
+        j++;
+      }
+      const body = code.slice(startBody, j - 1);
+      const placeholder = `__GPU_PROC_${gpuProcBlocks.length}__`;
+      gpuProcBlocks.push(`function(${procMatch[1]}) { ${body} }`);
+      extractedCode += placeholder;
+      ci = j;
+    } else {
+      extractedCode += code[ci];
+      ci++;
+    }
+  }
+  code = extractedCode;
+
   let lines = code.split(/\r?\n/);
   const userAsyncFunctions = new Set<string>();
 
@@ -284,7 +311,12 @@ export function transformCode(code: string, insertSteps: boolean = true): string
     }
   }
 
-  return lines.join("\n");
+  // Restore gpuProc blocks
+  let result = lines.join("\n");
+  for (let i = 0; i < gpuProcBlocks.length; i++) {
+    result = result.replace(`__GPU_PROC_${i}__`, gpuProcBlocks[i]);
+  }
+  return result;
 }
 
 // ─── Line Map Builder ─────────────────────────────────────────────────
@@ -604,7 +636,7 @@ export class CodeExecutor {
       // ── Build and execute the script ──
       const wrappedCode = `
         return (async function(api, step) {
-          const { produceResourceA, convertAToB, getResourceCount, getBalance, log, convertABToC, makeResourceC, getMarketValue, buy, sell, wait, sync, send, hash, submitHash, gpuHash, getMiningInfo, testHash, dbGet, dbSet, dbDelete, dbExists, dbSize } = api;
+          const { produceResourceA, convertAToB, getResourceCount, getBalance, log, convertABToC, makeResourceC, getMarketValue, buy, sell, wait, sync, send, hash, submitHash, gpuHash, gpuQuery, getGpuCores, getMiningInfo, testHash, dbGet, dbSet, dbDelete, dbExists, dbSize } = api;
           ${transformedCode}
         })(api, step);
       `;
