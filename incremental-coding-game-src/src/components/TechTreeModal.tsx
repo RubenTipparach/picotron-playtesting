@@ -293,50 +293,50 @@ export function TechTreeModal({ isOpen, onClose, onFocus, onUnlock, onOpenDocs, 
               const borderColor = isSelected ? t.borderBright : status === "unlocked" ? t.primaryDim : status === "available" && canAfford ? t.yellow : t.textMuted;
 
               return (
-                <div
-                  key={node.id}
-                  onClick={() => setSelectedTechId(node.id)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "12px",
-                    padding: "10px 12px",
-                    backgroundColor: isSelected ? t.bg3 : t.bg,
-                    border: `1px solid ${borderColor}`,
-                    cursor: "pointer",
-                    transition: "all 0.15s",
-                  }}
-                >
-                  <div style={{ fontSize: "24px", width: "36px", textAlign: "center", flexShrink: 0, filter: status === "unlocked" ? "none" : "brightness(0.7)" }}>
-                    {node.icon}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ color: status === "unlocked" ? t.primaryDim : t.primary, fontSize: "12px", fontWeight: "bold" }}>
-                      {node.name}
+                <React.Fragment key={node.id}>
+                  <div
+                    onClick={() => setSelectedTechId(isSelected ? undefined : node.id)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "12px",
+                      padding: "10px 12px",
+                      backgroundColor: isSelected ? t.bg3 : t.bg,
+                      border: `1px solid ${borderColor}`,
+                      cursor: "pointer",
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    <div style={{ fontSize: "24px", width: "36px", textAlign: "center", flexShrink: 0, filter: status === "unlocked" ? "none" : "brightness(0.7)" }}>
+                      {node.icon}
                     </div>
-                    <div style={{ color: t.primaryDark, fontSize: "10px", marginTop: "2px" }}>
-                      {status === "unlocked"
-                        ? "UNLOCKED"
-                        : node.cost.length > 0
-                          ? node.cost.map((c: any) => `${c.amount}${c.resource}`).join(" + ")
-                          : node.progressInfo
-                            ? node.progressInfo().label
-                            : ""}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ color: status === "unlocked" ? t.primaryDim : t.primary, fontSize: "12px", fontWeight: "bold" }}>
+                        {node.name}
+                      </div>
+                      <div style={{ color: t.primaryDark, fontSize: "10px", marginTop: "2px" }}>
+                        {status === "unlocked"
+                          ? "UNLOCKED"
+                          : node.cost.length > 0
+                            ? node.cost.map((c: any) => `${c.amount}${c.resource}`).join(" + ")
+                            : node.progressInfo
+                              ? node.progressInfo().label
+                              : ""}
+                      </div>
                     </div>
+                    {status === "unlocked" && <span style={{ color: t.primaryDim, fontSize: "12px" }}>+</span>}
+                    {status === "available" && canAfford && <span style={{ color: t.yellow, fontSize: "12px", animation: "pulse 2s infinite" }}>!</span>}
                   </div>
-                  {status === "unlocked" && <span style={{ color: t.primaryDim, fontSize: "12px" }}>+</span>}
-                  {status === "available" && canAfford && <span style={{ color: t.yellow, fontSize: "12px", animation: "pulse 2s infinite" }}>!</span>}
-                </div>
+                  {/* Inline detail panel right after the selected node */}
+                  {isSelected && selectedTech && (
+                    <div style={{ padding: "12px", backgroundColor: t.bg3, border: `1px solid ${t.border}`, borderTop: "none" }}>
+                      {detailContent}
+                    </div>
+                  )}
+                </React.Fragment>
               );
             })}
           </div>
-
-          {/* Selected detail */}
-          {selectedTech && (
-            <div style={{ marginTop: "16px", padding: "12px", backgroundColor: t.bg3, border: `1px solid ${t.border}` }}>
-              {detailContent}
-            </div>
-          )}
         </div>
       </div>
     );
