@@ -735,7 +735,7 @@
     var yard = null, yardBox = YARD_MODEL.size;
     var cur = null;           // { holder, obj, mixer, actions, entry, size, motion }
     var token = 0;
-    var toggles = { mech: true, grid: true, rails: true, turn: false };
+    var toggles = { mech: false, grid: true, rails: true, turn: false };
     var HOME = { yaw: -0.65, pitch: 0.32, dist: 300, tx: 0, ty: 20 };
     var yaw = HOME.yaw, pitch = HOME.pitch, dist = HOME.dist, target = new THREE.Vector3();
     var minDist = 20, maxDist = 6000;
@@ -1052,6 +1052,14 @@
       if (used) ev.preventDefault();
     });
     function reset() { yaw = HOME.yaw; pitch = HOME.pitch; dist = HOME.dist; target.set(HOME.tx, HOME.ty, 0); }
+    // The yardstick is a checkbox, off by default: the grid and the height
+    // rail already give scale, and the mech is there when a comparison is wanted.
+    $('#t-mech').checked = toggles.mech;
+    $('#t-mech').addEventListener('change', function () {
+      toggles.mech = $('#t-mech').checked;
+      applyToggles();
+      if (cur) { placeYard(cur.size); frame(cur.size, cur.alt); }
+    });
     document.querySelector('.toggles').addEventListener('click', function (ev) {
       var b = ev.target.closest('button[data-t]');
       if (!b) return;
@@ -1059,7 +1067,6 @@
       if (t === 'reset') { reset(); return; }
       toggles[t] = !toggles[t];
       applyToggles();
-      if (t === 'mech' && cur) { frame(cur.size, cur.alt); }
     });
 
     // ----------------------------------------------------------- loop

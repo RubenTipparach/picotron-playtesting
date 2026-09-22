@@ -478,3 +478,11 @@ code { font-family: var(--mono); font-size: 0.85em; color: var(--dim); }
   background: #061018; color: var(--ink); border: 1px solid var(--line2);
   font: 12px/1.45 var(--mono); padding: 10px;
 }
+
+.chk {
+  display: flex; align-items: center; gap: 6px; cursor: pointer;
+  font: 11px/1 var(--display); letter-spacing: 0.1em; color: var(--dim);
+  padding: 0 6px;
+}
+.chk input { accent-color: var(--cyan); margin: 0; }
+.chk:has(input:checked) { color: var(--cyan); }
