@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mining Mike Field Codex</title>
-<meta name="description" content="Mockup: a bestiary of every hostile, mech, unit and building in Mining Mike, with real 3D models and the knowledge and reward system proposed for it.">
+<meta name="description" content="Mining Mike dev tool: every hostile, mech, unit and building with its real model and live numbers. Edit balance here and export codex_balance.json for the game.">
 <link rel="stylesheet" href="codex.css">
 </head>
 <body>
@@ -12,7 +12,7 @@
   <div class="brand">
     <span class="eyebrow">MINING MIKE</span>
     <h1>FIELD CODEX</h1>
-    <span class="mock">MOCKUP</span>
+    <span class="mock">DEV TOOL</span>
   </div>
   <nav class="tabs" role="tablist" aria-label="Codex side">
     <button role="tab" data-side="hostile" aria-selected="true">HOSTILES</button>
@@ -22,10 +22,11 @@
     <label for="preset">SAVE STATE</label>
     <select id="preset">
       <option value="fresh">First run: Broodline</option>
+      <option value="demo">Demo cleared: Dust Hive</option>
       <option value="mid" selected>Mid campaign: into the Long Haul</option>
       <option value="done">Campaign cleared</option>
     </select>
-    <label class="designer"><input type="checkbox" id="designer"> REVEAL ALL</label>
+    <label class="designer" title="Reveal every entry and edit its numbers"><input type="checkbox" id="designer"> EDIT</label>
   </div>
   <div class="totals" aria-live="polite">
     <div class="tot"><span class="k">KNOWLEDGE</span><span class="v" id="t-know">0%</span></div>
@@ -64,11 +65,34 @@
   <section class="dossier plate" aria-label="Dossier" id="dossier"></section>
 </main>
 
+<section class="export plate" id="export" hidden aria-label="Export the balance file">
+  <div class="sec-h"><span>EXPORT codex_balance.json</span><button id="exp-close" class="tbtn">CLOSE</button></div>
+  <p>Check this file in to <b>both</b> repos, replacing the one that is there:</p>
+  <ul class="paths">
+    <li><code>godot-sandbox/godot-sandbox/resources/codex/codex_balance.json</code>: the game reads it at boot and on every hit.</li>
+    <li><code>picotron-playtesting/dist/mining-mike-codex/codex_balance.json</code>: this page reads it.</li>
+  </ul>
+  <p class="exp-h">What changed</p>
+  <ul id="exp-list" class="exp-list"></ul>
+  <div class="exp-btns"><button id="exp-download" class="tbtn go">DOWNLOAD</button><button id="exp-copy" class="tbtn">COPY</button><span id="exp-status" aria-live="polite"></span></div>
+  <textarea id="exp-text" readonly spellcheck="false" aria-label="codex_balance.json"></textarea>
+</section>
+
+<div class="tray" id="tray" hidden>
+  <div class="tray-l"><b id="tray-n"></b><span id="tray-from"></span></div>
+  <div class="tray-r">
+    <button id="tray-undo" class="tbtn">UNDO</button>
+    <button id="tray-discard" class="tbtn">DISCARD ALL</button>
+    <button id="tray-export" class="tbtn go">EXPORT JSON</button>
+  </div>
+</div>
+
 <footer class="foot">
-  Every number on this page is read from the game's own <code>GameConfig</code> or the script that
-  owns it, and every model is the one the game ships, measured in the running game. Violet, dashed
-  and marked <span class="prop-chip">PROPOSED</span> is design, not game: armour, damage multipliers
-  and the whole reward scheme. Built by <code>docs/mockups/gen_bestiary.py</code>.
+  A dev tool, not a player screen. Numbers are the game's own: <code>GameConfig</code> (the <code>.tres</code>,
+  under any override in <code>codex_balance.json</code>), the scripts that own the rest (read-only here), and the
+  armour and weapon multipliers in <code>codex_balance.json</code>, which the game reads at every hit. Models are
+  the ones the game ships, measured in the running game. <span class="prop-chip">PROPOSED</span> marks the one part
+  still a design: the player-facing knowledge tiers and what they pay. Built by <code>docs/mockups/gen_bestiary.py</code>.
 </footer>
 
 <script src="three.min.js"></script>

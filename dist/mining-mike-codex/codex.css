@@ -280,7 +280,7 @@ code { font-family: var(--mono); font-size: 0.85em; color: var(--dim); }
 .d-sub { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .d-role { margin: 0; color: var(--ink); max-width: 60ch; }
 .wt { font-size: 12px; color: var(--dim); }
-.wt::before { content: "working title"; font-style: italic; }
+.wt { font-style: italic; }
 
 .sec { display: flex; flex-direction: column; gap: 8px; }
 .sec-h {
@@ -431,3 +431,50 @@ code { font-family: var(--mono); font-size: 0.85em; color: var(--dim); }
 
 .designer { display: flex; align-items: center; gap: 5px; cursor: pointer; color: var(--prop) !important; }
 .designer input { accent-color: var(--prop); margin: 0; }
+
+/* ---------------------------------------------------------------- editing */
+.edrow {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font: 10px/1.2 var(--display); letter-spacing: 0.1em; color: var(--dim);
+  margin-top: 2px;
+}
+.ed {
+  width: 7.5em; min-width: 0;
+  background: #061018; color: var(--cyan);
+  border: 1px solid var(--teal);
+  padding: 3px 5px;
+  font: 13px/1.2 var(--body);
+  font-variant-numeric: tabular-nums;
+}
+.ed:focus { border-color: var(--cyan); outline: none; box-shadow: 0 0 0 1px var(--cyan); }
+.was { font: 11px/1 var(--body); letter-spacing: 0; color: var(--amber); }
+.stat.changed, .mcell.changed { border-color: var(--amber); box-shadow: inset 3px 0 0 var(--amber); }
+.tbtn {
+  font: 11px/1 var(--display); letter-spacing: 0.1em;
+  background: var(--well); border: 1px solid var(--line2); color: var(--ink);
+  padding: 8px 12px 7px;
+}
+.tbtn:disabled { color: var(--faint); cursor: default; }
+.tbtn.go { background: var(--cyan); border-color: var(--cyan); color: var(--bg); }
+.tray {
+  position: sticky; bottom: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
+  padding: 10px var(--gut) calc(10px + env(safe-area-inset-bottom, 0px));
+  background: #0A1420; border-top: 1px solid var(--amber);
+}
+.tray-l { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tray-l b { font: 13px/1.2 var(--display); letter-spacing: 0.1em; color: var(--amber); font-weight: normal; }
+.tray-l span { font-size: 12px; color: var(--dim); }
+.tray-r { display: flex; flex-wrap: wrap; gap: 6px; }
+.export { margin: 0 var(--gut) 10px; display: flex; flex-direction: column; gap: 8px; }
+.export p { margin: 0; }
+.export .paths, .export .exp-list { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; }
+.export code { overflow-wrap: anywhere; }
+.exp-h { font: 11px/1 var(--display); letter-spacing: 0.14em; color: var(--dim); }
+.exp-btns { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+#exp-status { font-size: 13px; color: var(--ok); }
+#exp-text {
+  width: 100%; min-height: 220px; resize: vertical;
+  background: #061018; color: var(--ink); border: 1px solid var(--line2);
+  font: 12px/1.45 var(--mono); padding: 10px;
+}

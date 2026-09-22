@@ -61,7 +61,79 @@
     return w.ground ? { can: true, q: '' } : { can: false, q: 'Air targets only' };
   }
   function hittable(h) { return C.weapons.filter(function (w) { return reach(h, w.key).can; }).map(function (w) { return w.key; }); }
-  function mult(h, wk) { return h.proposed && h.proposed[wk] != null ? h.proposed[wk] : 1.0; }
+
+  // ------------------------------------------------------------------ balance
+  // codex_balance.json, the file the game reads (scripts/codex_balance.gd).
+  // BAL is what the page shows and edits. LOADED is the file as it was
+  // loaded, so an edit is anything that differs from it. CFG0 is the .tres
+  // value of every GameConfig key a stat names; a "config" entry in the file
+  // is laid over it, exactly as the game lays it over GameConfig at boot.
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+  var BAL = clone(C.balance), LOADED = clone(C.balance), CFG0 = C.config_base;
+  BAL.config = BAL.config || {};
+  var BAL_FROM = 'the copy built into this page';
+  function cfg(k) { return BAL.config[k] != null ? +BAL.config[k] : CFG0[k]; }
+  function loadedCfg(k) { return LOADED.config && LOADED.config[k] != null ? +LOADED.config[k] : CFG0[k]; }
+  function resRow(key) { return (BAL.resist && BAL.resist[key]) || {}; }
+  function mult(h, wk) { var r = resRow(h.key); return r[wk] != null ? +r[wk] : 1.0; }
+  function armourOf(h) { var r = resRow(h.key); return r.armour != null ? +r.armour : 0.0; }
+  function loadedRes(key, f) {
+    var r = LOADED.resist && LOADED.resist[key];
+    return r && r[f] != null ? +r[f] : (f === 'armour' ? 0 : 1);
+  }
+  function resChanged(key, f) { return loadedRes(key, f) !== (resRow(key)[f] != null ? +resRow(key)[f] : (f === 'armour' ? 0 : 1)); }
+
+  function edits() {
+    var out = [];
+    Object.keys(CFG0).forEach(function (k) {
+      var a = loadedCfg(k), b = cfg(k);
+      if (a !== b) out.push({ what: k, from: a, to: b });
+    });
+    Object.keys(BAL.resist || {}).forEach(function (hk) {
+      Object.keys(BAL.resist[hk]).forEach(function (f) {
+        var a = loadedRes(hk, f), b = +BAL.resist[hk][f];
+        if (a !== b) out.push({ what: 'resist.' + hk + '.' + f, from: a, to: b });
+      });
+    });
+    return out;
+  }
+  var undo = [];
+  function setCfg(k, v) {
+    undo.push(clone(BAL));
+    if (Number.isInteger(CFG0[k])) v = Math.round(v);
+    if (v === CFG0[k]) delete BAL.config[k]; else BAL.config[k] = v;
+    saveDraft();
+  }
+  function setRes(hk, f, v) {
+    undo.push(clone(BAL));
+    if (f === 'armour') v = clamp(v, 0, 0.95); else v = Math.max(0, v);
+    BAL.resist[hk] = BAL.resist[hk] || {};
+    BAL.resist[hk][f] = v;
+    saveDraft();
+  }
+  // The file EXPORT writes: the same shape the game reads. Only the config
+  // keys that differ from the .tres are written, so an Inspector edit to any
+  // other key still reaches the game.
+  function exportText() {
+    var doc = { version: BAL.version || 1, about: BAL.about || '', config: {}, resist: BAL.resist };
+    Object.keys(BAL.config).sort().forEach(function (k) {
+      if (CFG0[k] === undefined || +BAL.config[k] !== CFG0[k]) doc.config[k] = BAL.config[k];
+    });
+    return JSON.stringify(doc, null, 2) + '\n';
+  }
+  // An unsent draft survives a reload in this browser only, and only against
+  // the same file it was made from.
+  var DRAFT = 'mm-codex-draft';
+  function saveDraft() {
+    try { localStorage.setItem(DRAFT, JSON.stringify({ base: JSON.stringify(LOADED), bal: BAL })); } catch (e) {}
+  }
+  function restoreDraft() {
+    try {
+      var d = JSON.parse(localStorage.getItem(DRAFT) || 'null');
+      if (d && d.base === JSON.stringify(LOADED) && d.bal && d.bal.resist) { BAL = d.bal; BAL.config = BAL.config || {}; }
+    } catch (e) {}
+  }
+  function clearDraft() { try { localStorage.removeItem(DRAFT); } catch (e) {} }
 
   // ------------------------------------------------------------------ save states
   // Example progress, so the page opens on something that looks played.
@@ -72,7 +144,7 @@
       hostiles: {
         grunt: { k: 18, wk: { mech: 14, turret: 4 } },
         runner: { k: 6, wk: { mech: 4, turret: 2 } },
-        spitter: { k: 2, wk: { mech: 2 } }
+        snake: { k: 2, wk: { mech: 2 } }
       },
       bosses: {},
       allies: {
@@ -87,9 +159,9 @@
       hostiles: {
         grunt: { k: 640, wk: { turret: 380, mech: 170, lightning: 60, slow: 30 } },
         runner: { k: 230, wk: { turret: 150, mech: 55, lightning: 25 } },
-        spitter: { k: 96, wk: { turret: 60, mech: 31, lightning: 5 } },
+        snake: { k: 96, wk: { turret: 60, mech: 31, lightning: 5 } },
         egg_clutch: { k: 9, wk: { mech: 9 } },
-        brute: { k: 7, wk: { turret: 4, mech: 3 } },
+        hydralisk: { k: 7, wk: { turret: 4, mech: 3 } },
         shield_generator: { k: 12, wk: { mech: 8, turret: 4 } },
         drillhead: { k: 48, wk: { turret: 36, lightning: 7, mech: 5 } },
         tank: { k: 3, wk: { turret: 3 } }
@@ -102,6 +174,25 @@
         scanner: { b: 4, j: 9 }, turret: { b: 120, j: 640 }, lightning: { b: 14, j: 92 },
         slow: { b: 9, j: 300 }, repair_drone: { b: 3, j: 40 }, wall: { b: 210, j: 2400 },
         miner_drone: { b: 4, j: 60 }, dozer: { b: 1, j: 12 }, paver: { b: 1, j: 12 }
+      }
+    },
+    // The demo is Dust Hive alone. Everything in it countered and the Orb
+    // Weaver analysed: the two SP the codex can pay inside a demo.
+    demo: {
+      sectors: ['dust_hive'], research: ['unlock_lightning', 'turret_ice'], shop: ['miner_drone'],
+      hostiles: {
+        grunt: { k: 420, wk: { turret: 250, mech: 120, lightning: 40, slow: 10 } },
+        runner: { k: 180, wk: { turret: 110, mech: 50, lightning: 20 } },
+        snake: { k: 64, wk: { turret: 40, mech: 18, lightning: 6 } },
+        egg_clutch: { k: 30, wk: { mech: 30 } },
+        hydralisk: { k: 26, wk: { turret: 12, mech: 8, lightning: 6 } },
+        shield_generator: { k: 28, wk: { mech: 14, turret: 9, lightning: 5 } }
+      },
+      bosses: { orb_weaver: 4 },
+      allies: {
+        mech_combat: { b: 9, j: 510 }, mech_mining: { b: 3, j: 60 }, hq: { b: 11, j: 30 },
+        power_plant: { b: 40, j: 90 }, pylon: { b: 50, j: 100 }, refinery: { b: 18, j: 120 },
+        turret: { b: 80, j: 420 }, lightning: { b: 8, j: 70 }, slow: { b: 5, j: 140 }, wall: { b: 120, j: 900 }
       }
     },
     done: null
@@ -243,8 +334,30 @@
     heal: ['REPAIR RATE', ''], armour: ['ARMOUR', '']
   };
   var CELL = C.grid;
-  function waveOf(e) { return state.wave[e.key] != null ? state.wave[e.key] : (e.stats.first_wave ? e.stats.first_wave.v : 1); }
-  function valueAt(s, W) { return s.per_wave != null ? s.v + s.per_wave * W : s.v; }
+  // A stat's live value. `key` reads GameConfig (the .tres under the codex's
+  // overrides), `mul` derives from keys, anything else is script-owned.
+  function sval(s) {
+    if (s.key) return cfg(s.key);
+    if (s.mul) {
+      var v = s.mul.reduce(function (a, k) { return a * cfg(k); }, s.factor != null ? s.factor : 1);
+      var d = Math.pow(10, s.round != null ? s.round : 2);
+      return Math.round(v * d) / d;
+    }
+    return s.v;
+  }
+  function sper(s) { return s.per_key ? cfg(s.per_key) : s.per_wave; }
+  function waveOf(e) { return state.wave[e.key] != null ? state.wave[e.key] : (e.stats.first_wave ? sval(e.stats.first_wave) : 1); }
+  function valueAt(s, W) { var p = sper(s); return p != null ? sval(s) + p * W : sval(s); }
+  function editing() { return state.designer; }
+  function inp(attr, v, step) {
+    return '<input class="ed" type="number" step="' + (step || 'any') + '" ' + attr + ' value="' + v + '">';
+  }
+  function was(from, to) { return from !== to ? '<span class="was">was ' + num(from) + '</span>' : ''; }
+  function srcLine(s) {
+    if (s.key) return s.key + (s.per_key ? ' + ' + s.per_key : '') + (BAL.config[s.key] != null || (s.per_key && BAL.config[s.per_key] != null) ? '  CODEX OVERRIDE' : '');
+    if (s.mul) return s.src + ', derived';
+    return s.src ? s.src + ', read-only' : '';
+  }
 
   function statCards(e, open) {
     var W = waveOf(e), out = [], st = e.stats;
@@ -256,39 +369,45 @@
       var ia = order.indexOf(a), ib = order.indexOf(b);
       return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
     });
+    var ed = editing();
     keys.forEach(function (k) {
-      var s = st[k], lbl, v, small = '';
+      var s = st[k], m = STAT[k] || [human(k), ''], lbl = m[0], unit = m[1], v, small = '';
+      var base = sval(s), per = sper(s), val = valueAt(s, W);
       if (k === 'attack_interval') {
         lbl = 'ATTACK RATE';
-        v = num(1 / s.v) + '<small>/s</small>';
-        small = 'every ' + num(s.v) + ' s';
+        v = num(1 / base) + '<small>/s</small>';
+        small = 'every ' + num(base) + ' s';
+      } else if (k === 'armour') {
+        v = Math.round(val * 100) + '<small>%</small>';
+        small = val ? 'off every hit taken' : 'none';
       } else {
-        var m = STAT[k] || [human(k), ''];
-        lbl = m[0];
-        var val = valueAt(s, W);
-        if (k === 'armour') { v = Math.round(val * 100) + '<small>%</small>'; small = val ? 'off every hit taken' : 'none'; }
-        else {
-          v = num(val) + (m[1] ? '<small>' + esc(m[1]) + '</small>' : '');
-          if (m[1] === 'u' && val >= CELL) small = num(val / CELL) + ' cells';
-        }
-        if (s.per_wave != null) small = '+' + num(s.per_wave) + ' a wave';
+        v = num(val) + (unit ? '<small>' + esc(unit) + '</small>' : '');
+        if (unit === 'u' && val >= CELL) small = num(val / CELL) + ' cells';
       }
-      out.push(card(lbl, open ? v : '???', open ? small : '', s.src, s.per_wave != null));
+      if (per != null) small = '+' + num(per) + ' a wave, shown at wave ' + W;
+      var body = '';
+      if (ed && open && s.key) {
+        body = '<label class="edrow">' + (per != null ? 'BASE' : (k === 'attack_interval' ? 'EVERY S' : 'SET')) +
+          inp('data-cfg="' + s.key + '"', base) + was(loadedCfg(s.key), base) + '</label>';
+        if (s.per_key) body += '<label class="edrow">A WAVE' + inp('data-cfg="' + s.per_key + '"', per) + was(loadedCfg(s.per_key), per) + '</label>';
+      }
+      var changed = (s.key && loadedCfg(s.key) !== cfg(s.key)) || (s.per_key && loadedCfg(s.per_key) !== cfg(s.per_key));
+      out.push(card(lbl, open ? v : '???', open ? small : '', srcLine(s), per != null, body, changed));
     });
     if (st.damage && st.attack_interval) {
-      var dps = valueAt(st.damage, W) / st.attack_interval.v;
-      out.push(card('DPS', open ? num(dps) : '???', open ? 'damage x rate, derived' : '', 'derived on this page', st.damage.per_wave != null));
+      var dps = valueAt(st.damage, W) / sval(st.attack_interval);
+      out.push(card('DPS', open ? num(dps) : '???', open ? 'damage x rate' + (sper(st.damage) != null ? ', at wave ' + W : '') : '', 'derived on this page', sper(st.damage) != null));
     }
     return out.join('');
   }
-  function card(k, v, small, src, scales) {
+  function card(k, v, small, src, scales, body, changed) {
     var hidden = v === '???';
-    return '<div class="stat' + (scales ? ' scales' : '') + (hidden ? ' hidden' : '') + '">' +
+    return '<div class="stat' + (scales ? ' scales' : '') + (hidden ? ' hidden' : '') + (changed ? ' changed' : '') + '">' +
       '<span class="k">' + esc(k) + '</span><span class="v">' + v + '</span>' +
-      (small ? '<span class="src" style="color:var(--dim)">' + esc(small) + '</span>' : '') +
+      (small ? '<span class="src" style="color:var(--dim)">' + esc(small) + '</span>' : '') + (body || '') +
       (src && !hidden ? '<span class="src" title="' + esc(src) + '">' + esc(src) + '</span>' : '') + '</div>';
   }
-  function hasWave(e) { return Object.keys(e.stats).some(function (k) { return e.stats[k].per_wave != null; }); }
+  function hasWave(e) { return Object.keys(e.stats).some(function (k) { return sper(e.stats[k]) != null; }); }
   function waveLabel(W) {
     var d = Math.floor((W - 1) / 10) + 1, w = W - (d - 1) * 10;
     return 'wave ' + W + ' <span style="color:var(--dim)">(depth ' + d + ', wave ' + w + ' on screen)</span>';
@@ -350,7 +469,9 @@
       '<div class="econ">The codex pays <b>' + C.totals.sp + ' SP</b> and <b>' + C.totals.pp.toLocaleString('en-US') +
       ' PP</b> in all. For scale: a campaign clear pays <b>' + C.economy.campaign_sp + ' SP</b> and about <b>' +
       C.economy.clear_pp.toLocaleString('en-US') + ' PP</b>, the demo <b>' + C.economy.demo_sp +
-      ' SP</b>, and the research tree costs <b>' + C.economy.tree_pp.toLocaleString('en-US') + ' PP</b>.</div></details>';
+      ' SP</b>, and the research tree costs <b>' + C.economy.tree_pp.toLocaleString('en-US') + ' PP</b>. Inside the demo the codex can pay <b>' +
+      C.economy.demo_codex_sp + ' SP</b> (Dust Hive only), taking the demo from ' + C.economy.demo_sp + ' to <b>' +
+      (C.economy.demo_sp + C.economy.demo_codex_sp) + ' SP</b>: enough for Acid Tech (5 SP) in the demo.</div></details>';
     $('#list').innerHTML = h;
   }
 
@@ -412,8 +533,11 @@
           (kills ? kills + ' / ' + per + ' kills to learn' : per + ' kills to learn') + '</span></div>';
       }
       var m = mult(e, w.key), cls = m > 1 ? ' weak' : (m < 1 ? ' res' : '');
-      return '<div class="mcell' + cls + (kills >= per ? ' learned' : '') + '"><span class="w">' + esc(w.name) + '</span><span class="m">x' +
-        m.toFixed(2) + '</span><span class="q">' + esc(r.q || (m === 1 ? 'Full damage' : (m > 1 ? 'Weak to it' : 'Shrugs it off'))) +
+      var ch = resChanged(e.key, w.key);
+      return '<div class="mcell' + cls + (kills >= per ? ' learned' : '') + (ch ? ' changed' : '') + '"><span class="w">' + esc(w.name) + '</span><span class="m">x' +
+        m.toFixed(2) + '</span>' +
+        (editing() ? '<label class="edrow">' + inp('data-res="' + e.key + '|' + w.key + '" min="0"', m, '0.05') + was(loadedRes(e.key, w.key), m) + '</label>' : '') +
+        '<span class="q">' + esc(r.q || (m === 1 ? 'Full damage' : (m > 1 ? 'Weak to it' : 'Shrugs it off'))) +
         (kills ? ' · ' + num(kills) + ' kills' : '') + '</span></div>';
     }).join('') + '</div>';
   }
@@ -428,13 +552,15 @@
       if (m < 1) res.push(w.name + ' x' + m.toFixed(2));
     });
     var h = '';
-    h += '<div class="chips"><span class="lbl">WEAK TO</span>' + (weak.length ? weak.map(function (s) { return '<span class="chip weak">' + esc(s) + '</span>'; }).join('') : '<span class="chip">NOTHING IN PARTICULAR</span>') + '</div>';
+    h += '<div class="chips"><span class="lbl">WEAK TO</span>' + (weak.length ? weak.map(function (s) { return '<span class="chip weak">' + esc(s) + '</span>'; }).join('') :
+      '<span class="chip">' + (res.length ? 'NOTHING IN PARTICULAR' : 'NEUTRAL: EVERY WEAPON X1.00') + '</span>') + '</div>';
     if (res.length) h += '<div class="chips"><span class="lbl">RESISTS</span>' + res.map(function (s) { return '<span class="chip res">' + esc(s) + '</span>'; }).join('') + '</div>';
     if (out.length) h += '<div class="chips"><span class="lbl">OUT OF REACH OF</span>' + out.map(function (s) { return '<span class="chip reach">' + esc(s) + '</span>'; }).join('') + '</div>';
-    if (e.armour != null) {
-      h += '<div class="stats"><div class="stat prop"><span class="k">ARMOUR <span class="prop-chip">PROPOSED</span></span><span class="v">' +
-        Math.round(e.armour * 100) + '<small>% off each hit</small></span><span class="src">No alien has armour in the game today</span></div></div>';
-    }
+    var arm = armourOf(e);
+    h += '<div class="stats"><div class="stat' + (resChanged(e.key, 'armour') ? ' changed' : '') + '"><span class="k">ARMOUR</span><span class="v">' +
+      Math.round(arm * 100) + '<small>% off each hit</small></span>' +
+      (editing() ? '<label class="edrow">FRACTION' + inp('data-res="' + e.key + '|armour" min="0" max="0.95"', arm, '0.05') + was(loadedRes(e.key, 'armour'), arm) + '</label>' : '') +
+      '<span class="src">codex_balance.json resist.' + esc(e.key) + '.armour</span></div></div>';
     return h;
   }
 
@@ -458,7 +584,7 @@
       (t ? esc(tiersFor(e)[t - 1].name) : 'UNKNOWN') + '</span>';
     if (isFinale(e)) h += '<span class="chip boss">SECTOR BOSS</span>';
     else if (e.boss === 'mini') h += '<span class="chip boss">MINI-BOSS</span>';
-    if (rv.name && e.working_title) h += '<span class="wt" title="Nothing in the game names this enemy; the spawner calls it by its type."></span>';
+    if (rv.name && e.named_by) h += '<span class="wt">named after ' + esc(e.named_by) + '</span>';
     h += '</div>';
     if (rv.name) {
       h += '<p class="d-role">' + esc(e.role) + '</p><div class="chips">' +
@@ -482,8 +608,8 @@
     h += '<div class="stats" id="stats">' + statCards(e, rv.stats) + '</div></div>';
 
     h += '<div class="sec"><div class="sec-h"><span>MATCHUPS</span><span class="aside">damage taken, by weapon</span></div>' +
-      matchupGrid(e, rv) + '<div class="legend"><span class="prop-chip">PROPOSED</span>Every multiplier is proposed: nothing in the game scales damage by weapon today. ' +
-      'Which weapon can reach it at all is real.</div></div>';
+      matchupGrid(e, rv) + '<div class="legend">Multipliers and armour are live game data: <code>codex_balance.json</code>, read by <code>CodexBalance</code> at every hit. ' +
+      'Shipped neutral, for tuning. Which weapon can reach it at all is the game\'s hit rule.</div></div>';
 
     h += '<div class="sec"><div class="sec-h"><span>WEAKNESSES</span><span class="aside">' +
       (rv.weak ? '' : (isFinale(e) ? 'ANALYSED reveals these' : 'COUNTERED reveals these')) + '</span></div>' +
@@ -538,7 +664,7 @@
           if (!r.can) return '<div class="mcell no"><span class="w">' + esc(e.name) + '</span><span class="m">CAN\'T HIT</span><span class="q">' + esc(r.q) + '</span></div>';
           var m = mult(e, a.weaponKey), cls = m > 1 ? ' weak' : (m < 1 ? ' res' : '');
           return '<div class="mcell' + cls + '"><span class="w">' + esc(e.name) + '</span><span class="m">x' + m.toFixed(2) + '</span><span class="q">' + esc(r.q || '') + '</span></div>';
-        }).join('') + '</div><div class="legend"><span class="prop-chip">PROPOSED</span>Multipliers are proposed; reach is real.</div>';
+        }).join('') + '</div><div class="legend">Each hostile\'s multiplier for this weapon, from <code>codex_balance.json</code>. Edit them on the hostile\'s own entry.</div>';
       } else {
         h += '<p class="redact">' + num(p.j) + ' / ' + T_ALLY[2].jobs + ' kills.</p>';
       }
@@ -565,7 +691,17 @@
     }
   }
 
+  function renderTray() {
+    var n = edits().length;
+    $('#tray').hidden = !(editing() || n);
+    $('#tray-n').textContent = n ? n + ' CHANGE' + (n > 1 ? 'S' : '') + ' NOT YET EXPORTED' : 'NO CHANGES YET';
+    $('#tray-from').textContent = 'Balance loaded from ' + BAL_FROM + '.';
+    $('#tray-undo').disabled = !undo.length;
+    $('#tray-discard').disabled = !n;
+  }
+
   function renderAll(reloadModel) {
+    renderTray();
     renderTotals();
     renderList();
     renderDossier();
@@ -774,7 +910,7 @@
       if (e.skins.length < 2) { skinBox.innerHTML = ''; return; }
       var sel = state.skin[e.key] || e.skins[0];
       skinBox.innerHTML = e.skins.map(function (s) {
-        return '<button data-skin="' + s + '" aria-pressed="' + (s === sel) + '">' + esc(human(s.replace(/^swarm_/, ''))) + '</button>';
+        return '<button data-skin="' + s + '" aria-pressed="' + (s === sel) + '">' + esc((C.skin_names && C.skin_names[s]) || human(s.replace(/^swarm_/, ''))) + '</button>';
       }).join('');
     }
     skinBox.addEventListener('click', function (ev) {
@@ -1003,5 +1139,79 @@
     renderAll(false);
   });
 
+  // Edits. One delegated listener, so re-rendering the dossier never leaves
+  // an input without one. Committed on change (blur or Enter), not per key.
+  $('#dossier').addEventListener('change', function (ev) {
+    var t = ev.target;
+    if (!t.classList || !t.classList.contains('ed')) return;
+    var v = parseFloat(t.value);
+    if (!isFinite(v)) { renderAll(false); return; }
+    if (t.dataset.cfg) setCfg(t.dataset.cfg, v);
+    else if (t.dataset.res) { var p = t.dataset.res.split('|'); setRes(p[0], p[1], v); }
+    renderAll(false);
+  });
+  $('#tray-undo').addEventListener('click', function () {
+    if (!undo.length) return;
+    BAL = undo.pop();
+    saveDraft();
+    renderAll(false);
+  });
+  $('#tray-discard').addEventListener('click', function () {
+    undo.push(clone(BAL));
+    BAL = clone(LOADED);
+    BAL.config = BAL.config || {};
+    clearDraft();
+    renderAll(false);
+  });
+  function openExport() {
+    var list = edits();
+    $('#exp-list').innerHTML = list.length ? list.map(function (x) {
+      return '<li><code>' + esc(x.what) + '</code> ' + num(x.from) + ' to <b>' + num(x.to) + '</b></li>';
+    }).join('') : '<li>No changes: this is the file as loaded.</li>';
+    $('#exp-text').value = exportText();
+    $('#exp-status').textContent = '';
+    $('#export').hidden = false;
+    $('#export').scrollIntoView({ block: 'nearest' });
+  }
+  $('#tray-export').addEventListener('click', openExport);
+  $('#exp-close').addEventListener('click', function () { $('#export').hidden = true; });
+  $('#exp-copy').addEventListener('click', function () {
+    var text = $('#exp-text').value;
+    function fallback() {
+      $('#exp-text').focus();
+      $('#exp-text').select();
+      $('#exp-status').textContent = 'Selected. Press Ctrl+C (Cmd+C) to copy.';
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { $('#exp-status').textContent = 'Copied.'; }, fallback);
+    } else fallback();
+  });
+  $('#exp-download').addEventListener('click', function () {
+    try {
+      var url = URL.createObjectURL(new Blob([$('#exp-text').value], { type: 'application/json' }));
+      var a = document.createElement('a');
+      a.href = url; a.download = 'codex_balance.json';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+      $('#exp-status').textContent = 'Saved as codex_balance.json. If nothing arrived, this copy of the page blocks downloads: use COPY.';
+    } catch (e) {
+      $('#exp-status').textContent = 'This copy of the page blocks downloads: use COPY.';
+    }
+  });
+
+  // The site's own copy of the balance file wins over the one baked into
+  // data.js, so a new export checked in beside this page shows up without a
+  // rebuild. Then any unsent draft from this browser.
   renderAll(true);
+  var boot = window.fetch ? fetch('codex_balance.json', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }) : Promise.resolve(null);
+  boot.then(function (j) {
+    if (j && j.resist) {
+      LOADED = clone(j);
+      BAL = clone(j);
+      BAL.config = BAL.config || {};
+      BAL_FROM = 'codex_balance.json, checked in beside this page';
+    }
+    restoreDraft();
+    renderAll(false);
+  });
 })();
