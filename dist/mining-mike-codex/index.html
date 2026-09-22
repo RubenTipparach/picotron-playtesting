@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mining Mike Field Codex</title>
+<meta name="description" content="Mockup: a bestiary of every hostile, mech, unit and building in Mining Mike, with real 3D models and the knowledge and reward system proposed for it.">
+<link rel="stylesheet" href="codex.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="eyebrow">MINING MIKE</span>
+    <h1>FIELD CODEX</h1>
+    <span class="mock">MOCKUP</span>
+  </div>
+  <nav class="tabs" role="tablist" aria-label="Codex side">
+    <button role="tab" data-side="hostile" aria-selected="true">HOSTILES</button>
+    <button role="tab" data-side="ally" aria-selected="false">YOUR SIDE</button>
+  </nav>
+  <div class="save">
+    <label for="preset">SAVE STATE</label>
+    <select id="preset">
+      <option value="fresh">First run: Broodline</option>
+      <option value="mid" selected>Mid campaign: into the Long Haul</option>
+      <option value="done">Campaign cleared</option>
+    </select>
+    <label class="designer"><input type="checkbox" id="designer"> REVEAL ALL</label>
+  </div>
+  <div class="totals" aria-live="polite">
+    <div class="tot"><span class="k">KNOWLEDGE</span><span class="v" id="t-know">0%</span></div>
+    <div class="tot sp"><span class="k">SP</span><span class="v" id="t-sp">0 / 0</span></div>
+    <div class="tot pp"><span class="k">PP</span><span class="v" id="t-pp">0 / 0</span></div>
+  </div>
+</header>
+
+<main class="codex">
+  <aside class="list plate" aria-label="Entries">
+    <div class="list-scroll" id="list"></div>
+  </aside>
+
+  <section class="stage plate" aria-label="Model viewer">
+    <div class="stage-head">
+      <div class="skins" id="skins" aria-label="Model variant"></div>
+      <div class="size" id="size"></div>
+    </div>
+    <div class="viewport">
+      <canvas id="view" tabindex="0" aria-label="3D model. Drag to orbit, scroll to zoom, arrow keys and plus or minus from the keyboard."></canvas>
+      <div class="veil" id="veil" hidden><b>???</b><span id="veil-why"></span></div>
+      <div class="loading" id="loading" hidden>LOADING MODEL</div>
+    </div>
+    <div class="stage-foot">
+      <div class="clips" id="clips" aria-label="Animation"></div>
+      <div class="toggles" role="group" aria-label="Viewer">
+        <button data-t="mech" aria-pressed="true">MECH</button>
+        <button data-t="grid" aria-pressed="true">GRID</button>
+        <button data-t="rails" aria-pressed="true">RAILS</button>
+        <button data-t="turn" aria-pressed="false">TURN</button>
+        <button data-t="reset">RESET VIEW</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="dossier plate" aria-label="Dossier" id="dossier"></section>
+</main>
+
+<footer class="foot">
+  Every number on this page is read from the game's own <code>GameConfig</code> or the script that
+  owns it, and every model is the one the game ships, measured in the running game. Violet, dashed
+  and marked <span class="prop-chip">PROPOSED</span> is design, not game: armour, damage multipliers
+  and the whole reward scheme. Built by <code>docs/mockups/gen_bestiary.py</code>.
+</footer>
+
+<script src="three.min.js"></script>
+<script src="GLTFLoader.js"></script>
+<script src="data.js"></script>
+<script src="codex.js"></script>
+</body>
+</html>
