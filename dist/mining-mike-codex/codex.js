@@ -731,6 +731,16 @@
     var grid = null, floor = null, rails = new THREE.Group(); world.add(rails);
     var tagLayer = [];
     var loader = new THREE.GLTFLoader();
+    // Decode each model's embedded textures through an <img>, never through
+    // ImageBitmapLoader. On Chrome the loader picks the latter, which fetch()es
+    // the texture's blob: URL, and a sandboxed page (the published artifact)
+    // refuses blob: under connect-src: every model arrived without a texture.
+    // An <img> reads the same URL under img-src, which allows it.
+    loader.register(function (parser) {
+      parser.textureLoader = new THREE.TextureLoader(parser.options.manager);
+      parser.textureLoader.setCrossOrigin(parser.options.crossOrigin);
+      return { name: 'codex_textures_via_img' };
+    });
     var bufs = {};
     var yard = null, yardBox = YARD_MODEL.size;
     var cur = null;           // { holder, obj, mixer, actions, entry, size, motion }
