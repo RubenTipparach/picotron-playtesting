@@ -33,6 +33,10 @@
   C.hostiles.forEach(function (h) { h.side = 'hostile'; HOST[h.key] = h; });
   C.mechs.forEach(function (m) { m.kind = 'mech'; m.side = 'ally'; m.weaponKey = 'mech'; ALLY[m.key] = m; });
   C.units.concat(C.buildings).forEach(function (a) { a.side = 'ally'; a.weaponKey = a.weapon || null; ALLY[a.key] = a; });
+  // The crew are on the page and nowhere else: no numbers, no knowledge
+  // track, no part of any total. ALLIES (below) leaves them out on purpose.
+  (C.crew || []).forEach(function (a) { a.side = 'ally'; a.kind = 'crew'; a.weaponKey = null; ALLY[a.key] = a; });
+  function isCrew(e) { return e.kind === 'crew'; }
   var ALLIES = C.mechs.concat(C.units, C.buildings);
   var YARD = ALLY[C.yardstick];
   var YARD_MODEL = YARD.models[C.yardstick];
@@ -248,7 +252,7 @@
     if (p.j < T_ALLY[2].jobs) return 2;
     return 3;
   }
-  function tiersFor(e) { return e.side === 'ally' ? T_ALLY : (isFinale(e) ? T_BOSS : T_HOST); }
+  function tiersFor(e) { return isCrew(e) ? [] : (e.side === 'ally' ? T_ALLY : (isFinale(e) ? T_BOSS : T_HOST)); }
   function earned(e) {
     var t = tierOf(e), pp = 0, sp = 0;
     tiersFor(e).forEach(function (r) { if (r.n <= t) { pp += r.pp; sp += r.sp; } });
@@ -435,7 +439,8 @@
       else if (e.boss === 'mini') chip = '<span class="chip boss">MINI</span>';
     } else {
       var lk = lockOf(e);
-      if (lk) { cls += ' locked'; chip = lk.soon ? '<span class="chip soon">NOT IN GAME</span>' : '<span class="chip lock">LOCKED</span>'; }
+      if (isCrew(e)) chip = '<span class="chip">CREW</span>';
+      else if (lk) { cls += ' locked'; chip = lk.soon ? '<span class="chip soon">NOT IN GAME</span>' : '<span class="chip lock">LOCKED</span>'; }
       else if (tierOf(e) === 0) chip = '<span class="chip ok">NEW</span>';
     }
     var cur = state.sel[state.side] === e.key;
@@ -443,6 +448,7 @@
       pips(e) + '<span class="nm">' + esc(name) + '</span>' + chip + '</button>';
   }
   function groupHead(label, list) {
+    if (list.length && isCrew(list[0])) return '<div class="group-h">' + esc(label) + '<span>' + list.length + '</span></div>';
     var n = list.filter(function (e) { return tierOf(e) > 0; }).length;
     return '<div class="group-h">' + esc(label) + '<span>' + n + ' / ' + list.length + '</span></div>';
   }
@@ -454,7 +460,8 @@
         h += groupHead(s.name, list) + list.map(row).join('');
       });
     } else {
-      [['MECHS', C.mechs], ['UNITS', C.units], ['BUILDINGS', C.buildings]].forEach(function (g) {
+      [['CREW', C.crew || []], ['MECHS', C.mechs], ['UNITS', C.units], ['BUILDINGS', C.buildings]].forEach(function (g) {
+        if (!g[1].length) return;
         h += groupHead(g[0], g[1]) + g[1].map(row).join('');
       });
     }
@@ -674,13 +681,23 @@
     return h;
   }
 
+  function crewDossier(a) {
+    return '<div class="d-head"><div class="d-eyebrow">YOUR SIDE \u00B7 CREW</div>' +
+      '<h2 class="d-name">' + esc(a.name) + '</h2><div class="d-sub"><span class="chip">CREW</span><span class="chip">IDLE</span></div>' +
+      '<p class="d-role">' + esc(a.role) + '</p></div>' +
+      '<div class="sec"><div class="sec-h"><span>WHERE YOU SEE THEM</span></div><p class="targets">' + esc(a.seen) + '</p></div>' +
+      '<div class="sec"><div class="sec-h"><span>SCALE</span></div><p class="targets">' + esc(a.note) + '</p></div>' +
+      '<div class="sec"><div class="sec-h"><span>NUMBERS</span></div><p class="redact">None. The crew do not fight, so there is nothing to tune and no knowledge track.</p></div>' +
+      '<div class="src-line">Source: ' + esc(a.src) + '</div>';
+  }
+
   function current() {
     var k = state.sel[state.side];
     return state.side === 'hostile' ? HOST[k] : ALLY[k];
   }
   function renderDossier() {
     var e = current();
-    $('#dossier').innerHTML = e.side === 'hostile' ? hostileDossier(e) : allyDossier(e);
+    $('#dossier').innerHTML = e.side === 'hostile' ? hostileDossier(e) : (isCrew(e) ? crewDossier(e) : allyDossier(e));
     var wave = $('#wave');
     if (wave) {
       wave.addEventListener('input', function () {
@@ -722,7 +739,7 @@
     renderer.outputEncoding = THREE.sRGBEncoding;
     var scene = new THREE.Scene();
     scene.background = new THREE.Color(0x06080B);
-    var camera = new THREE.PerspectiveCamera(36, 1, 1, 30000);
+    var camera = new THREE.PerspectiveCamera(36, 1, 0.2, 30000);
     scene.add(new THREE.HemisphereLight(0xcfe6ff, 0x1a140e, 0.95));
     var sun = new THREE.DirectionalLight(0xffffff, 1.15); sun.position.set(260, 480, 320); scene.add(sun);
     var rim = new THREE.DirectionalLight(0x59F2FF, 0.55); rim.position.set(-320, 160, -360); scene.add(rim);
@@ -776,13 +793,38 @@
     // stand on y = 0. The GLTFDocument exports carry the -50000 offset the
     // exporter parked them at, and the source files carry their own import
     // scale; both come out the same size the game draws.
-    function fit(obj, size) {
+    //
+    // `posed` entries were measured in Godot from their POSED vertices, so
+    // they are fitted the same way here: a skinned mesh's own bounding box is
+    // its unposed bind shape (the humans' is a T-pose in centimetres), which
+    // would scale them to nonsense.
+    function boxOf(obj, posed) {
+      if (!posed) return new THREE.Box3().setFromObject(obj);
+      var box = new THREE.Box3(), v = new THREE.Vector3();
+      obj.traverse(function (n) {
+        if (!n.isMesh || !n.geometry || !n.geometry.attributes.position) return;
+        var count = n.geometry.attributes.position.count, step = Math.max(1, Math.floor(count / 4000));
+        if (n.isSkinnedMesh) {
+          n.skeleton.update();
+          for (var i = 0; i < count; i += step) {
+            v.fromBufferAttribute(n.geometry.attributes.position, i);
+            n.boneTransform(i, v);
+            box.expandByPoint(v.applyMatrix4(n.matrixWorld));
+          }
+        } else {
+          if (!n.geometry.boundingBox) n.geometry.computeBoundingBox();
+          box.union(n.geometry.boundingBox.clone().applyMatrix4(n.matrixWorld));
+        }
+      });
+      return box;
+    }
+    function fit(obj, size, posed) {
       obj.updateMatrixWorld(true);
-      var box = new THREE.Box3().setFromObject(obj);
+      var box = boxOf(obj, posed);
       var h = box.max.y - box.min.y;
       if (h > 1e-6) obj.scale.multiplyScalar(size[1] / h);
       obj.updateMatrixWorld(true);
-      box.setFromObject(obj);
+      box = boxOf(obj, posed);
       var c = box.getCenter(new THREE.Vector3());
       obj.position.x -= c.x; obj.position.z -= c.z; obj.position.y -= box.min.y;
       var holder = new THREE.Group(); holder.add(obj);
@@ -868,12 +910,14 @@
     function frame(size, alt) {
       var top = (alt || 0) + size[1];
       var width = size[0] + (toggles.mech ? yardBox[0] + 24 : 0);
-      var span = Math.max(width, size[2], top, MECH_H * 1.4);
+      // Without the mech the model alone sets the frame, so a 2 unit crew
+      // member fills the view instead of standing lost in a mech-sized one.
+      var span = Math.max(width, size[2], top, toggles.mech ? MECH_H * 1.4 : 0, 1);
       var fov = camera.fov * Math.PI / 180;
-      HOME.dist = clamp(span * 0.62 / Math.tan(fov / 2) + span * 0.35, 60, 5000);
+      HOME.dist = clamp(span * 0.62 / Math.tan(fov / 2) + span * 0.35, 3, 5000);
       HOME.ty = top * 0.45;
       HOME.tx = toggles.mech ? -(yardBox[0] + 24) / 2 : 0;
-      minDist = Math.max(15, span * 0.25); maxDist = Math.max(600, span * 8);
+      minDist = Math.max(0.8, span * 0.25); maxDist = Math.max(600, span * 8);
       yaw = HOME.yaw; pitch = HOME.pitch; dist = HOME.dist;
       target.set(HOME.tx, HOME.ty, 0);
     }
@@ -976,9 +1020,8 @@
       $('#loading').textContent = 'LOADING MODEL';
       load(info.file).then(function (gltf) {
         if (my !== token) { dispose(gltf.scene); return; }
-        var holder = fit(gltf.scene, info.size);
         var clips = (gltf.animations || []).filter(function (a) { return a.name && a.name !== 'RESET'; });
-        var c = { holder: holder, obj: gltf.scene, entry: e, size: info.size, motion: e.motion, alt: alt, clips: clips, actions: [], active: -1, mixer: null };
+        var c = { holder: null, obj: gltf.scene, entry: e, size: info.size, motion: e.motion, alt: alt, clips: clips, actions: [], active: -1, mixer: null };
         if (clips.length) {
           c.mixer = new THREE.AnimationMixer(gltf.scene);
           c.actions = clips.map(function (cl) { return c.mixer.clipAction(cl); });
@@ -989,10 +1032,16 @@
           }
           c.active = pick;
           c.actions[pick].play();
+          // Stand it on the clip's first frame BEFORE measuring, so a T-posed
+          // rig is fitted in the pose it is shown in.
+          c.mixer.update(0);
           if (REDUCED) c.mixer.timeScale = 0;
         }
+        var holder = fit(gltf.scene, info.size, info.posed);
+        c.holder = holder;
         look(gltf.scene, lookMode);
         holder.position.y = alt;
+        if (e.face) holder.rotation.y = e.face * Math.PI / 180;
         world.add(holder);
         cur = c;
         applyToggles();
