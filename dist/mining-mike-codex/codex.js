@@ -265,9 +265,42 @@
     return 3;
   }
   function tiersFor(e) { return isCrew(e) ? [] : (e.side === 'ally' ? T_ALLY : (isFinale(e) ? T_BOSS : T_HOST)); }
+  // ------------------------------------------------------------------ claims
+  // Reaching a tier does not pay it: the player clicks CLAIM on the reward in
+  // the codex, and only claimed rewards count. A reward is one id, so the
+  // same SP can never be paid twice: a boss's MASTERED tier and its "boss
+  // MASTERED" SP milestone are the same reward, claimable from either place.
+  function claimId(e, r) { return r.sp && e.side === 'hostile' ? 'sp:boss_' + e.key : e.key + ':' + r.n; }
+  // The example saves come with their older rewards already taken and each
+  // entry's newest tier (and any SP milestone reached) still waiting, so the
+  // page opens with something to claim. Kept per save state, per browser.
+  var CLAIMS_KEY = 'mm-codex-claims';
+  var claims = {};
+  try { claims = JSON.parse(localStorage.getItem(CLAIMS_KEY) || '{}') || {}; } catch (err) { claims = {}; }
+  function saveClaims() { try { localStorage.setItem(CLAIMS_KEY, JSON.stringify(claims)); } catch (err) {} }
+  function claimSet() {
+    if (!claims[state.preset]) {
+      var got = {};
+      C.hostiles.concat(ALLIES).forEach(function (e) {
+        var t = tierOf(e);
+        tiersFor(e).forEach(function (r) { if (r.n < t) got[claimId(e, r)] = true; });
+      });
+      claims[state.preset] = got;
+    }
+    return claims[state.preset];
+  }
+  function isClaimed(id) { return !!claimSet()[id]; }
+  function claim(id) { claimSet()[id] = true; saveClaims(); }
+  // What is reached and waiting, per entry.
+  function waiting(e) {
+    var t = tierOf(e);
+    return tiersFor(e).filter(function (r) { return r.n <= t && (r.pp || r.sp) && !isClaimed(claimId(e, r)); });
+  }
   function earned(e) {
     var t = tierOf(e), pp = 0, sp = 0;
-    tiersFor(e).forEach(function (r) { if (r.n <= t) { pp += r.pp; sp += r.sp; } });
+    tiersFor(e).forEach(function (r) {
+      if (r.n <= t && isClaimed(claimId(e, r))) { pp += r.pp; sp += r.sp; }
+    });
     return { pp: pp, sp: sp };
   }
   function lockOf(a) {
@@ -308,16 +341,20 @@
     return false;
   }
   function totals() {
-    var pp = 0, got = 0, max = 0;
+    var pp = 0, got = 0, max = 0, penPP = 0;
     C.hostiles.forEach(function (h) { pp += earned(h).pp; got += tierOf(h); max += tiersFor(h).length; });
     ALLIES.forEach(function (a) {
       pp += earned(a).pp;
       if (a.unlock[0] === 'missing') return;
       got += allyTier(a); max += 3;
     });
-    var sp = 0;
-    C.sp_milestones.forEach(function (m) { if (milestoneDone(m)) sp += m.sp; });
-    return { pp: pp, sp: sp, know: Math.round(100 * got / max) };
+    C.hostiles.concat(ALLIES).forEach(function (e) { waiting(e).forEach(function (r) { penPP += r.pp; }); });
+    var sp = 0, penSP = 0;
+    C.sp_milestones.forEach(function (m) {
+      if (!milestoneDone(m)) return;
+      if (isClaimed('sp:' + m.key)) sp += m.sp; else penSP += m.sp;
+    });
+    return { pp: pp, sp: sp, penPP: penPP, penSP: penSP, know: Math.round(100 * got / max) };
   }
 
   // What a player may read of an entry at its tier. REVEAL ALL overrides.
@@ -437,12 +474,35 @@
     $('#t-know').textContent = t.know + '%';
     $('#t-sp').textContent = t.sp + ' / ' + C.totals.sp;
     $('#t-pp').textContent = t.pp.toLocaleString('en-US') + ' / ' + C.totals.pp.toLocaleString('en-US');
+    var pend = [];
+    if (t.penPP) pend.push('+' + t.penPP.toLocaleString('en-US') + ' PP');
+    if (t.penSP) pend.push('+' + t.penSP + ' SP');
+    $('#t-pend').textContent = pend.length ? pend.join(' \u00B7 ') + ' TO CLAIM' : '';
+    $('#t-pend').hidden = !pend.length;
+    // Each tab says how many of its entries have something waiting.
+    ['hostile', 'ally'].forEach(function (side) {
+      var list = side === 'hostile' ? C.hostiles : ALLIES;
+      var n = list.filter(function (e) { return waiting(e).length; }).length;
+      var b = document.querySelector('.tabs button[data-side="' + side + '"] .tab-n');
+      if (b) { b.textContent = n; b.hidden = !n; }
+    });
+  }
+  // The number the player just added to flashes, so the click visibly paid.
+  function bump(sel) {
+    var el = $(sel);
+    if (!el || REDUCED) return;
+    el.classList.remove('bump');
+    void el.offsetWidth;
+    el.classList.add('bump');
   }
 
   // ------------------------------------------------------------------ list
   function pips(e) {
-    var n = tiersFor(e).length, t = tierOf(e), s = '';
-    for (var i = 1; i <= n; i++) s += '<i class="' + (i <= t ? 'on' : '') + '"></i>';
+    var n = tiersFor(e).length, t = tierOf(e), s = '', rows = tiersFor(e);
+    for (var i = 1; i <= n; i++) {
+      var ready = i <= t && (rows[i - 1].pp || rows[i - 1].sp) && !isClaimed(claimId(e, rows[i - 1]));
+      s += '<i class="' + (i <= t ? (ready ? 'ready' : 'on') : '') + '"></i>';
+    }
     return '<span class="pips' + (e.side === 'hostile' && isFinale(e) ? ' boss' : '') + '" aria-label="Tier ' + t + ' of ' + n + '">' + s + '</span>';
   }
   function row(e) {
@@ -458,6 +518,7 @@
       else if (tierOf(e) === 0) chip = '<span class="chip ok">NEW</span>';
     }
     var cur = state.sel[state.side] === e.key;
+    if (waiting(e).length) chip = '<span class="chip claim-chip">CLAIM</span>';
     return '<button class="' + cls + '" data-key="' + e.key + '"' + (cur ? ' aria-current="true"' : '') + '>' +
       pips(e) + '<span class="nm">' + esc(name) + '</span>' + chip + '</button>';
   }
@@ -479,13 +540,14 @@
         h += groupHead(g[0], g[1]) + g[1].map(row).join('');
       });
     }
-    var done = C.sp_milestones.filter(milestoneDone).length;
-    h += '<details class="milestones"' + (state.msOpen ? ' open' : '') + '><summary>SP MILESTONES ' + done + ' / ' + C.sp_milestones.length +
+    var done = C.sp_milestones.filter(function (m) { return milestoneDone(m) && isClaimed('sp:' + m.key); }).length;
+    var ready = C.sp_milestones.filter(function (m) { return milestoneDone(m) && !isClaimed('sp:' + m.key); }).length;
+    h += '<details class="milestones"' + (state.msOpen ? ' open' : '') + '><summary>SP MILESTONES ' + done + ' / ' + C.sp_milestones.length + (ready ? ' <span class="chip claim-chip">' + ready + ' TO CLAIM</span>' : '') +
       ' <span class="prop-chip">PROPOSED</span></summary><ul>' +
       C.sp_milestones.map(function (m) {
-        var ok = milestoneDone(m);
-        return '<li class="' + (ok ? 'done' : '') + '"><span class="tick">' + (ok ? '✓' : '○') + '</span><span>' +
-          esc(m.name) + '</span><b>+' + m.sp + ' SP</b></li>';
+        var ok = milestoneDone(m), got = ok && isClaimed('sp:' + m.key);
+        return '<li class="' + (got ? 'done' : (ok ? 'ready' : '')) + '"><span class="tick">' + (got ? '✓' : (ok ? '!' : '○')) + '</span><span>' +
+          esc(m.name) + '</span>' + (ok && !got ? '<button class="claim" data-claim="sp:' + m.key + '">CLAIM +' + m.sp + ' SP</button>' : '<b>+' + m.sp + ' SP</b>') + '</li>';
       }).join('') + '</ul>' +
       '<div class="econ">The codex pays <b>' + C.totals.sp + ' SP</b> and <b>' + C.totals.pp.toLocaleString('en-US') +
       ' PP</b> in all. For scale: a campaign clear pays <b>' + C.economy.campaign_sp + ' SP</b> and about <b>' +
@@ -500,9 +562,14 @@
   function tierTrack(e) {
     var t = tierOf(e), rows = tiersFor(e);
     return '<div class="tiers">' + rows.map(function (r) {
-      var cls = r.n <= t ? 'got' : (r.n === t + 1 ? 'next' : '');
+      var id = claimId(e, r), pays = r.pp || r.sp;
+      var ready = r.n <= t && pays && !isClaimed(id);
+      var cls = ready ? 'got ready' : (r.n <= t ? 'got' : (r.n === t + 1 ? 'next' : ''));
+      var amount = (r.pp ? '+' + r.pp + ' PP' : '') + (r.sp ? (r.pp ? ' ' : '') + '+' + r.sp + ' SP' : '');
       var pay = (r.pp ? '<span class="pp">+' + r.pp + ' PP</span>' : '') + (r.sp ? '<span class="sp">+' + r.sp + ' SP</span>' : '');
-      var extra = cls === 'got' ? '<span class="claimed">CLAIMED</span>' : '';
+      var extra = ready ? '<button class="claim" data-claim="' + id + '">CLAIM ' + amount + '</button>' :
+        (r.n <= t && pays ? '<span class="claimed">CLAIMED</span>' : '');
+      if (ready) pay = '';
       var bar = cls === 'next' ? progressBar(e, r) : '';
       return '<div class="tier ' + cls + '"><span class="n">' + r.n + '</span>' +
         '<div><div class="t">' + esc(r.name) + '</div><div class="need">' + esc(needOf(e, r)) + '</div>' +
@@ -1223,6 +1290,25 @@
   $('#list').addEventListener('toggle', function (ev) {
     if (ev.target.classList && ev.target.classList.contains('milestones')) state.msOpen = ev.target.open;
   }, true);
+  // Claiming. Delegated, so a re-rendered dossier or list keeps its buttons.
+  function onClaim(ev) {
+    var b = ev.target.closest('button[data-claim]');
+    if (!b) return;
+    ev.stopPropagation();
+    var id = b.dataset.claim;
+    claim(id);
+    renderTotals();
+    renderList();
+    renderDossier();
+    bump(id.indexOf('sp:') === 0 ? '#t-sp' : '#t-pp');
+  }
+  $('#dossier').addEventListener('click', onClaim);
+  $('#reset-claims').addEventListener('click', function () {
+    delete claims[state.preset];
+    saveClaims();
+    renderAll(false);
+  });
+  $('#list').addEventListener('click', onClaim, true);
   $('#preset').addEventListener('change', function () {
     state.preset = $('#preset').value;
     P = PRESETS[state.preset];
