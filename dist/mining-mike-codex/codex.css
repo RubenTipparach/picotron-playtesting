@@ -486,3 +486,39 @@ code { font-family: var(--mono); font-size: 0.85em; color: var(--dim); }
 }
 .chk input { accent-color: var(--cyan); margin: 0; }
 .chk:has(input:checked) { color: var(--cyan); }
+
+/* ---------------------------------------------------------------- claims */
+/* A reached reward waits for a click. Amber is the game's "act on this". */
+.claim {
+  font: 11px/1 var(--display); letter-spacing: 0.1em;
+  background: var(--amber); color: var(--bg);
+  border: 1px solid var(--amber);
+  padding: 6px 8px 5px;
+  white-space: nowrap;
+  box-shadow: 0 0 10px rgba(255, 179, 51, 0.45);
+}
+.claim:hover { background: #FFC766; }
+.tier.ready { border-color: var(--amber); background: #1A1408; }
+.tier.ready .n { color: var(--bg); background: var(--amber); border-color: var(--amber); }
+.tier.ready .t { color: var(--amber); }
+.pips i.ready { background: transparent; border-color: var(--amber); box-shadow: 0 0 5px rgba(255, 179, 51, 0.7); }
+.chip.claim-chip { color: var(--bg); background: var(--amber); border-color: var(--amber); }
+.milestones li { align-items: center; }
+.milestones li.ready { color: var(--amber); }
+.milestones li.ready .tick { color: var(--amber); }
+.tab-n {
+  display: inline-block; min-width: 18px; margin-left: 4px;
+  padding: 2px 4px 1px; font: 11px/1 var(--display);
+  background: var(--amber); color: var(--bg); border-radius: 2px;
+}
+.tabs button[aria-selected="true"] .tab-n { background: var(--bg); color: var(--amber); }
+.tot.pend .v { color: var(--amber); font-size: 13px; letter-spacing: 0.08em; }
+@keyframes bump { 0% { transform: scale(1); } 30% { transform: scale(1.25); text-shadow: 0 0 14px currentColor; } 100% { transform: scale(1); } }
+.tot .v.bump { animation: bump 0.45s ease-out; display: inline-block; }
+@media (prefers-reduced-motion: reduce) { .tot .v.bump { animation: none; } }
+.linkbtn {
+  font: 11px/1 var(--display); letter-spacing: 0.12em;
+  background: none; border: 1px dashed var(--line2); color: var(--dim);
+  padding: 6px 8px 5px;
+}
+.linkbtn:hover { color: var(--amber); border-color: var(--amber); }

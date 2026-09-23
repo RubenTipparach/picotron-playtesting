@@ -15,8 +15,8 @@
     <span class="mock">DEV TOOL</span>
   </div>
   <nav class="tabs" role="tablist" aria-label="Codex side">
-    <button role="tab" data-side="hostile" aria-selected="true">HOSTILES</button>
-    <button role="tab" data-side="ally" aria-selected="false">YOUR SIDE</button>
+    <button role="tab" data-side="hostile" aria-selected="true">HOSTILES <span class="tab-n" hidden></span></button>
+    <button role="tab" data-side="ally" aria-selected="false">YOUR SIDE <span class="tab-n" hidden></span></button>
   </nav>
   <div class="save">
     <label for="preset">SAVE STATE</label>
@@ -26,12 +26,14 @@
       <option value="mid" selected>Mid campaign: into the Long Haul</option>
       <option value="done">Campaign cleared</option>
     </select>
+    <button id="reset-claims" class="linkbtn" title="Put this save state's rewards back to unclaimed as it opened">RESET CLAIMS</button>
     <label class="designer" title="Reveal every entry and edit its numbers"><input type="checkbox" id="designer"> EDIT</label>
   </div>
   <div class="totals" aria-live="polite">
     <div class="tot"><span class="k">KNOWLEDGE</span><span class="v" id="t-know">0%</span></div>
     <div class="tot sp"><span class="k">SP</span><span class="v" id="t-sp">0 / 0</span></div>
     <div class="tot pp"><span class="k">PP</span><span class="v" id="t-pp">0 / 0</span></div>
+    <div class="tot pend"><span class="k">WAITING</span><span class="v" id="t-pend" hidden></span></div>
   </div>
 </header>
 
