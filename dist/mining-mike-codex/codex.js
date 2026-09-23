@@ -48,8 +48,16 @@
   // ------------------------------------------------------------------ hit rules
   // The game's real reach rules (CLAUDE.md: nothing that fires along the
   // ground can hit a flyer; the Locust is air mid-hop; the Manta is a ladder).
+  // `wk` is a codex weapon (the matchup columns) or a weapon TYPE from
+  // C.elements (what COUNTERED counts: each tower, the mech gun, and every
+  // salvaged mech weapon). A type borrows the per-weapon rules of the codex
+  // weapon it belongs to (`resist`), so the Egg Clutch's "towers leave it
+  // alone" covers the turret type and not the mech's Scattergun.
+  var ELEM = {};
+  C.elements.forEach(function (el) { ELEM[el.key] = el; });
   function reach(h, wk) {
-    var w = WEAPON[wk];
+    var w = WEAPON[wk] || ELEM[wk];
+    var rk = ELEM[wk] ? ELEM[wk].resist : wk;
     if (h.hit === 'air') return w.air ? { can: true, q: '' } : { can: false, q: 'It flies. Nothing on the ground reaches it.' };
     if (h.hit === 'landed') {
       if (w.air && w.ground) return { can: true, q: 'In the air or landed' };
@@ -58,13 +66,15 @@
     }
     if (h.hit === 'ladder') {
       if (wk === 'missile_turret') return { can: true, q: 'At every height' };
+      if (wk === 'mech:missiles') return { can: true, q: 'While she flies, at any height' };
       if (w.air) return { can: true, q: 'Once she trawls at 46' };
       return { can: true, q: 'Only once grounded, below 35%' };
     }
-    if (h.hit && h.hit[wk] === 'no') return { can: false, q: 'Left alone by design' };
+    if (h.hit && h.hit[rk] === 'no') return { can: false, q: 'Left alone by design' };
     return w.ground ? { can: true, q: '' } : { can: false, q: 'Air targets only' };
   }
-  function hittable(h) { return C.weapons.filter(function (w) { return reach(h, w.key).can; }).map(function (w) { return w.key; }); }
+  function reachableTypes(h) { return C.elements.filter(function (el) { return reach(h, el.key).can; }).map(function (el) { return el.key; }); }
+  function track(h) { return C.kills[h.track || 'standard']; }
 
   // ------------------------------------------------------------------ balance
   // codex_balance.json, the file the game reads (scripts/codex_balance.gd).
@@ -142,15 +152,16 @@
   // ------------------------------------------------------------------ save states
   // Example progress, so the page opens on something that looks played.
   // Plainly examples: none of it is anyone's save.
+  // `k` is kills; `hit` is every weapon TYPE that has hit it at least once
+  // (the C.elements keys: tower types, "mech_gun", "mech:<salvage key>").
   var PRESETS = {
     fresh: {
       sectors: ['dust_hive'], research: [], shop: [],
       hostiles: {
-        grunt: { k: 18, wk: { mech: 14, turret: 4 } },
-        runner: { k: 6, wk: { mech: 4, turret: 2 } },
-        snake: { k: 2, wk: { mech: 2 } }
+        grunt: { k: 180, hit: ['mech_gun', 'turret'] },
+        runner: { k: 60, hit: ['mech_gun'] },
+        snake: { k: 12, hit: ['mech_gun'] }
       },
-      bosses: {},
       allies: {
         mech_combat: { b: 1, j: 18 }, hq: { b: 1, j: 1 }, power_plant: { b: 2, j: 3 },
         pylon: { b: 3, j: 3 }, turret: { b: 2, j: 4 }, wall: { b: 5, j: 40 }, refinery: { b: 1, j: 2 }
@@ -161,16 +172,17 @@
       research: ['unlock_lightning', 'turret_ice', 'unlock_battery', 'unlock_repair_drone'],
       shop: ['miner_drone'],
       hostiles: {
-        grunt: { k: 640, wk: { turret: 380, mech: 170, lightning: 60, slow: 30 } },
-        runner: { k: 230, wk: { turret: 150, mech: 55, lightning: 25 } },
-        snake: { k: 96, wk: { turret: 60, mech: 31, lightning: 5 } },
-        egg_clutch: { k: 9, wk: { mech: 9 } },
-        hydralisk: { k: 7, wk: { turret: 4, mech: 3 } },
-        shield_generator: { k: 12, wk: { mech: 8, turret: 4 } },
-        drillhead: { k: 48, wk: { turret: 36, lightning: 7, mech: 5 } },
-        tank: { k: 3, wk: { turret: 3 } }
+        grunt: { k: 3800, hit: ['turret', 'mech_gun', 'lightning', 'slow', 'mech:shotgun'] },
+        runner: { k: 1400, hit: ['turret', 'mech_gun', 'lightning'] },
+        snake: { k: 610, hit: ['turret', 'mech_gun'] },
+        egg_clutch: { k: 40, hit: ['mech_gun'] },
+        hydralisk: { k: 7, hit: ['turret', 'mech_gun'] },
+        shield_generator: { k: 48, hit: ['mech_gun', 'turret'] },
+        orb_weaver: { k: 3, hit: ['mech_gun', 'turret', 'lightning'] },
+        drillhead: { k: 520, hit: ['turret', 'lightning', 'mech_gun'] },
+        tank: { k: 30, hit: ['turret'] },
+        tyrant: { k: 0, seen: true, hit: [] }
       },
-      bosses: { orb_weaver: 4 },
       allies: {
         mech_combat: { b: 14, j: 820 }, mech_mining: { b: 5, j: 130 }, mech_repair: { b: 2, j: 20 },
         mech_construction: { b: 1, j: 4 }, hq: { b: 18, j: 52 }, power_plant: { b: 60, j: 140 },
@@ -181,18 +193,18 @@
       }
     },
     // The demo is Dust Hive alone. Everything in it countered and the Orb
-    // Weaver analysed: the two SP the codex can pay inside a demo.
+    // Weaver mastered: the two SP the codex can pay inside a demo.
     demo: {
       sectors: ['dust_hive'], research: ['unlock_lightning', 'turret_ice'], shop: ['miner_drone'],
       hostiles: {
-        grunt: { k: 420, wk: { turret: 250, mech: 120, lightning: 40, slow: 10 } },
-        runner: { k: 180, wk: { turret: 110, mech: 50, lightning: 20 } },
-        snake: { k: 64, wk: { turret: 40, mech: 18, lightning: 6 } },
-        egg_clutch: { k: 30, wk: { mech: 30 } },
-        hydralisk: { k: 26, wk: { turret: 12, mech: 8, lightning: 6 } },
-        shield_generator: { k: 28, wk: { mech: 14, turret: 9, lightning: 5 } }
+        grunt: { k: 2400, hit: ['turret', 'mech_gun', 'lightning', 'mech:shotgun'] },
+        runner: { k: 900, hit: ['turret', 'mech_gun', 'mech:shotgun'] },
+        snake: { k: 520, hit: ['turret', 'mech_gun', 'lightning'] },
+        egg_clutch: { k: 120, hit: ['mech_gun', 'mech:shotgun', 'mech:burning'] },
+        hydralisk: { k: 6, hit: ['turret', 'mech_gun', 'lightning'] },
+        shield_generator: { k: 104, hit: ['mech_gun', 'turret', 'lightning'] },
+        orb_weaver: { k: 10, hit: ['mech_gun', 'turret', 'mech:shotgun'] }
       },
-      bosses: { orb_weaver: 4 },
       allies: {
         mech_combat: { b: 9, j: 510 }, mech_mining: { b: 3, j: 60 }, hq: { b: 11, j: 30 },
         power_plant: { b: 40, j: 90 }, pylon: { b: 50, j: 100 }, refinery: { b: 18, j: 120 },
@@ -203,13 +215,9 @@
   };
   PRESETS.done = (function () {
     var p = { sectors: C.sectors.map(function (s) { return s.key; }), research: Object.keys(C.research_names),
-      shop: ['miner_drone', 'repair_companion'], hostiles: {}, bosses: {}, allies: {} };
+      shop: ['miner_drone', 'repair_companion'], hostiles: {}, allies: {} };
     C.hostiles.forEach(function (h) {
-      if (isFinale(h)) { p.bosses[h.key] = 4; return; }
-      var wk = {}, ws = hittable(h);
-      ws.forEach(function (w) { wk[w] = 30; });
-      wk[ws[0]] += 260 - 30 * ws.length;
-      p.hostiles[h.key] = { k: 260, wk: wk };
+      p.hostiles[h.key] = { k: track(h).mastered + Math.ceil(track(h).mastered / 5), hit: reachableTypes(h) };
     });
     ALLIES.forEach(function (a) { p.allies[a.key] = { b: 40, j: 150 }; });
     return p;
@@ -219,20 +227,23 @@
   var P = PRESETS[state.preset];
 
   // ------------------------------------------------------------------ progress
-  function hp(h) { return P.hostiles[h.key] || { k: 0, wk: {} }; }
+  function hp(h) { return P.hostiles[h.key] || { k: 0, hit: [] }; }
+  // The weapon types that have hit it and could: a type that cannot reach it
+  // never counts, whatever a save says.
   function learned(h) {
-    var per = T_HOST[2].per_matchup, p = hp(h);
-    return hittable(h).filter(function (w) { return (p.wk[w] || 0) >= per; });
+    var p = hp(h);
+    return (p.hit || []).filter(function (k) { return ELEM[k] && reach(h, k).can; });
   }
-  function matchNeed(h) { return Math.min(T_HOST[2].matchups, hittable(h).length); }
+  // Something only a few types can reach (a flyer: the Missile Turret, the SAM
+  // and the mech's Missile Rack) is countered by every one of them.
+  function matchNeed(h) { return Math.min(C.counter_types, reachableTypes(h).length); }
   function tierOf(e) {
     if (e.side === 'ally') return allyTier(e);
-    if (isFinale(e)) return P.bosses[e.key] || 0;
-    var p = hp(e);
+    var p = hp(e), K = track(e);
     if (!p.k && !p.seen) return 0;
-    if (p.k < T_HOST[1].kills) return 1;
+    if (p.k < K.catalogued) return 1;
     if (learned(e).length < matchNeed(e)) return 2;
-    if (p.k < T_HOST[3].kills) return 3;
+    if (p.k < K.mastered) return 3;
     return 4;
   }
   function available(a) {
@@ -491,11 +502,26 @@
       var extra = cls === 'got' ? '<span class="claimed">CLAIMED</span>' : '';
       var bar = cls === 'next' ? progressBar(e, r) : '';
       return '<div class="tier ' + cls + '"><span class="n">' + r.n + '</span>' +
-        '<div><div class="t">' + esc(r.name) + '</div><div class="need">' + esc(r.need) + '</div>' +
+        '<div><div class="t">' + esc(r.name) + '</div><div class="need">' + esc(needOf(e, r)) + '</div>' +
         '<div class="rev">Reveals: ' + esc(r.reveals) + '</div></div>' +
         '<div class="pay">' + pay + '<br>' + extra + '</div>' + bar + '</div>';
     }).join('') + '</div>';
   }
+  // A tier's requirement in words, from the numbers the page tests against,
+  // so the sentence and the bar can never quote different thresholds.
+  function needOf(e, r) {
+    if (r.need) return r.need;
+    if (r.kills) {
+      var n = track(e)[r.kills];
+      return num(n) + ' kill' + (n === 1 ? '' : 's') + (r.kills === 'catalogued' ? ', any weapon' : '');
+    }
+    if (r.types) {
+      return 'Hit it with ' + r.types + ' different weapon types: any tower type, the mech gun, or a mech weapon. ' +
+        'Every salvaged mech weapon is a type of its own, so salvage is the quick way.';
+    }
+    return '';
+  }
+  function tierName(e, n) { return tiersFor(e)[n - 1].name; }
   function barHtml(have, need, label) {
     var f = clamp(have / need, 0, 1) * 100;
     return '<div class="bar"><i style="--f:' + f.toFixed(1) + '%"></i><span>' + label + '</span></div>';
@@ -509,43 +535,42 @@
       }
       return barHtml(p.j, r.jobs, num(p.j) + ' / ' + r.jobs + ' ' + jobNoun(e));
     }
-    if (isFinale(e)) {
-      if (r.n === 1) return '<div class="bar"><span>Waits at ' + esc(e.first) + ', ' + esc(SECTOR[e.group].name) + '</span></div>';
-      return '';
-    }
     var h = hp(e);
-    if (r.n === 1) return '<div class="bar"><span>Somewhere in ' + esc(SECTOR[e.group].name) + '</span></div>';
-    if (r.kills != null) return barHtml(h.k, r.kills, num(h.k) + ' / ' + r.kills + ' kills');
+    if (r.n === 1) {
+      return '<div class="bar"><span>' + (isFinale(e) ? 'Waits at ' + esc(e.first) + ', ' : 'Somewhere in ') +
+        esc(SECTOR[e.group].name) + '</span></div>';
+    }
+    if (r.kills) { var n = track(e)[r.kills]; return barHtml(h.k, n, num(h.k) + ' / ' + num(n) + ' kills'); }
     var need = matchNeed(e), have = learned(e);
-    var per = r.per_matchup;
-    var detail = hittable(e).map(function (w) {
-      var k = h.wk[w] || 0;
-      return WEAPON[w].short + (k >= per ? ' ✓' : ' ' + Math.min(k, per) + '/' + per);
-    }).join(' · ');
-    return barHtml(have.length, need, have.length + ' / ' + need + ' matchups' + (need < r.matchups ? ' (only ' + need + ' weapon' + (need > 1 ? 's' : '') + ' can hit it)' : '')) +
-      '<div class="bar"><span>' + detail + '</span></div>';
+    var names = have.map(function (k) { return ELEM[k].name.toUpperCase() + ' \u2713'; });
+    var only = reachableTypes(e).length < r.types;
+    return barHtml(have.length, need, have.length + ' / ' + need + ' weapon types' +
+        (only ? ' (only ' + need + ' type' + (need > 1 ? 's' : '') + ' can reach it)' : '')) +
+      '<div class="bar"><span>' + (names.length ? names.join(' \u00B7 ') : 'Nothing has hit it yet') + '</span></div>';
   }
 
   function matchupGrid(e, rv) {
-    var h = hp(e), per = T_HOST[2].per_matchup, tier = tierOf(e);
+    var tier = tierOf(e), got = learned(e);
     return '<div class="mx">' + C.weapons.map(function (w) {
-      var r = reach(e, w.key), kills = h.wk[w.key] || 0;
+      var r = reach(e, w.key);
+      // A column is learned once any weapon type under it has landed a hit:
+      // the mech column by the gun or any salvaged weapon.
+      var hitBy = got.filter(function (k) { return ELEM[k].resist === w.key; });
       if (!r.can) {
         return '<div class="mcell no"><span class="w">' + esc(w.name) + '</span><span class="m">' +
           (tier >= 1 || state.designer ? 'CAN\'T HIT' : '???') + '</span><span class="q">' + (tier >= 1 || state.designer ? esc(r.q) : '') + '</span></div>';
       }
-      var known = rv.allMx || kills >= per;
+      var known = rv.allMx || hitBy.length > 0;
       if (!known) {
-        return '<div class="mcell unk"><span class="w">' + esc(w.name) + '</span><span class="m">???</span><span class="q">' +
-          (kills ? kills + ' / ' + per + ' kills to learn' : per + ' kills to learn') + '</span></div>';
+        return '<div class="mcell unk"><span class="w">' + esc(w.name) + '</span><span class="m">???</span><span class="q">Hit it once to learn</span></div>';
       }
       var m = mult(e, w.key), cls = m > 1 ? ' weak' : (m < 1 ? ' res' : '');
       var ch = resChanged(e.key, w.key);
-      return '<div class="mcell' + cls + (kills >= per ? ' learned' : '') + (ch ? ' changed' : '') + '"><span class="w">' + esc(w.name) + '</span><span class="m">x' +
+      return '<div class="mcell' + cls + (hitBy.length ? ' learned' : '') + (ch ? ' changed' : '') + '"><span class="w">' + esc(w.name) + '</span><span class="m">x' +
         m.toFixed(2) + '</span>' +
         (editing() ? '<label class="edrow">' + inp('data-res="' + e.key + '|' + w.key + '" min="0"', m, '0.05') + was(loadedRes(e.key, w.key), m) + '</label>' : '') +
         '<span class="q">' + esc(r.q || (m === 1 ? 'Full damage' : (m > 1 ? 'Weak to it' : 'Shrugs it off'))) +
-        (kills ? ' · ' + num(kills) + ' kills' : '') + '</span></div>';
+        (hitBy.length && w.key === 'mech' ? ' \u00B7 by ' + hitBy.map(function (k) { return ELEM[k].name; }).join(', ') : '') + '</span></div>';
     }).join('') + '</div>';
   }
 
@@ -576,7 +601,7 @@
       var full = i < rv.abil, named = rv.abilNames || full;
       if (full) return '<li><b>' + esc(a[0]) + '</b><span>' + esc(a[1]) + '</span></li>';
       return '<li class="hid"><b>' + (named ? esc(a[0]) : '???') + '</b><span class="redact">' +
-        (isFinale(e) ? 'DEFEATED reveals this' : 'COUNTERED reveals this') + '</span></li>';
+        tierName(e, 3) + ' reveals this</span></li>';
     }).join('') + '</ul>';
   }
 
@@ -606,7 +631,7 @@
       (maxsp ? ' · <span style="color:var(--sp)">' + ern.sp + ' / ' + maxsp + ' SP</span>' : '') + '</span></div>' + tierTrack(e) + '</div>';
 
     h += '<div class="sec"><div class="sec-h"><span>FIELD NUMBERS</span><span class="aside">' +
-      (rv.stats ? 'from GameConfig and the scripts' : (isFinale(e) ? 'ENGAGED reveals these' : 'CATALOGUED reveals these')) + '</span></div>';
+      (rv.stats ? 'from GameConfig and the scripts' : tierName(e, 2) + ' reveals these') + '</span></div>';
     if (rv.stats && hasWave(e)) {
       var W = waveOf(e);
       h += '<div class="wave"><label for="wave">DIFFICULTY</label><input id="wave" type="range" min="1" max="40" value="' + W +
@@ -619,12 +644,12 @@
       'Shipped neutral, for tuning. Which weapon can reach it at all is the game\'s hit rule.</div></div>';
 
     h += '<div class="sec"><div class="sec-h"><span>WEAKNESSES</span><span class="aside">' +
-      (rv.weak ? '' : (isFinale(e) ? 'ANALYSED reveals these' : 'COUNTERED reveals these')) + '</span></div>' +
-      (rv.weak ? weakChips(e) : '<p class="redact">Learn how it takes damage from three weapons.</p>') + '</div>';
+      (rv.weak ? '' : tierName(e, isFinale(e) ? 4 : 3) + ' reveals these') + '</span></div>' +
+      (rv.weak ? weakChips(e) : '<p class="redact">Hit it with three different weapon types.</p>') + '</div>';
 
     h += '<div class="sec"><div class="sec-h"><span>BEHAVIOUR</span></div>' +
       (rv.targets ? '<p class="targets"><b style="color:var(--amber);font-weight:normal">GOES FOR </b>' + esc(e.targets) + '</p>' :
-        '<p class="redact">What it goes after: <b>' + (isFinale(e) ? 'DEFEATED' : 'COUNTERED') + '</b> reveals this.</p>') +
+        '<p class="redact">What it goes after: <b>' + tierName(e, 3) + '</b> reveals this.</p>') +
       (rv.name ? abilities(e, rv) : '') + '</div>';
 
     h += '<div class="src-line">Source: ' + esc(e.src) + '</div>';
