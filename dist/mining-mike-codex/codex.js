@@ -243,8 +243,9 @@
     if (!p.k && !p.seen) return 0;
     if (p.k < K.catalogued) return 1;
     if (learned(e).length < matchNeed(e)) return 2;
-    if (p.k < K.mastered) return 3;
-    return 4;
+    if (p.k < K.experienced) return 3;
+    if (p.k < K.mastered) return 4;
+    return 5;
   }
   function available(a) {
     var u = a.unlock;
@@ -289,15 +290,17 @@
   };
   function jobNoun(a) { return a.weaponKey || a.key === 'fighter' ? 'kills' : (JOB[a.key] || 'jobs done'); }
 
+  // The last step of its own track, whatever that track's length.
+  function mastered(h) { return tierOf(h) >= tiersFor(h).length; }
   function milestoneDone(m) {
     var k = m.key;
-    if (k.indexOf('boss_') === 0) return tierOf(HOST[k.slice(5)]) >= 4;
+    if (k.indexOf('boss_') === 0) return mastered(HOST[k.slice(5)]);
     if (k.indexOf('sector_') === 0) {
       var g = k.slice(7);
       return C.hostiles.filter(function (h) { return h.group === g && !isFinale(h); })
         .every(function (h) { return tierOf(h) >= 3; });
     }
-    if (k === 'all_hostiles') return C.hostiles.every(function (h) { return tierOf(h) >= 4; });
+    if (k === 'all_hostiles') return C.hostiles.every(mastered);
     if (k === 'all_allies') {
       var av = ALLIES.filter(available);
       return av.length > 0 && av.every(function (a) { return allyTier(a) >= 3; });
@@ -306,7 +309,7 @@
   }
   function totals() {
     var pp = 0, got = 0, max = 0;
-    C.hostiles.forEach(function (h) { pp += earned(h).pp; got += tierOf(h); max += 4; });
+    C.hostiles.forEach(function (h) { pp += earned(h).pp; got += tierOf(h); max += tiersFor(h).length; });
     ALLIES.forEach(function (a) {
       pp += earned(a).pp;
       if (a.unlock[0] === 'missing') return;
