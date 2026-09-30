@@ -126,14 +126,15 @@ level, 40 frames each, reporting mean `stat(1)` and `stat(7)`. Treat CI
 runner numbers as relative; the in-game readout (cpu %, fps, 480/240) is the
 truth on your machine.
 
-First CI run (before the second optimisation pass), 40 frames per row -
-`stat(1)` reads 0 inside a headless `-x` script, so fps comes from `stat(7)`
-and `time()`:
+40 frames per pose; `stat(1)` reads 0 inside a headless `-x` script, so fps
+comes from `stat(7)` and `time()` (666 ms = 60 fps, 1333 ms = 30 fps):
 
 | | raycaster | true 3D |
 | --- | --- | --- |
-| 480x270 | 20-30 fps | 30 fps (arena ~37) |
-| 240x135 | 60 in 3 of 6 poses, else 30 | 60 in 4 of 6 poses, else 30 |
+| 480x270, first pass | 20-30 fps | 30 fps (arena ~37) |
+| 240x135, first pass | 60 in 3 of 6 poses, else 30 | 60 in 4 of 6 poses, else 30 |
+| **480x270, second pass** | **30 fps in all 6 poses** | **60 fps in 4 of 6, 30 in hall + corridor** |
+| **240x135, second pass** | **60 fps in all 6 poses** | **60 fps in all 6 poses** |
 
 Those runs lined up with the mock: frames under ~130k mock instructions
 (`_update` + `_draw`, 240x135) held 60 fps, frames above it dropped to 30.

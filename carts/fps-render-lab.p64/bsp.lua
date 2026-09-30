@@ -15,7 +15,7 @@
 	     bounding box is outside the view frustum
 	  3. each visible polygon: backface test for free (which side of its node
 	     the eye is on), near-plane clip, project, fog level -> colour table,
-	     fan into textri() batched scanlines
+	     fill_poly(): one batched tline3d per polygon
 	  4. monsters/props/items are dropped into the BSP leaf they stand in and
 	     drawn when the walk reaches that leaf, so they sort against walls
 	     correctly too. Props are real meshes here (billboards in the
