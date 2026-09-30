@@ -24,9 +24,10 @@
 
 NEAR = 4
 BSP_FOG = 360               -- world units per extra shade level
+MESH_LOD = 560              -- props further than this draw as their billboard
 
 local nodes, polys
-local Vud, Cud
+local Vud, Cud, Sud, Wud, ONES     -- verts, camera space, screen space (sx,sy,w), 1/z
 local M = userdata("f64", 3, 4)
 local ex, ey, ez                       -- eye
 local rx, ry, rz, ux, uy, uz, fx, fy, fz
@@ -45,6 +46,10 @@ function bsp_init()
 	local nv = #vs / 3
 	Vud = userdata("f64", 3, nv)
 	Cud = userdata("f64", 3, nv)
+	Sud = userdata("f64", 3, nv)
+	Wud = userdata("f64", nv)
+	ONES = userdata("f64", nv)
+	for i = 0, nv - 1 do ONES[i] = 1 end
 	for i = 0, #vs - 1 do Vud[i] = vs[i + 1] end
 	for _, m in pairs(MESHES) do mesh_prepare(m) end
 end
@@ -96,14 +101,39 @@ end
 
 local function draw_level_poly(p)
 	local n = (#p - 5) / 3
+	local clip = false
 	for k = 1, n do
-		local b = 3 + k * 3
-		local vi = (p[b] - 1) * 3
-		qx[k], qy[k], qz[k], qu[k], qv[k] = Cud[vi], Cud[vi + 1], Cud[vi + 2], p[b + 1], p[b + 2]
+		local vi = (p[3 + k * 3] - 1) * 3
+		if Cud[vi + 2] < NEAR then clip = true break end
 	end
 	local dx, dy, dz = p[3] - ex, p[4] - ey, p[5] - ez
-	set_fog(min(3, flr(sqrt(dx * dx + dy * dy + dz * dz) / BSP_FOG)))
-	local t = draw_q(SURF_BASE + p[1], n)
+	local t
+	if clip then
+		-- rare path: camera-space verts through the near-plane clipper
+		for k = 1, n do
+			local b = 3 + k * 3
+			local vi = (p[b] - 1) * 3
+			qx[k], qy[k], qz[k], qu[k], qv[k] = Cud[vi], Cud[vi + 1], Cud[vi + 2], p[b + 1], p[b + 2]
+		end
+		set_fog(min(3, flr(sqrt(dx * dx + dy * dy + dz * dz) / BSP_FOG)))
+		t = draw_q(SURF_BASE + p[1], n)
+	else
+		-- common path: screen coords were batch-projected in C (Sud)
+		local minx, maxx, miny, maxy = 1e9, -1e9, 1e9, -1e9
+		for k = 1, n do
+			local b = 3 + k * 3
+			local vi = (p[b] - 1) * 3
+			local sx, sy = Sud[vi], Sud[vi + 1]
+			px[k], py[k], pw[k], pu[k], pv[k] = sx, sy, Sud[vi + 2], p[b + 1], p[b + 2]
+			if sx < minx then minx = sx end
+			if sx > maxx then maxx = sx end
+			if sy < miny then miny = sy end
+			if sy > maxy then maxy = sy end
+		end
+		if maxx < 0 or minx >= SW or maxy < 0 or miny >= SH then return end
+		set_fog(min(3, flr(sqrt(dx * dx + dy * dy + dz * dz) / BSP_FOG)))
+		t = fill_poly(SURF_BASE + p[1], n, px, py, pw, pu, pv)
+	end
 	if t > 0 then
 		bsp_stats.polys = bsp_stats.polys + 1
 		bsp_stats.tris = bsp_stats.tris + t
@@ -153,28 +183,44 @@ local function draw_mesh(m, x, y, z, yaw, lvl)
 	return tris
 end
 
+local function sphere_visible(x, y, z, r)
+	for i = 1, 4 do
+		local p = planes[i]
+		if p[1] * (x - ex) + p[2] * (y - ey) + p[3] * (z - ez) < -r * p[4] then return false end
+	end
+	return true
+end
+
+-- camera-facing billboard: a constant-depth quad == one scaled sspr
+local function billboard(o, spr, w, h, sw, sh, zoff, lvl)
+	local dx, dy, dz = o.x - ex, o.y - ey, (o.z or 0) + zoff + h / 2 - ez
+	local cz = dx * fx + dy * fy + dz * fz
+	if cz < NEAR then return end
+	local cx = dx * rx + dy * ry + dz * rz
+	local cy = dx * ux + dy * uy + dz * uz
+	local s = FOCAL / cz
+	local ww, hh = w * s, h * s
+	local sx, sy = CX + cx * s - ww / 2, CY - cy * s - hh / 2
+	if sx + ww < 0 or sx >= SW or sy + hh < 0 or sy >= SH then return end
+	sspr(VAR_BASE + spr * 4 + lvl, 0, 0, sw, sh, sx, sy, ww, hh, o.flip)
+end
+
 local function draw_object(o)
+	-- off-screen objects cost nothing (objects under culled subtrees land here too)
+	if not sphere_visible(o.x, o.y, (o.z or 0) + (o.h or 16) * 0.5, o.rad or 40) then return end
 	set_fog(0)
-	local dx, dy = o.x - ex, o.y - ey
-	local dist = sqrt(dx * dx + dy * dy)
+	local dist = sqrt(o._d)
 	local lvl = o.fullbright and 0 or min(3, grid_light(o.x, o.y) + flr(dist / BSP_FOG))
 	bsp_stats.objs = bsp_stats.objs + 1
 	if o.mesh then
+		if dist > MESH_LOD and o.lod_spr then
+			-- LOD: far props are just their (raycaster) billboard
+			billboard(o, o.lod_spr, o.lod_w, o.lod_h, o.lod_sw, o.lod_sh, 0, lvl)
+			return
+		end
 		bsp_stats.tris = bsp_stats.tris + draw_mesh(o.mesh, o.x, o.y, o.z, o.yaw or 0, lvl)
 	end
-	if o.spr then
-		-- camera-facing billboard: a constant-depth quad == scaled sspr
-		local zb = (o.z or 0) + (o.bb_z or 0)
-		local cxz = dx * fx + dy * fy + (zb + o.h / 2 - ez) * fz
-		if cxz < NEAR then return end
-		local cx = dx * rx + dy * ry + (zb + o.h / 2 - ez) * rz
-		local cy = dx * ux + dy * uy + (zb + o.h / 2 - ez) * uz
-		local s = FOCAL / cxz
-		local w, h = o.w * s, o.h * s
-		local sx, sy = CX + cx * s - w / 2, CY - cy * s - h / 2
-		if sx + w < 0 or sx >= SW or sy + h < 0 or sy >= SH then return end
-		sspr(VAR_BASE + o.spr * 4 + lvl, 0, 0, o.sw, o.sh, sx, sy, w, h, o.flip)
-	end
+	if o.spr then billboard(o, o.spr, o.w, o.h, o.sw, o.sh, o.bb_z or 0, lvl) end
 end
 
 local function draw_objs(list)
@@ -238,20 +284,33 @@ function bsp_draw(cam, objs)
 	M:set(0, 2, rz, uz, fz)
 	M:set(0, 3, -(rx * ex + ry * ey + rz * ez), -(ux * ex + uy * ey + uz * ez), -(fx * ex + fy * ey + fz * ez))
 	Vud:matmul3d(M, Cud, 1)
+	-- project every vertex in C: w = 1/z, sx = CX + x*F*w, sy = CY - y*F*w
+	-- (strided userdata ops, ~9 calls per frame instead of Lua per vertex)
+	local nv = Wud:width()
+	ONES:div(Cud, Wud, 2, 0, 1, 3, 1, nv)
+	Sud:copy(Cud, true)
+	Sud:mul(Wud, true, 0, 0, 1, 1, 3, nv)
+	Sud:mul(Wud, true, 0, 1, 1, 1, 3, nv)
+	Sud:mul(FOCAL, true, 0, 0, 1, 0, 3, nv)
+	Sud:mul(-FOCAL, true, 0, 1, 1, 0, 3, nv)
+	Sud:add(CX, true, 0, 0, 1, 0, 3, nv)
+	Sud:add(CY, true, 0, 1, 1, 0, 3, nv)
+	Sud:copy(Wud, true, 0, 2, 1, 1, 3, nv)
 	-- frustum planes (inward): left/right/top/bottom screen edges
 	local ax, ay = CX / FOCAL, CY / FOCAL
-	planes[1] = {rx + fx * ax, ry + fy * ax, rz + fz * ax}
-	planes[2] = {-rx + fx * ax, -ry + fy * ax, -rz + fz * ax}
-	planes[3] = {-ux + fx * ay, -uy + fy * ay, -uz + fz * ay}
-	planes[4] = {ux + fx * ay, uy + fy * ay, uz + fz * ay}
+	local lx, ly = sqrt(1 + ax * ax), sqrt(1 + ay * ay)      -- plane normal lengths
+	planes[1] = {rx + fx * ax, ry + fy * ax, rz + fz * ax, lx}
+	planes[2] = {-rx + fx * ax, -ry + fy * ax, -rz + fz * ax, lx}
+	planes[3] = {-ux + fx * ay, -uy + fy * ay, -uz + fz * ay, ly}
+	planes[4] = {ux + fx * ay, uy + fy * ay, uz + fz * ay, ly}
 	-- drop objects into BSP leaves
 	slots, sub = {}, {}
 	for o in all(objs) do
 		local dx, dy = o.x - ex, o.y - ey
 		o._d = dx * dx + dy * dy
 		local oz = (o.z or 0) + (o.h or 16) * 0.5
-		local i = 1
-		while true do
+		local i = sphere_visible(o.x, o.y, oz, o.rad or 40) and 1 or 0
+		while i > 0 do
 			local n = nodes[i]
 			sub[i] = sub[i] or {}
 			add(sub[i], o)

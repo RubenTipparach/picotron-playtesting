@@ -66,6 +66,13 @@ jobs:
         if: steps.picotron.outputs.available == 'true'
         run: bash scripts/picotron/build-all-carts.sh
 
+      - name: Benchmark FPS Render Lab in headless Picotron
+        # Real-Picotron cpu/fps per renderer, pose and detail level -> job
+        # summary. Informational: never blocks the build or deploy.
+        if: steps.picotron.outputs.available == 'true'
+        continue-on-error: true
+        run: bash scripts/picotron/bench-cart.sh carts/fps-render-lab.p64 tools/fps-lab/picotron_bench.lua
+
       - name: Build site
         run: npm run build
 

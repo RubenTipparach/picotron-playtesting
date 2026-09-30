@@ -13,7 +13,7 @@
 	                        platforms, bridges, sloped braces, 3D props
 
 	Controls: WASD move, mouse (click to lock) or arrows look, click / Z /
-	space to fire, TAB switch renderer, R restart.
+	space to fire, TAB switch renderer, V detail (480x270 / 240x135), R restart.
 ]]
 
 include("level.lua")
@@ -101,6 +101,37 @@ function reset_game()
 	end
 	msg, msg_t = "TAB: raycaster / true 3D", 240
 	won = false
+end
+
+-- ------------------------------------------------------------- detail ---
+-- FULL renders at 480x270; HALF uses vid(3) (240x135, doubled by the
+-- display) which quarters the fill and halves raycaster columns / BSP
+-- scanlines. AUTO starts FULL and drops to HALF if Picotron has to run
+-- _draw below 60fps for ~2 seconds; V toggles by hand (and ends AUTO).
+detail_half, detail_auto = false, true
+local slow_frames = 0
+function set_detail(half)
+	detail_half = half
+	if vid then vid(half and 3 or 0) end
+	SW, SH = half and 240 or 480, half and 135 or 270
+	CX, CY, FOCAL = SW / 2, SH / 2, SW / 2
+	gfx_palette()            -- in case the video mode reset the rgb palette
+end
+
+local function update_detail()
+	if keyp("v") then
+		detail_auto = false
+		set_detail(not detail_half)
+		msg, msg_t = detail_half and "detail: 240x135" or "detail: 480x270", 90
+		return
+	end
+	if detail_auto and not detail_half and stat then
+		if (stat(7) or 60) < 60 then slow_frames = slow_frames + 1 else slow_frames = 0 end
+		if slow_frames > 120 then
+			set_detail(true)
+			msg, msg_t = "auto detail: 240x135 (V to change)", 150
+		end
+	end
 end
 
 function _init()
@@ -283,6 +314,7 @@ function _update()
 		msg, msg_t = (mode == MODE_BSP) and "TRUE 3D  (BSP + surface cache)" or "RAYCASTER  (grid slice at eye height)", 120
 	end
 	if keyp("r") then reset_game() end
+	update_detail()
 	if player.hp <= 0 then
 		if btnp(4) or btnp(5) then reset_game() end
 		return
@@ -378,10 +410,13 @@ local function draw_list()
 	local l = {}
 	for t in all(things) do
 		if mode == MODE_BSP and t.mesh_def then
-			add(l, {x = t.x, y = t.y, z = t.z, yaw = t.yaw, mesh = t.mesh_def, h = t.h,
-				spr = (t.cls == "prop_torch") and (44 + flr(frame / 8 + t.x) % 2) or nil,
-				w = 16, sw = 16, sh = 24, bb_z = 44, fullbright = t.fullbright})
-			if t.cls == "prop_torch" then l[#l].h = 24 end
+			local torch = t.cls == "prop_torch"
+			local anim = flr(frame / 8 + t.x) % 2
+			add(l, {x = t.x, y = t.y, z = t.z, yaw = t.yaw, mesh = t.mesh_def, h = torch and 24 or t.h,
+				spr = torch and (44 + anim) or nil,
+				w = 16, sw = 16, sh = 24, bb_z = 44, fullbright = t.fullbright,
+				-- far away the mesh is swapped for the raycaster's billboard (LOD)
+				lod_spr = torch and (42 + anim) or t.base_spr, lod_w = t.w, lod_h = t.h, lod_sw = t.sw, lod_sh = t.sh})
 		else
 			if t.cls == "prop_torch" then t.spr = 42 + flr(frame / 8 + t.x) % 2 end
 			add(l, t)
@@ -404,8 +439,12 @@ function _draw()
 	end
 
 	-- weapon + crosshair
-	local wb = flr(sin(bob * 0.5) * 3 + abs(cos(bob * 0.5)) * 2)
-	spr(flash > 0 and 49 or 48, CX - 48, SH - 64 + wb + (fire_cd > 18 and 4 or 0))
+	local wb = flr(sin(bob * 0.5) * 3 + abs(cos(bob * 0.5)) * 2) + (fire_cd > 18 and 4 or 0)
+	if detail_half then
+		sspr(flash > 0 and 49 or 48, 0, 0, 96, 64, CX - 24, SH - 32 + flr(wb / 2), 48, 32)
+	else
+		spr(flash > 0 and 49 or 48, CX - 48, SH - 64 + wb)
+	end
 	pset(CX, CY, 7); pset(CX - 3, CY, 6); pset(CX + 3, CY, 6); pset(CX, CY - 3, 6); pset(CX, CY + 3, 6)
 	if player.hp <= 0 then rectfill(0, 0, SW, SH, 8) end
 
@@ -416,7 +455,7 @@ function _draw()
 	print("shells " .. player.ammo, SW - 68, SH - 10, 9)
 	local cpu = stat and stat(1) or 0
 	cpu_hist[1] = cpu_hist[1] * 0.9 + cpu * 0.1
-	rectfill(0, 0, 170, 30, 1)
+	rectfill(0, 0, detail_half and SW or 170, detail_half and 36 or 30, 1)
 	if mode == MODE_BSP then
 		print("TRUE 3D  bsp+surface cache", 3, 2, 11)
 		print("nodes " .. bsp_stats.nodes .. "  polys " .. bsp_stats.polys .. "  tris " .. bsp_stats.tris, 3, 11, 6)
@@ -426,10 +465,12 @@ function _draw()
 		print("cols " .. ray_stats.cols .. "  rows " .. ray_stats.rows .. "  dda " .. ray_stats.steps, 3, 11, 6)
 		print("sprites " .. ray_stats.sprites .. "  tline3d rows " .. ray_stats.lines, 3, 20, 6)
 	end
-	print("cpu " .. flr(cpu_hist[1] * 100) .. "%", 128, 20, cpu_hist[1] < 0.9 and 11 or 8)
+	local fps = stat and stat(7) or 60
+	print("cpu " .. flr(cpu_hist[1] * 100) .. "% " .. fps .. "fps " .. (detail_half and "240" or "480"),
+		detail_half and 3 or 128, detail_half and 29 or 20, fps >= 60 and 11 or fps >= 30 and 10 or 8)
 	print("kills " .. player.kills .. "/" .. count_monsters(), SW - 60, 2, 7)
 	if msg_t > 0 then
 		local w = #msg * 5
-		print(msg, CX - w / 2, 40, 10)
+		print(msg, CX - w / 2, 44, 10)
 	end
 end

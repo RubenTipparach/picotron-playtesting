@@ -17,7 +17,7 @@ level**. Press **TAB** in game to flip between them live:
 | collision | grid cells, z = 0 | brush boxes, step-up 20u, gravity |
 
 Controls: WASD move, click to lock the mouse (or arrows) to look, click / Z /
-space to fire, TAB switch renderer, R restart. 13 grunts, shotgun hitscan,
+space to fire, TAB switch renderer, V detail (480x270 / 240x135), R restart. 13 grunts, shotgun hitscan,
 health/shell pickups.
 
 ![raycaster vs true 3D](images/fps-render-lab-compare.png)
@@ -99,38 +99,56 @@ the hall's braces, is fine).
   against walls correctly.
 - No `table.sort` in Picotron - small insertion sorts only where needed.
 
-## Findings (from the mock profiler)
+## Frame-rate targets (30-60 fps)
 
-Per-frame work at the six reference poses (`screenshots.py` writes
-`report.tsv`). "Lua instr" counts only cart-side Lua VM instructions;
-`tline3d` pixels are what Picotron fills in C.
+`_draw()` runs at 60 fps, or drops to 30/20/15 when a frame blows the budget
+(`stat(7)`); `stat(1)` is the share of a 60 fps frame used. Levers, in order
+of impact:
 
-| pose | ray Lua instr | bsp Lua instr | ray tline3d lines / px | bsp tline3d lines / px | bsp polys |
+- **Detail mode** (`V`, or AUTO): `vid(3)` renders at 240x135 and the display
+  doubles it - 1/4 of the fill, half the raycaster columns and BSP
+  scanlines. AUTO starts at 480x270 and drops to 240x135 if Picotron runs
+  `_draw` below 60 fps for ~2 s. The weapon/HUD rescale.
+- **Object frustum culling + mesh LOD**: props, monsters and items outside
+  the view cost nothing; props past 560u draw as their billboard (one
+  `sspr`) instead of a mesh.
+- **Batched projection**: after the one `matmul3d`, 9 strided userdata ops
+  compute `1/z` and screen x/y for every vertex in C; Lua only touches
+  vertices when a polygon crosses the near plane.
+- Raycaster: per-frame locals, inlined fog, one batch for all walls.
+
+### Real Picotron numbers
+
+CI runs `tools/fps-lab/picotron_bench.lua` inside headless Picotron (step
+"Benchmark FPS Render Lab" -> job summary): every renderer x pose x detail
+level, 40 frames each, reporting mean `stat(1)` and `stat(7)`. Treat CI
+runner numbers as relative; the in-game readout (cpu %, fps, 480/240) is the
+truth on your machine.
+
+### Mock profile (cart-side Lua VM instructions per frame)
+
+| pose | ray 480 | bsp 480 (before opt) | bsp 480 (now) | ray 240 | bsp 240 |
 | --- | --- | --- | --- | --- | --- |
-| hall | 246k | 226k | 1289 / 166k | 5271 / 152k | 100 |
-| hall, looking up | 218k | 192k | 506 / 134k | 4161 / 164k | 73 |
-| courtyard | 271k | 151k | 1414 / 173k | 3466 / 138k | 41 |
-| corridor | 203k | 195k | 1283 / 221k | 5425 / 216k | 68 |
-| arena | 264k | 141k | 1501 / 197k | 3678 / 150k | 28 |
-| storage | 269k | 157k | 1360 / 163k | 3843 / 151k | 41 |
+| hall | 232k | 226k | 132k | 116k | 129k |
+| hall, looking up | 216k | 192k | 98k | | |
+| courtyard | 270k | 151k | 62k | | |
+| corridor | 209k | 195k | 117k | | |
+| arena | 253k | 141k | 60k | | |
+| storage | 259k | 157k | 73k | | |
 
-- The raycaster's cost is **flat** (always 480 rays + 270 rows): cheap to
-  reason about, but the Lua DDA dominates and it pays that price even
-  staring at a wall.
+Pixel fill (`tline3d` px) is ~135-220k per frame at 480x270 and ~40k at
+240x135 for both renderers.
+
+- The raycaster's cost is **flat** (480 rays + 270 rows at full detail) and
+  the Lua DDA dominates; half detail halves it.
 - The true-3D renderer's cost follows **visible polygons**; after CSG +
-  merging + surface caching it lands at or *below* the raycaster in every
-  pose, while showing stairs, platforms, the bridge, pitch, real props and
-  per-texel lighting the raycaster cannot.
-- Fill (pixels) is a wash (~1.0-1.7x overdraw either way). The BSP issues
-  ~3-4x more scanlines, but they are batched, so the Lua->C call count is
-  lower than the raycaster's (floor rows are individual map-mode calls).
+  merging + surface caching + object culling it is 30-75% cheaper than the
+  raycaster in Lua at full detail while showing stairs, platforms, the
+  bridge, pitch, real props and per-texel lighting. Its Lua cost is per
+  polygon, so half detail mainly saves fill.
 - Take away: in Picotron a Quake-style pipeline, with the heavy lifting done
   offline and per-frame work pushed into batched userdata calls, is the
   better deal. The raycaster's remaining advantage is simplicity.
-
-These numbers are from the mock, not from Picotron; check the in-game
-readout (top left: nodes/polys/tris or cols/rows/dda, plus `stat(1)` cpu)
-on the real thing.
 
 ## Verification without Picotron
 

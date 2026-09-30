@@ -87,7 +87,8 @@ function ray_draw(cam, things)
 	-- 2. walls: DDA per column into one batch
 	local posx, posy = (px - x0w) / CELL, (py - y0w) / CELL
 	local n, steps = 0, 0
-	local cells, gw, gh = G.cells, G.w, G.h
+	local cells, gw, gh, gtex, glight = G.cells, G.w, G.h, G.tex, G.light
+	local inv_fog = 1 / RAY_FOG
 	for x = 0, SW - 1 do
 		local k = (x + 0.5 - CX) / FOCAL
 		local dx, dy = fx + rx * k, fy + ry * k
@@ -115,7 +116,7 @@ function ray_draw(cam, things)
 		-- texture + u in world-aligned texels (matches the Quake uv of the 3D mode)
 		local t, u
 		local ci = my * gw + mx + 1
-		local tx = G.tex[ci]
+		local tx = gtex[ci]
 		if side == 0 then
 			local wy = py + perp * dy * CELL
 			u = (wy / 2) % 32
@@ -125,7 +126,8 @@ function ray_draw(cam, things)
 			u = (wx / 2) % 32
 			t = tx and (sy > 0 and tx[4] or tx[3]) or 0
 		end
-		local lvl = min(3, (G.light[prev] or 2) + fogk(dist))
+		local lvl = (glight[prev] or 2) + flr(dist * inv_fog)
+		if lvl > 3 then lvl = 3 end
 		local sprn = VAR_BASE + t * 4 + lvl
 		local s = FOCAL / dist
 		-- two 64u segments (z 128..64 and 64..0), each v 0..32: no wrapping needed

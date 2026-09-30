@@ -34,8 +34,8 @@ local cur_fog = -1
 
 function fsin(a) return -sin(a) end  -- Picotron's sin() is inverted (PICO-8 style)
 
-function gfx_init()
-	-- 1. palette: rows 1..3 are darker copies of row 0, cooled a little
+-- rows 1..3 of the palette are darker copies of row 0, cooled a little
+function gfx_palette()
 	for k = 1, 3 do
 		local f = SHADE[k + 1]
 		for c = 0, 15 do
@@ -46,6 +46,10 @@ function gfx_init()
 			pal(16 * k + c, (r << 16) | (g << 8) | b, 2)
 		end
 	end
+end
+
+function gfx_init()
+	gfx_palette()
 	-- 2. shaded copies of every sprite 0..63 (textures, billboards)
 	for i = 0, 63 do
 		local s = get_spr(i)

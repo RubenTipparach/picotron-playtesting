@@ -187,9 +187,15 @@ function UD.poke(u, addr, off, n)
 end
 
 -- ------------------------------------------------------------- display --
-SW, SH = 480, 270
+local SW, SH = 480, 270          -- display size (the cart has its own SW/SH globals)
 local FB = {}
 for i = 0, SW * SH - 1 do FB[i] = 0 end
+function vid(m)
+	if m == 3 then SW, SH = 240, 135 elseif m == 4 then SW, SH = 160, 90 else SW, SH = 480, 270 end
+	for i = 0, SW * SH - 1 do FB[i] = 0 end
+	clip()
+end
+function mock_display_size() return SW, SH end
 RGB = {}
 local P16 = {0x000000, 0x1d2b53, 0x7e2553, 0x008751, 0xab5236, 0x5f574f, 0xc2c3c7, 0xfff1e8,
 	0xff004d, 0xffa300, 0xffec27, 0x00e436, 0x29adff, 0x83769c, 0xff77a8, 0xffccaa}
@@ -217,7 +223,7 @@ function palt(c, t)
 	transp[c] = t; ct_row(c)
 end
 
-local clipx0, clipy0, clipx1, clipy1 = 0, 0, SW, SH
+local clipx0, clipy0, clipx1, clipy1 = 0, 0, 480, 270
 function clip(x, y, w, h)
 	if not x then clipx0, clipy0, clipx1, clipy1 = 0, 0, SW, SH return end
 	clipx0, clipy0, clipx1, clipy1 = math.max(0, x), math.max(0, y), math.min(SW, x + w), math.min(SH, y + h)
@@ -459,7 +465,7 @@ function foreach(t, f) for v in all(t) do f(v) end end
 function ord(s, i) return string.byte(s, i or 1) end
 function chr(...) return string.char(...) end
 tostr = tostring
-function stat(n) return 0 end
+function stat(n) if n == 7 then return 60 end return 0 end
 function note() end
 function sfx() end
 function music() end

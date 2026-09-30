@@ -39,6 +39,7 @@ POSES = [  # name, (col,row), yaw (turns, 0=east .25=north), pitch
     ("corridor", cell(12.5, 5.5), 0.0, 0.0),
     ("arena", cell(6.5, 15.2), 0.75, 0.03),
     ("storage", cell(18.8, 20.5), 0.04, 0.0),
+    ("hall_240x135", cell(6, 9.4), 0.25, 0.0, True),     # HALF detail (vid(3))
 ]
 
 
@@ -62,12 +63,13 @@ def main():
     sp = os.path.join(OUT, "sprites.lua")
     dump_sprites(sp)
     shots = ["return {"]
-    for name, (x, y), yaw, pitch in POSES:
+    for name, (x, y), yaw, pitch, *half in POSES:
         for m, tag in ((1, "ray"), (2, "bsp")):
             shots.append("""{name="%s_%s", frames=1, setup=function()
+  set_detail(%s)
   mode=%d; player.x=%g; player.y=%g; player.yaw=%g; player.pitch=%g
   player.z = (mode==2) and math.max(0, floor_at(player.x, player.y, 12, 72)) or 0
-end},""" % (name, tag, m, x, y, yaw, pitch))
+end},""" % (name, tag, "true" if half else "false", m, x, y, yaw, pitch))
     shots.append("}")
     sh = os.path.join(OUT, "shots.lua")
     open(sh, "w").write("\n".join(shots))
@@ -77,7 +79,10 @@ end},""" % (name, tag, m, x, y, yaw, pitch))
     for name, *_ in POSES:
         for tag in ("ray", "bsp"):
             p = os.path.join(OUT, f"{name}_{tag}.ppm")
-            Image.open(p).save(p[:-4] + ".png")
+            im = Image.open(p)
+            if im.size != (480, 270):
+                im = im.resize((480, 270), Image.NEAREST)     # vid(3): the display doubles it
+            im.save(p[:-4] + ".png")
             os.remove(p)
     # comparison sheet: raycaster | true 3D per pose
     W, H = 480, 270
