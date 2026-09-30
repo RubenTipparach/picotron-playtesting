@@ -17,7 +17,7 @@ level**. Press **TAB** in game to flip between them live:
 | collision | grid cells, z = 0 | brush boxes, step-up 20u, gravity |
 
 Controls: WASD move, click to lock the mouse (or arrows) to look, click / Z /
-space to fire, TAB switch renderer, V detail (480x270 / 240x135), R restart. 13 grunts, shotgun hitscan,
+space to fire, TAB switch renderer, V detail (480x270 / 240x135), H hide stats bar, R restart. 13 grunts, shotgun hitscan,
 health/shell pickups.
 
 ![raycaster vs true 3D](images/fps-render-lab-compare.png)

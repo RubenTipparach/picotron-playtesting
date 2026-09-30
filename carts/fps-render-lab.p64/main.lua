@@ -13,7 +13,7 @@
 	                        platforms, bridges, sloped braces, 3D props
 
 	Controls: WASD move, mouse (click to lock) or arrows look, click / Z /
-	space to fire, TAB switch renderer, V detail (480x270 / 240x135), R restart.
+	space to fire, TAB switch renderer, V detail (480x270 / 240x135), H hide stats bar, R restart.
 ]]
 
 include("level.lua")
@@ -111,6 +111,7 @@ end
 -- scanlines. AUTO starts FULL and drops to HALF if Picotron has to run
 -- _draw below 60fps for ~2 seconds; V toggles by hand (and ends AUTO).
 detail_half, detail_auto = false, true
+show_stats = true        -- H hides the renderer stats bar at the top
 local slow_frames = 0
 function set_detail(half)
 	detail_half = half
@@ -321,6 +322,7 @@ function _update()
 		msg, msg_t = (mode == MODE_BSP) and "TRUE 3D  (BSP + surface cache)" or "RAYCASTER  (grid slice at eye height)", 120
 	end
 	if keyp("r") then reset_game() end
+	if keyp("h") then show_stats = not show_stats end
 	update_detail()
 	if player.hp <= 0 then
 		if btnp(4) or btnp(5) then reset_game() end
@@ -464,19 +466,23 @@ function _draw()
 	print("shells " .. player.ammo, SW - 68, SH - 10, 9)
 	local cpu = stat and stat(1) or 0
 	cpu_hist[1] = cpu_hist[1] * 0.9 + cpu * 0.1
-	rectfill(0, 0, detail_half and SW or 170, detail_half and 36 or 30, 1)
-	if mode == MODE_BSP then
-		print("TRUE 3D  bsp+surface cache", 3, 2, 11)
-		print("nodes " .. bsp_stats.nodes .. "  polys " .. bsp_stats.polys .. "  tris " .. bsp_stats.tris, 3, 11, 6)
-		print("objs " .. bsp_stats.objs .. "  culled " .. bsp_stats.culled, 3, 20, 6)
+	if show_stats then
+		rectfill(0, 0, detail_half and SW or 170, detail_half and 36 or 30, 1)
+		if mode == MODE_BSP then
+			print("TRUE 3D  bsp+surface cache", 3, 2, 11)
+			print("nodes " .. bsp_stats.nodes .. "  polys " .. bsp_stats.polys .. "  tris " .. bsp_stats.tris, 3, 11, 6)
+			print("objs " .. bsp_stats.objs .. "  culled " .. bsp_stats.culled, 3, 20, 6)
+		else
+			print("RAYCASTER  grid slice", 3, 2, 12)
+			print("cols " .. ray_stats.cols .. "  rows " .. ray_stats.rows, 3, 11, 6)
+			print("sprites " .. ray_stats.sprites .. "  tline3d rows " .. ray_stats.lines, 3, 20, 6)
+		end
+		local fps = flr(stat and stat(7) or 60)
+		print("cpu " .. flr(cpu_hist[1] * 100) .. "% " .. fps .. "fps " .. (detail_half and "240" or "480"),
+			detail_half and 3 or 128, detail_half and 29 or 20, fps >= 60 and 11 or fps >= 30 and 10 or 8)
 	else
-		print("RAYCASTER  grid slice", 3, 2, 12)
-		print("cols " .. ray_stats.cols .. "  rows " .. ray_stats.rows, 3, 11, 6)
-		print("sprites " .. ray_stats.sprites .. "  tline3d rows " .. ray_stats.lines, 3, 20, 6)
+		rectfill(SW - 64, 0, SW, 11, 1)   -- keep the kill count readable
 	end
-	local fps = flr(stat and stat(7) or 60)
-	print("cpu " .. flr(cpu_hist[1] * 100) .. "% " .. fps .. "fps " .. (detail_half and "240" or "480"),
-		detail_half and 3 or 128, detail_half and 29 or 20, fps >= 60 and 11 or fps >= 30 and 10 or 8)
 	print("kills " .. player.kills .. "/" .. count_monsters(), SW - 60, 2, 7)
 	if msg_t > 0 then
 		local w = #msg * 5
