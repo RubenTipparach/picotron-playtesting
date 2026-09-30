@@ -66,6 +66,13 @@ jobs:
         if: steps.picotron.outputs.available == 'true'
         run: bash scripts/picotron/build-all-carts.sh
 
+      - name: Browser smoke test (exported carts must render)
+        # Opens each exported page in headless Chromium, clicks to start and
+        # fails the build if the screen stays blank - the headless -x runs
+        # above can't see what the real web player draws.
+        if: steps.picotron.outputs.available == 'true'
+        run: bash scripts/picotron/browser-smoke.sh
+
       - name: Benchmark FPS Render Lab in headless Picotron
         # Real-Picotron cpu/fps per renderer, pose and detail level -> job
         # summary. Informational: never blocks the build or deploy.

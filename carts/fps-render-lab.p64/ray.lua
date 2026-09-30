@@ -182,14 +182,17 @@ function ray_draw(cam, things)
 		local yb = hy - (zb - eye) * s
 		local lvl = min(3, (th.fullbright and 0 or grid_light(th.x, th.y)) + (th.fullbright and 0 or fogk(cz)))
 		local sprn = VAR_BASE + th.spr * 4 + lvl
+		local ox, oy = SPR_OX[th.spr] or 0, SPR_OY[th.spr] or 0
 		local va, vb = 0, th.sh
 		if ya < 0 then va = (0 - ya) / (yb - ya) * th.sh; ya = 0 end
 		if yb > SH then vb = va + (SH - ya) / (yb - ya) * (th.sh - va); yb = SH end
+		va, vb = va + oy, vb + oy
 		if yb > ya then
 			for x = max(0, flr(xl)), min(SW - 1, flr(xr)) do
 				if cz < zbuf[x] and m < 4096 then
 					local u = (x + 0.5 - xl) / (xr - xl) * th.sw
 					if th.flip then u = th.sw - u end
+					u = u + ox
 					spr_rows:set(0, m, sprn, x, ya, x, yb, u, va, u, vb, 1, 1)
 					m = m + 1
 				end

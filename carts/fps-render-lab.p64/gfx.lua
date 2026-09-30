@@ -31,6 +31,20 @@ PAL16 = {0x000000, 0x1d2b53, 0x7e2553, 0x008751, 0xab5236, 0x5f574f, 0xc2c3c7, 0
          0xff004d, 0xffa300, 0xffec27, 0x00e436, 0x29adff, 0x83769c, 0xff77a8, 0xffccaa}
 
 fog_tables = {}                      -- [0..3] colour table 0 variants (u8 64x64)
+SPR_OX, SPR_OY = {}, {}              -- art offset inside padded billboard sprites
+
+local function pow2(n) local p = 1 while p < n do p = p * 2 end return p end
+function pad_pow2(s, i)
+	local w, h = s:width(), s:height()
+	local pw, ph = pow2(w), pow2(h)
+	SPR_OX[i], SPR_OY[i] = 0, 0
+	if pw == w and ph == h then return s end
+	local ox, oy = flr((pw - w) / 2), ph - h      -- centred, standing on the bottom
+	local p = userdata("u8", pw, ph)
+	blit(s, p, 0, 0, ox, oy, w, h)
+	SPR_OX[i], SPR_OY[i] = ox, oy
+	return p
+end
 local cur_fog = -1
 
 function fsin(a) return -sin(a) end  -- Picotron's sin() is inverted (PICO-8 style)
@@ -51,9 +65,15 @@ end
 
 function gfx_init()
 	gfx_palette()
-	-- 2. shaded copies of every sprite 0..63 (textures, billboards)
+	-- 2. shaded copies of every sprite 0..63 (textures, billboards).
+	--    Billboards (32..47, 50) are padded into power-of-two canvases first:
+	--    Picotron 0.3's tline3d loops non-power-of-two sprites (a 32x40 grunt
+	--    came out with its head repeated). SPR_OX/OY say where the art sits.
 	for i = 0, 63 do
 		local s = get_spr(i)
+		if s and s:width() > 1 and ((i >= 32 and i <= 47) or i == 50) then
+			s = pad_pow2(s, i)
+		end
 		if s and s:width() > 1 then
 			set_spr(VAR_BASE + i * 4, s)
 			local mask = s:min(1)                    -- 1 where opaque, 0 where transparent
@@ -73,7 +93,12 @@ function gfx_init()
 			local lvl = min(3, flr(c / 16) + k)
 			shift[c] = (c == 0) and 0 or (c % 16 + 16 * lvl)
 		end
-		for i = 0, 4095 do t[i] = shift[base[i]] end
+		-- keep the table-selection bits (0xc0) Picotron 0.3 stores in each
+		-- entry; only the colour (low 6 bits) moves down the light ramp
+		for i = 0, 4095 do
+			local v = base[i]
+			t[i] = (v & 0xc0) | shift[v & 0x3f]
+		end
 		fog_tables[k] = t
 	end
 	cur_fog = 0
@@ -187,5 +212,5 @@ function fill_poly(spr, n, px, py, pw, pu, pv)
 		if yB1 <= ye then b0 = b1; b1 = (b0 - 2) % n + 1 end
 	end
 	if rows > 0 then tline3d(scan, 0, rows) end
-	return n - 2
+	return flr(n) - 2
 end

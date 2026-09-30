@@ -2,9 +2,9 @@
     Picotron User Manual
 ====================================================================================================
 
-Picotron v0.2.1d
+Picotron v0.3.0d
 https://www.picotron.net
-(c) Copyright 2022~25 Lexaloffle Games LLP
+(c) Copyright 2022~26 Lexaloffle Games LLP
 Author: Joseph White // hey@lexaloffle.com
 
 Picotron is made with:
@@ -341,7 +341,7 @@ Custom Commands
     directory for a matching .lua or .p64 file.
 
     The present working directory when a program starts is the same directory as the program's 
-    entry point (e.g. where main.lua is, or where the stand-alone lua file is). This is normally 
+    entry point (e.g. where main.lua is, or where the stand-alone Lua file is). This is normally 
     not desireable for commandline programs, which can instead change to the directory the command 
     was issued from using env().path. For example:
 
@@ -371,6 +371,22 @@ Keyboard Layout
     /appdata/system/scancodes.pod, but is also normally not needed. The raw mapping is used in 
     situations where the physical location  of the key matters, such as the piano-like keyboard 
     layout in the tracker. See /system/lib/events.lua  for more details.
+
+    :: Controller Keys
+
+    Keys that can be used as controller input are defined in /appdata/system/key_controls.pod. Each 
+    item defines one button (starting from index 0) and can be a scancode number or a table of 
+    scancodes when  there is more than one key mapped to the same button. To change the default 
+    controls, edit the following  default keys snippet and paste it into terminal:
+
+    store("/appdata/system/key_controls.pod",{[0] =
+        80,79,82,81, -- Left Stick: LRUD cursors
+        {29,6},      -- [0] Z or C
+        {27,5},      -- [X] X or V
+        40,0,        -- Pause: Enter, [reserved btn7]
+        4,7,26,22,   -- Right Stick ADWS
+        9,10,20,8    -- [<3] F  [/] G  [SL] Q  [SR] E
+    })
 
 ----------------------------------------------------------------------------------------------------
  Defaults Apps
@@ -643,6 +659,33 @@ Exporting Binary Executables
     Note that the data/ folder is not automatically bundled into the distributable zip files, so 
     for exports that need > 32MB of data, some extra work is needed to create distributables.
 
+:: Native Window Exports
+
+    Binary exports can run as a native window directly on the host desktop by using the -n switch:
+
+    > export -n foo.bin
+
+    Or set export_native_window to true in the cartridge metadata before exporting:
+
+    > store_metadata("/ram/cart", {export_native_window=true})
+
+    This allows the cartridge's window and the host window to be one and the same thing. There is 
+    no boot sequence, desktop, pause menu or message bar. When the program is finished, the host 
+    window immediately closes. Only a single userland process (4) can run in such an export, so 
+    features like open() and chooser() are also not available. Runtime errors also cause the window 
+    to close immediately, but the  error is still logged to {picotron home}/exp/shared/log.txt.
+
+    The virtual window resolution can be any size within Picotron limits, but may not change during 
+    runtime. The host window is resizeable and fullscreenable (alt+enter) as usual. Settings like 
+    stretch, pixel_perfect and pixel_scale are applied when storing changes to 
+    /appdata/system/settings.pod. Other window attributes like .frameless, .moveable and 
+    transparency are ignored by the host window.
+
+    If no window is created by the exported cartridge, it will continue to run headless and all 
+    print()  commands go to stdout (if there is one). The usual file system mounting rules apply 
+    though, so along with the startup time, it is not very useful for creating general commandline 
+    tools.
+
 ----------------------------------------------------------------------------------------------------
 Cartridge Exporter Limitations
 ----------------------------------------------------------------------------------------------------
@@ -786,21 +829,24 @@ current cartridge)
 GFX Controls
 ----------------------------------------------------------------------------------------------------
 
-    SPACE       Shortcut for the pan tool 
-    MOUSEWHEEL  To zoom in and out
-    S           Shortcut for the select tool (hold down)
-    CTRL-A      Select all
-    ENTER       Select none
-    CURSORS     Move selection
-    BACKSPACE   Delete selection
-    CTRL-C      Copy selection
-    CTRL-V      Paste to current sprite
-    CTRL-B      Paste big (2x2)
-    TAB         Toggle RH pane
-    -,+         Navigate sprites
-    1,2         Navigate colours
-    RMB         Pick up colour
-    F/V         Flip selection horizontally or vertically
+    SPACE        Shortcut for the pan tool 
+    MOUSEWHEEL   To zoom in and out
+    S            Shortcut for the select tool (hold down)
+    CTRL-A       Select all
+    ENTER        Select none
+    CURSORS      Move selection
+    BACKSPACE    Delete selection
+    CTRL-C       Copy selection
+    CTRL-V       Paste to current sprite
+    CTRL-B       Paste big (2x2)
+    TAB          Toggle RH pane
+    1,2          Navigate colours
+    Q/A/-,W/Z/+  Navigate sprites
+    L            Set loop start, end points for previewing animations
+    RMB          Pick up colour
+    F/V          Flip selection horizontally or vertically
+    CTRL-H       Toggle hexadecimal Sprite Index
+    CTRL-G       Toggle grid lines when zoomed in
 
 ----------------------------------------------------------------------------------------------------
 GFX Tools
@@ -1453,7 +1499,7 @@ Pattern Editor
     player.x = 2 -- is equivalent to player["x"]
     player.y = 3
 
-    See the @{Table_Functions} section for more details.
+    See the @{Tables} section for more details.
 
 ----------------------------------------------------------------------------------------------------
     Picotron Shorthand
@@ -1793,6 +1839,19 @@ Pattern Editor
 
         When flip_x is true, flip horizontally. When flip_y is true, flip vertically.
 
+        When s is a sprite index, bits 0xfc000 are also observed:
+
+        0x04000 flip horizontally
+        0x08000 flip vertically
+        0x10000 anchor centered horizontally
+        0x20000 anchor centered vertically
+        0x40000 anchor right horizontally
+        0x80000 anchor bottom vertically
+
+        For example, the following draws sprite 5 flipped and centered at 100,100:
+
+        spr(0x34005, 100, 100)
+
 
     sspr(s, sx, sy, sw, sh, dx, dy, [dw, dh], [flip_x], [flip_y]]
 
@@ -1807,6 +1866,9 @@ Pattern Editor
         dw, dh defaults to sw, sh.
 
         When flip_x is true, flip horizontally. When flip_y is true, flip vertically.
+
+        When s is a sprite index, bits 0x1fff are used for sprite lookup, and 0xfc000 used to 
+        control flipping and anchoring (see @spr).
 
 
     get_spr(index)
@@ -1855,20 +1917,23 @@ Pattern Editor
     :: Colour Tables
 
         Colour tables are applied by all graphics operations when each pixel is drawn. Each one is 
-        a 64x64 lookup table indexed by two colours:
+        a 64 x 64 lookup table indexed by two colours:
 
         1. the colour to be drawn (0..63)
         2. the colour at the target pixel (0..63)
 
-        Each entry is then the colour that should be drawn. So for example, when drawing a black 
-        (0) pixel on a red (8) pixel, the colour table entry for that combination might also be red 
-        (in effect, making colour 0 transparent).
+        The entry at those two indexes is the output value that will be written to the draw target. 
+
+        For example, when drawing black (0) over on a red (8) pixel, the colour table entry for 
+        that combination might also be red  (in effect, making colour 0 transparent).
 
         Additionally, one of four colour tables can be selected using the upper bits 0xc0 of either 
-        the source or destination pixel.  Using custom colour table data and selection bits allows 
-        for a variety of effects including overlapping shadows, fog,  tinting, additive blending, 
-        and per-pixel clipping. Functions like @pal() and @palt() also modify colour tables to  
-        implement transparency and colour switching.
+        the draw colour or destination pixel. In the case of sprite functions (@spr, @sspr, @map, 
+        @tline3d), the fill pattern can also be used to switch between colour table 0 and 2 (or 1 
+        and 3). The four colour tables live at 0x8000, 0x9000, 0xa000 and 0xb000.    Using custom 
+        colour table data and selection bits allows for a variety of effects including overlapping 
+        shadows, fog,  tinting, additive blending, and per-pixel clipping. Functions like @palt() 
+        and @pal() also modify colour tables to  implement transparency and palette swapping.
 
         To use colour tables with shapes, note that the default target_mask for shapes is 0x0, so 
         every table look up is equivalent to drawing on colour 0. To fix this, use: poke(0x550b, 
@@ -1881,9 +1946,10 @@ Pattern Editor
 
         When each pixel is drawn, three masks are also used to determine the output colour. The 
         draw colour (or pixel colour in the case of a sprite) is first ANDed with the read mask. 
-        The colour of the pixel that will be overwritten is then ANDed by the target mask. These 
-        two values are then used as indexes into a colour table to get the output colour. Finally, 
-        the write mask determines which bits in the draw target will actually be modified.
+        The colour of the pixel that will be overwritten is then ANDed by the target mask. The 
+        colour bits (0x3f) of the masked draw colour and target colour are then used as indexes 
+        into a colour table to get the output colour. Finally, the write mask determines which  
+        bits in the output colour will be written to the draw target.
 
         0x5508  read mask
         0x5509  write mask
@@ -1892,8 +1958,8 @@ Pattern Editor
 
         The default values are: 0x3f, 0x3f, 0x3f and 0x00. 0x3f means that colour table selection 
         bits are ignored (always use colour table 0), and the 0x00 for shapes means that the target 
-        pixel colour is ignored so that it is possible to draw a black rectangle with colour 0 even 
-        though that colour index is transparent by default.
+        pixel colour is also ignored, as  all shape drawing functions (rectfill etc) draw a solid 
+        colour by default.
 
         The following program uses only the write mask to control which bits of the draw target are 
         written. Each circle writes to 1 of the 5 bits: 0x1, 0x2, 0x4, 0x8 and 0x10. When they are 
@@ -1902,14 +1968,40 @@ Pattern Editor
         function _draw()
             cls()
             for i=0,4 do
-                -- draw to a single bit
-                poke(0x5509, 1 << i)
+                -- draw to a single bitplane
+                poke(0x5509, 1 << i) -- write mask
                 r=60+cos(t()/4)*40
                 x = 240+cos((t()+i)/5)*r
                 y = 135+sin((t()+i)/5)*r
                 circfill(x, y, 40, 1 << i)
             end
+            poke(0x5509, 0x3f) -- reset to default
         end
+
+    :: Graphics CPU Costs
+
+        The CPU cost of graphics calls (and all other api calls / code) is taken from a single 
+        system-wide pool of 16,777,216 cycles per second, or around 280,000 cycles per frame at 
+        60fps. After system overheads (roughly 10%), around 250,000 cycles can be used by a 
+        fullscreen program before the framerate drops to 30fps. Use stat(7) to check the current 
+        framerate, and stat(1) at the end of _draw() to find out the current cpu usage;  anything 
+        under 0.9 will normally maintain 60fps.
+
+        Disregarding the overhead of making each api call, graphics functions can normally fill at 
+        least 3 pixels  per cycle, which is considerably faster than the equivalent Lua vm 
+        instructions that cost around 2 cycles each.
+
+        Graphics operations are faster still when the default read and target mask values (0x3f) 
+        are set, and in the case of sprite operations, when the fill pattern is 0. Under these 
+        conditions only a single colour table is referenced and so a specialised code path in the 
+        runtime can be used that is able to fill spans  at 6 pixels per cycle.
+
+        An additional fast code path is available to shape operations when the target mask (@550b) 
+        is 0,  which is the default value. In this case, there is no need for Picotron to perform 
+        per-pixel colour table lookups and the runtime can use 64-bit instructions to modify 8 
+        pixels at a time. This is  true even when fill patterns and arbitrary read/write masks are 
+        used. When drawing large regions that  contain many 8-byte aligned segments, a fill rate of 
+        24 pixels / cycle can be achieved.
 
 ----------------------------------------------------------------------------------------------------
     Map
@@ -2046,6 +2138,14 @@ Pattern Editor
         Unlike @map() or PICO-8's tline, @tline3d() does not support empty tiles: pixels from 
         sprite 0 are always drawn, and there is no p8layers bitfield parameter.
 
+        An offset x,y into the source map or sprite is observed at peek2(0x5530) and peek2(0x5532)
+
+        A mask for x,y is observed at peek2(0x5534) for  and peek2(0x5536), and can be used to loop 
+        x,y within powers of 2. The values in memory are treated as unsigned uint16's taken to be 
+        the width and height to loop.
+
+    0x5530
+
         :: tline3d CPU
 
         By default, tline3d performs a divide-by-w every 8 pixels and renders an affine span 
@@ -2180,11 +2280,6 @@ Pattern Editor
 
         note() -- same as sfx(-2, -1)
 
-    :: Working with Multiple SFX Files
-
-        fetch("sfx/title.sfx"):poke(0x80000) -- load 256k into 0x80000..0xbffff
-        music(0, nil, nil, 0x80000)
-
     :: Querying Mixer State
 
         Global mixer state:
@@ -2215,12 +2310,20 @@ Pattern Editor
         stat(400 + c, 19, addr)     -- fetch stereo output buffer (returns number of samples) 
         stat(400 + c, 20 + n, addr) -- fetch mono output buffer for a node n (0..7)
 
+    :: Audio Control
+
+        Only one process can have control over the PFX6416 at a given time. A request for control 
+        is made every time note(), sfx() or music() is called. The request is accepted when there 
+        is nothing playing, or when the process currently in control has lower audio priority (had 
+        window focus less recently). Use stat(499) to find out which process currently has control,  
+        and stat(498) for a bitfield indicating which channels are active system-wide.
+
 ----------------------------------------------------------------------------------------------------
     Input
 ----------------------------------------------------------------------------------------------------
 
 
-    btn([b], [pl])
+    btn([b], [pl], [flags])
 
         Returns the state of button b for player index pl (default 0 -- means Player 1)
 
@@ -2229,7 +2332,7 @@ Pattern Editor
         6           MENU
         7           reserved
         8 9 10 11   Secondary Stick L,R,U,D
-        12 13       Buttons (not named yet!)
+        12 13       Buttons: HEART SLASH
         14 15       SL SR
 
         A secondary stick is not guaranteed on all platforms! It is preferable to offer an 
@@ -2246,16 +2349,16 @@ Pattern Editor
         LEFT and RIGHT to be held at the same time. To get raw controller values, use peek(0x5400 + 
         player_index*16 + button_index).
 
-        Keyboard controls are currently hard-coded:
+        See @Controller_Keys for the default keyboard controls.
 
-        0~5     Cursors, Z/X
-        6       Enter  -- disable with window{pauseable=false}
-        8~11    ADWS
-        12,13   F,G
-        14,15   Q,E
+        Flags indicates which source of controller input to read from (defaults to 0x3, meaning 
+        both real controllers and keyboard controls):
+
+        0x1 controllers
+        0x2 keyboard
 
 
-    btnp(b, [pl])
+    btnp(b, [pl], [flags])
 
         btnp is short for "Button Pressed"; Instead of being true when a button is held down,  btnp 
         returns true when a button is down and it was not down the last frame. It also repeats 
@@ -2272,6 +2375,9 @@ Pattern Editor
         poke(0x5f5d, delay) -- set the repeating delay.
 
         In both cases, 0 can be used for the default behaviour (delays 30 and 8)
+
+        Flags indicates which sources of input to read from: 0x1 for controllers, 0x2 for keyboard, 
+        and 0x3 for both (the default).
 
 
     key(k, [raw])
@@ -2494,7 +2600,7 @@ Pattern Editor
         Note that the string given to apply_delta must be exactly the same as the one used to 
         create the delta; otherwise apply_delta returns nil.
 
-        deltas can be used together with pod() to encode the difference between two tables of 
+        deltas can be used together with @pod() to encode the difference between two tables of 
         unstructured data:
 
         a = {1,2,3}
@@ -2612,7 +2718,7 @@ Pattern Editor
 ----------------------------------------------------------------------------------------------------
 
     A POD ("Picotron Object Data") is a string that encodes Lua values: tables, userdata, strings, 
-    numbers booleans, and nested tables containing those types.
+    numbers booleans, and nested tables containing those types. 
 
     PODs form the basis of all data transfer and storage in Picotron. Every file is a single POD on 
     disk,  the contents of the clipboard is a POD, images embedded in documents are PODs, and 
@@ -2621,29 +2727,45 @@ Pattern Editor
 
     pod(val, [flags], [metadata])
 
-        Returns a binary string encoding val.
+        Returns a binary string encoding val. When a table contains circular references, pod() 
+        returns nil.  Functions and other non-encodable values can be present in this input, but 
+        are encoded with a value of nil.
 
-        flags determine the encoding format (default: 0x0)
-
-        metadata is an optional value that is encoded into the string and stores additional 
-        information about the pod.
+        flags determine the encoding format. The default flags value is 0x0 which gives plain text 
+        that is also legal Lua that returns the value being encoded:
 
         ?pod({a=1,b=2})
         {a=1,b=2}
 
-        pod() returns nil when the input value contains functions, circular references, or other 
-        values that can not be encoded.
+        metadata is an optional table that is encoded into the string and stores additional 
+        information about the pod. When the second or third parameter is a table, it is taken to be 
+        the metadata:
 
-        flags:
+        ?pod("some text", {author="alice"})
+        --[[pod,author="alice"]]"some text"
 
-            0x1 pxu: encode userdata in a compressed (RLE-style) form
-            0x2 lz4: binary compression pass (dictionary matching)
-            0x4	base64 text encoding (convert back into a text-friendly format)
+        If you were to unpod() this value back into the separate contents and metadata objects, and 
+        pass them to @store(), the "author" field in the metadata will show up in the about box:
+
+        mypod = pod("some text", {author="alice"})
+        store("/desktop/foo.txt", unpod(mypod))
+        --> right-click on foo.txt and select About to see the author
+
+        Flags control how the output string is encoded:
+
+            0x01  pxu: encode userdata in a compressed (RLE-style) form
+            0x02  lz4: binary compression pass (dictionary matching)
+            0x04  base64 text encoding (convert back into a text-friendly format)
+            0x08  (reserved for future use -- should be 0)
+            0x10  pxu option: store raw (smaller for already-compressed userdata)
+            0x20  strings option: store raw binary, instead of escaped plain-text
+            0x40  (reserved for future use -- should be 0)
+            0x80  pxu option: store in a stable rle format (used for undo stacks) 
 
             Plaintext PODs can get quite large if they contain images or map data.  A compressed 
             binary encoding can be generated using flags 0x1 and 0x2, which are normally used 
             together as the pxu format aims to produce output that can be further compressed by 
-            lz4. store() uses this format by default.
+            lz4.  store() and send_message() uses this format by default.
 
             The resulting string contains non-printable characters and starts with the header 
             "lz4\0", so only the first 3 characters are printed here:
@@ -2651,12 +2773,24 @@ Pattern Editor
             ?pod({a=1,b=2}, 0x3)
             lz4
 
+            The flag 0x4 is used to encode a compressed string back into a plaintext format that 
+            can be used with the clipboard and is also used for things like embedded images in text 
+            (try copying and pasting from the sprite editor into the code editor).
+
+            ?pod({a=1,b=2}, 0x7)
+            unpod("b64:bHo0AAoAAAAJAAAAkHthPTEsYj0yfQ==")
+
+            Note that the output of 0x7 is still a legal lua snippet that returns the original 
+            value {a=1,b=1} -- in this case the resulting string is larger than raw encoding even 
+            though it is compressed, because of the overhead of bookkeeping information stored at 
+            each layer of encoding.
+
 
     unpod(str)
 
         returns the decoded value, and the decoded metadata as a second result:
 
-        str = pod({4,5,6}, 0, {desc = "an uninteresting sequence"})
+        str = pod({4,5,6}, {desc = "an uninteresting sequence"})
          
         c,m = unpod(str) -- returns content and metadata
         ?m.desc --  an uninteresting sequence
@@ -2666,14 +2800,14 @@ Pattern Editor
     Files
 ----------------------------------------------------------------------------------------------------
 
-    A file in picotron is a single POD (see the previous section), and uses the metadata part of 
+    A file in Picotron is a single POD (see the previous section), and uses the metadata part of 
     the POD as a metadata fork. As such, files are stored and fetched atomically; there is no 
     concept of a partial read, write or append.
 
 
     store(filename, obj, [metadata])
 
-        store a lua object (tables, strings, userdata, booleans and numbers are allowed) as a file.
+        store a Lua object (tables, strings, userdata, booleans and numbers are allowed) as a file.
 
         filenames can contain alphanumeric characters, "_", "-" and "."
 
@@ -2702,14 +2836,26 @@ Pattern Editor
                 When running under web, /appdata (and only /appdata) is persisted using Indexed DB 
         storage.          This applies to both html exports and carts running on the BBS.
 
+        To store a string in its raw binary form with no metadata, use {metadata_format="none"} as 
+        the metadata. This feature is not available for sandboxed cartridges.
+
 
     fetch(filename, options)
 
-        Return a lua object stored in a given file. Returns the object and metadata.
+        Return a Lua object stored in a given file. Returns the object and metadata.
 
-        options is a table used for http requests:
+        options is a table with fields for http requests:
 
-        .on_complete callback when fetching http (means that fetch is not blocking) .method
+        \ .on_complete   a function that is called when the fetch is complete (means that fetch is 
+        not blocking) .method        can be "get", "post", "put" (defaults to "get") .headers       
+        a table of strings send as headers .body          the body of the request
+
+        POST and PUT methods are not yet available under web.
+
+        Additional options for controlling the format:
+
+        \ .raw_str       when true, the raw contents of the host file is returned as a string .argb          
+        when true, png files are returned as "u32" userdata of argb pixel values
 
 
     store_metadata(filename, metadata)
@@ -2775,7 +2921,7 @@ Pattern Editor
 
     include(filename)
 
-        Load and run a lua file.
+        Load and run a Lua file.
 
         The filename is relative to the present working directory, not the directory that the file 
         was included from.
@@ -2789,7 +2935,64 @@ Pattern Editor
 
         load(fetch(filename))()
 
-    :: File Sandboxing
+    :: Locations
+
+        A "location" in Picotron is a string that picks out a single file or folder, and optionally 
+        identifies a spot inside that file. For example "/desktop/foo.txt#23" is a location that 
+        means "line 23 of /desktop/foo.txt". The spot is all of the text after the first #, and it 
+        is up to any application that supports spots to decide what the string means.
+
+        A location can also start with a protocol, separated by "://". For example, a cartridge on 
+        the bbs is "bbs://nights.p64",  which can be treated the same as a read-only folder on the 
+        local filesystem.
+
+        The following functions are metamethods of strings that break down a location into its 
+        parts:
+
+
+        loc:path()
+
+            Return the path (without the spot).
+
+            loc = "/desktop/foo.txt#123"
+            ?loc:path() -- "/desktop/foo.txt"
+            loc = "bbs://nights.p64/main.lua#10"
+            ?loc:path() -- "bbs://nights.p64"
+
+
+        loc:spot()
+
+            Returns just the spot of a location.
+
+            loc = "/desktop/foo.txt#123"
+            ?loc:spot() -- "123"
+
+
+        loc:prot()
+
+            Return the protocol of a location, or nil if it is a local path.
+
+            Note that the protocol of a location is not always specified at the start of the 
+            string. For example "/desktop/@" has the protocol "anywhen", and is shorthand for 
+            "anywhen://desktop/@".
+
+
+        loc:dirname()
+
+            Returns the path of the directory the file is inside.
+
+            loc = "/desktop/foo.txt"
+            ?loc:dirname() -- "/desktop"
+
+
+        loc:basename()
+
+            Returns the file or directory name with its containing directory path and locus 
+            omitted.
+
+            ("/destop/foo.txt#23"):basename() -- "foo.txt"
+
+:: File Sandboxing
 
         A sandboxed process only has limited access to the filesystem. This allows untrusted 
         cartridges to be run  without risk of messing up other parts of the system (e.g. a 
@@ -2831,6 +3034,8 @@ Pattern Editor
         Returns a table of environment variables given to the process at the time of creation.
 
         ?pod(env()) -- view contents of env()
+
+        The contents of the environment never change during a program's lifetime.
 
 
     error([description])
@@ -2905,8 +3110,17 @@ Pattern Editor
 
     set_clipboard(text)
 
-        Read and write the contents of the clipboard. The value is always a single string; to copy 
-        structured objects to the clipboard, use @pod() and @unpod(). 
+        Read and write the contents of the clipboard. The value is always a single plaintext 
+        string;  to copy structured objects to the clipboard, use @pod() and @unpod() to decode 
+        them. Note that plaintext format must be used, so use flags 0x0 or 0x7 with @pod():
+
+        ud = userdata("u8", 64, 64)
+        set_draw_target(ud)
+        circfill(32,32,31,8)
+        circfill(32,32,16,18)
+        set_draw_target()
+        set_clipboard(pod(ud, 0x7, {pod_type="image"}))
+        --> can paste into the code editor
 
         For security reasons, get_clipboard() only has access to the host clipboard after ctrl-v is 
         pressed while Picotron is active. Until ctrl-v is pressed, changes to the host clipboard 
@@ -2946,9 +3160,12 @@ Pattern Editor
           0  memory usage        // triggers a garbage collection
           1  cpu usage           // try to stay under ~0.9 to maintain 60fps)
           2  reserved
-          3  raw mememory usage  // no GC, so value jumps around)
+          3  raw memory usage    // no GC, so value jumps around)
           5  runtime, system version
           7  operating fps (60,30,20,15)
+         64  user id of the currently logged in user (unique and doesn't change)
+         65  username of the currently logged in user (might change over time)
+         66  user icon of the currently logged in user (16x16 u8 userdata)
          86  epoch time
          87  timezone delta in seconds
         101  web: player cart id (when playing a bbs cart; nil otherwise)
@@ -2958,9 +3175,174 @@ Pattern Editor
         153  web: window.location.hash
 
 
+    create_process(prog_path, env)
+
+        Create a process given a program path, and an environment table.
+
+        prog_path is the name of the program to run; either a cartridge (.p64) or .lua file:
+
+        create_process("/system/demos/")
+
+        Sandboxed cartridges may only create processes from a paths inside themself, from bbs:// 
+        paths, or from a limited number of /system locations (such as /system/apps/filenav.p64).
+
+        When successful, the process id of the new process is returned.
+
+        env is a table that is added to the program's environment, accessible from @env(). For 
+        example,  to run xyzine to autoplay mode (skips the title screen, as if running as a 
+        screensaver):
+
+        create_process("/system/screensavers/xyzine.p64", {
+            autoplay = true -- xyzine reads env().autoplay
+        })
+
+
+    wrangle_working_file(options)
+
+        wrangle_working_file installs a collection of callbacks and menu items in order to support 
+        a standard pattern of loading and saving files. It is most useful for editors, where each 
+        tab is editing a single file (the working file), and when the user expects changes to file 
+        in /ram/cart to be automatically saved.
+
+        For file choosing that doesn't fit that pattern (e.g. "Export Image As..."), use @chooser() 
+        instead.
+
+        A very crude example painting program (.epp) that has support for Open File, Save File, and  
+        Save File As can be implemented like this:
+
+        function _init()
+            window{width=160, height=120, cursor="crosshair"}
+            bmp = userdata("u8",160, 120)
+            wrangle_working_file{
+                save_state = function() return bmp end,
+                load_state = function(obj) blit(obj, bmp) end,
+                untitled_filename = "/desktop/example.epp"
+            }
+        end
+        function _draw() blit(bmp) end
+        function _update()
+            mx,my,mb = mouse()
+            if (mb > 0) bmp:set(mx, my, 6+mb)
+        end
+
+        This will add menu items, supports opening an .epp from commandline, takes care of 
+        auto-saving to /ram/cart locations, and handles unsaved changes.
+
+        The options fields:
+
+        save_state          a function that returns the object to be saved (e.g. a table) 
+        load_state          a function that takes the object to load and updates the program state 
+        untitled_filename   the initial working file. The extension is also used as the default. 
+        save_spot           return a small fragment of text that describes the cursor (e.g. "33") 
+        jump_to_spot        takes a string ("33") and jumps to that spot (e.g. line number / map 
+        coordinate) state_hint          a function used for efficient unsaved changes detection
+
+        The state_hint is an advanced feature that can usually be ignored. It should return a  
+        value that only changes when the state of the thing being edited /might/ have changed. When 
+        it is not defined, the wrangler falls back to polling save_state() to see if there are any 
+        unsaved changes, which is fine in most cases.
+
+        For a more complete example that incorperates undo stacks see /system/demos/tinypaint.p64
+
+
+    open(location)
+
+        Open a location using /system/util/open.lua
+
+        location is a string, and can be relative to the present working directory. For example:
+
+        open("readme.txt")
+
+        open() can also be used by sandboxed cartridges to open anything visible to the  program's 
+        file view. See ${File Sandboxing}
+
+
+    chooser([options], [handler])
+
+        Open a file chooser.
+
+        In its simplest form, chooser() allows the user to choose one or more existing files and 
+        folders, as if they were dragged and dropped from filenav into the application's window.
+
+        -- can be tested from a terminal window
+        on_event("drop_items", function(msg) print(pod(msg.items)) end)
+        chooser()
+
+        :: chooser options
+
+        options is a table with the following fields (all optional):
+
+            path            the starting directory to browser from (can be relative)
+            intention       a string observed by filenav: "save_file_as", "select_file"
+            title           the title of the filenav window
+            verb            the text on the button (default: "Select")
+            prompt          the text on the left of button
+            window_attribs  defaults to {autoclose = true, workspace = "current"}
+
+        If the path can not be resolved or is not a folder, chooser returns an error message 
+        string. Otherwise there are no return values.
+
+        options.intention can be used when only a single file should be selected, and allows the 
+        user to type  in a new filename. When the intention is "save_file_as" and the user enters 
+        the name of an existing file,  confirmation is requested before proceeding.
+
+        The "save_file_as" and "select_file" intentions return a simpler message; the user-selected 
+        filename is: msg.filename
+
+        The "open_file" intention is used internally by @wrangle_working_file, and has a special  
+        meaning not normally useful for use with chooser(): the selected file is opened in a new 
+        window, similar to double clicking a file in a regular filenav window.
+
+        :: chooser handler
+
+        handler is a function that handles the response. It is similar to the function given to 
+        @on_event(),  but handles just a single message.
+
+        When handler is not given the response instead arrives as a generic @drop_items message, or 
+        as an  event with the same name as the intention if an intention is provided.
+
+        Choosing one or more files, cartridges or folders:
+
+        -- paste this into a terminal window
+        chooser({
+            path = "/desktop",
+            title = "Choose a desktop",
+        }, function(msg)
+            for i=1,#msg.item do
+                print("item: "..msg.item[i].location)
+            end
+        end)
+
+        Choose a single file via a menu item by using the "select_file" intention:
+
+        window(240,80)
+        menuitem{
+            id = "select",
+            label = "Select File",
+            action = function()
+                chooser(
+                    {
+                        path = "/", -- starting path
+                        intention = "select_file" 
+                        -- intention = "save_file_as" -- same but prompt for overwrites
+                    }, 
+                    function(msg) fn = msg.filename end
+                )
+            end
+        }
+        function _draw() 
+            cls(7)
+            if (fn) print("selected: "..fn, 20,20, 1)
+        end
+
+        Selecting files via @chooser() or @wrangle_working_file() is taken as permission from the 
+        user to read and write them, and so can be accessed by sandboxed / BBS cartridges. See: 
+        ${File Sandboxing}
+
+
     send_message(proc_id, msg, [reply])
 
-        send a message to process proc_id. msg is a table that should include at least an "event" 
+        Send a message to process proc_id. msg is a table that should include at least an "event" 
         field that is used to identify a matching event handler in the receiving process (see 
         @on_event).
 
@@ -2985,25 +3367,191 @@ Pattern Editor
         Note that blocking in this way can be quite slow -- it is intended to be used in situations 
         where it is  acceptable to skip a frame or two while waiting for a reply.
 
-        When reply is a function, the event handler of the receiving process can reply with another 
-        message that is handled by that function.
+        When reply is a function, the event handler of the receiving process can respond with 
+        another message that is sent back to be received by that function.
+
+        send_message(pid2, {event = "get_id"}, function(msg) print(msg.id) end)
+
+        send_message can only be used by sandboxed programs to send messages to themself, or for a 
+        limited set of events that can be sent to the window manager.
 
 
     on_event(event, func)
 
-        create an event handler for the current process. event is a string that matches the event 
+        Create an event handler for the current process. event is a string that matches the event 
         field of the message, and func is a function that handles the message:
 
-        -- set up a hanlder
+        -- set up a handler
         on_event("foo", function(msg)
-            printh("foo received: "..pod(msg))
+            print("msg received: "..pod(msg))
+        end)
+        -- send a message to self;
+        send_message(pid(), {event="foo", num=3})
+
+        When an event originated from a call to @send_message with a reply handler, the return 
+        value of func is sent back (to msg._from) as the reply (see @send_message for examples).
+
+        The handler only needs to be created once, so it is common to see on_event() calls in 
+        _init, or at the top level of the program.
+
+
+    chooser(options, handler)
+
+----------------------------------------------------------------------------------------------------
+    Drag and Drop
+----------------------------------------------------------------------------------------------------
+
+    Picotron implements a general way of dragging files and other items between process windows 
+    using the @send_message and @on_event functions, to send and review @drag_items and @drop_items 
+    events.
+
+    An item is simply a table of arbitrary data, often with a pod_type field that describes the 
+    item so that the receiving process knows what (if anything) to do with it. This is not strictly 
+    required however, and the @drop_items event handler should not assume any incoming data is in 
+    the correct format.
+
+    A minimal collection of 2 items might look like this:
+
+    items = {
+        {
+            pod_type = "location",
+            location = "bbs://nights.p64"
+        },
+        {
+            pod_type = "location",
+            location = "bbs://bells.p64"
+        }
+    }
+
+:: Dragging Items
+
+        Send a @drag_items message to the window manager (always process 3) to indicate that the 
+        user  has started dragging something with the mouse:
+
+        send_message(3, {event = "drag_items", items = items}
+
+        A 20x20 .icon userdata can be specified to represent each item; otherwise a default icon is 
+        used.
+
+        The following program generates a bunch of draggable letters. They do not have a pod_type 
+        and so have no effect when dropped on the desktop (which only cares about 
+        pod_type="location").
+
+        window(160,120) -- enough space to play with item train
+        function _draw()
+            cls(1)
+            print("click and drag!", 4, 4, 6)
+        end
+         
+        on_event("click", function()
+            items = {}
+            for c in all("abcdefghijklmnop") do
+                item=add(items,{
+                    pod_type="letter"
+                    icon = userdata("u8",16,18),
+                    letter = c
+                })
+                set_draw_target(item.icon)
+                print("\^w\^t\^o2ff"..c,2,1,rnd{9,11,14,28})
+            end
+            send_message(3, {event="drag_items", items=items})
+            set_draw_target()
         end)
 
-        -- send a message to self; send_message(pid(), {msg="foo", num=3})
+:: Dropping Items
 
-        func can return true to indicate that no further events of this type should be processed by 
-        other handlers -- for example a "click" event should be ignored by other elements that have 
-        their own click handlers.
+        For a program to receive dropped items, it must create a @drop_items event handler using 
+        @on_event:
+
+        on_event("drop_items", function(msg)
+            -- msg.items
+        end)
+
+        msg contains the following fields:
+
+        items         table of items dropped / pasted into the receiving process
+        from_proc_id  process id that generated the dragged items (might be different from _from)
+        dx, dy        movement from drag->drop (nil,nil when no drag & drop) 
+        mx, my        mouse cursor position relative to the window (nil,nil when no drag & drop)
+        ctrl, shift   true when those keys are held when the drag was initiated
+
+        Files dropped into a program from filenav or splore are treated the same: each one has a 
+        pod_type "location" and a .location field. Programs that receive them as dropped items are 
+        not expected to care about the difference between those two contexts:
+
+        local out_str = "[drop some files]\n"
+        window(200,160)
+        function _draw()
+            cls()
+            print(out_str)
+        end
+        on_event("drop_items", function(msg)
+            for item in all(msg.items) do
+                if item.pod_type == "location" then
+                    out_str..= item.location.."\n"
+                end
+            end
+        end)
+
+        Older versions of filenav used "file_reference", which is now deprecated. To keep 
+        compatibility with older cartridges while "file_reference" is being phased out, items with 
+        pod_type="location" are currently automatically duplicated as the equivalent file_reference 
+        items, which can otherwise safely be ignored.
+
+:: Sources of Dropped Items
+
+        There are 4 ways to generate a @drop_items event:
+
+        :: Drag and Drop With Mouse
+
+            While the items are being dragged, the following fields for each item are observed (if 
+            they exist):
+
+            .icon (optional)  a u8 userdata used to represent the dragged item
+            .xo, .yo          offset from mouse cursor (for windows with .observe_drag_offset)
+
+        :: Paste Items
+
+            A drop_items event is also generated when the user presses ctrl-v while the clipboard 
+            contains the items tables in the same format, but with an additional field in the root: 
+            items.drop_on_paste = true
+
+            set_clipboard(pod{
+                items.drop_on_paste = true,
+                items={
+                    {
+                        pod_type="location",
+                        location="bbs://nights.p64"
+                    }
+                }
+            })
+
+            After running this in a terminal, the location can be pasted into the desktop, or any 
+            other application  that handles pod_type="location" via a drop_items handler. From the 
+            receiving application's point of view it is the same as dragging and dropping them with 
+            the mouse, or selecting them via @chooser().
+
+            Filenav uses this to implement cut/copy/pasting files, by observing a .filenav_op on 
+            each separate item when it is pasted:
+
+            item.filenav_op == nil     --> store a .loc file (named after the location)
+            item.filenav_op == "copy"  --> cp() the location to the current folder
+            item.filenav_op == "move"  --> mv() the location to the current folder
+
+        :: Using the Chooser
+
+            When @chooser() is used without a suppling a callback, filenav replies with a 
+            @drop_items message as if those items had been dragged and dropped with the mouse.
+
+            on_event("drop_items", function(msg) print(pod(msg)) end)
+            chooser("/system/demos")
+
+        :: By Direct Message
+
+            A program can opt to simply send a drop_items message directly. 
+
+            This is only allowed from unsandboxed programs, so it is not possible to e.g. spam the 
+            desktop with files from a bbs cartridge.
 
 ----------------------------------------------------------------------------------------------------
     Memory
@@ -3018,25 +3566,7 @@ Pattern Editor
     0xf00000 are  mostly reserved for system use, but anything in the 0x80000..0xefffff range can 
     be safely used for arbitrary  purposes.
 
-    :: Memory Layout
-
-    0x000000 ~ 0x003fff    Legacy PICO-8 range, but probably safe to use!
-    0x004000 ~ 0x0047ff    Primary P8SCII Font (2k)
-    0x005000 ~ 0x0053ff    ARGB display palettes (1k)
-    0x005400 ~ 0x005477    Per-scanline rgb display palette selection (120 bytes)
-    0x005480 ~ 0x0054bf    Indexed display palette (64 bytes)
-    0x0054c0 ~ 0x00553f    Misc draw state (128 bytes)
-    0x005580 ~ 0x0055ff    Raw controller state (128 bytes)
-    0x005600 ~ 0x005dff    Secondary P8SCII font (2k)
-    0X005e00 ~ 0x005eff    Reserved: P8 persistent state (256 bytes)
-    0x005f00 ~ 0x005f7f    P8 draw State (some used by Picotron)
-    0x005f80 ~ 0x007fff    Reserved: legacy P8 gpio, video memory
-    0x008000 ~ 0x00bfff    Colour tables (16k)
-    0x00c000 ~ 0x00ffff    Reserved (16k)
-    0x010000 ~ 0x02ffff    Display / Draw Target (128k)
-    0x030000 ~ 0x07ffff    Default audio data range
-    0x080000 ~ 0xefffff    Available for arbitrary use
-    0xf00000 ~ 0xffffff    Wavetable data
+    For special memory addresses, see: @Memory_Layout
 
 
     peek(addr, [n])
@@ -3137,7 +3667,7 @@ Pattern Editor
         width       --  width in pixels (not including the frame)
         height      --  height in pixels
         title       --  set a title displayed on the window's titlebar
-        pauseable   --  false to turn off the app menu that normally comes up with ENTER
+        pauseable   --  false to turn off the @{App Menu} that normally comes up with ENTER
         tabbed      --  true to open in a tabbed workspace (like the code editor)
         has_frame   --  default: true
         moveable    --  default: true
@@ -3147,8 +3677,9 @@ Pattern Editor
         z           --  windows with higher z are drawn on top. Defaults to 0
         cursor      --  0 for no cursor, 1 for default, or a userdata for a custom cursor
         squashable  --  window resizes itself to stay within the desktop region
-        background_updates --  allow _update() callbacks when parent window is not visible
-        background_draws   --  allow _draw() callbacks when parent window is not visible
+        observe_drag_offset -- indicates that when items are dropped, their .xo,.yo is used
+        background_updates  -- allow _update() callbacks when parent window is not visible
+        background_draws    -- allow _draw() callbacks when parent window is not visible
 
     System cursors are named, and can be requested using a string: 
 
@@ -3159,7 +3690,8 @@ Pattern Editor
 
     To hide the mouse cursor:
 
-        window{cursor = 0}
+          window{hide_cursor = true} window{hide_cursor = "until_move"} -- hide until moved 
+        window{cursor = 0} -- hide until a new cursor is set
 
 
     vid(video_mode)
@@ -3169,6 +3701,11 @@ Pattern Editor
         vid(0) -- 480x270
         vid(3) -- 240x135
         vid(4) -- 160x90
+
+        Modes planned for future versions:
+
+        vid(1) -- 320x180
+        vid(2) -- 240x180
 
 ----------------------------------------------------------------------------------------------------
     Undo Stacks
@@ -3205,7 +3742,7 @@ Pattern Editor
         Add an item to the undo stack by calling the stack's save function.
 
         extra is an optional arbitrary value associated with that checkpoint that is returned by 
-        :undo and :redo. To read the extra value without actually appying the checkpoint, use 
+        :undo and :redo. To read the extra value without actually applying the checkpoint, use 
         :undo(true) or :redo(true).
 
 
@@ -3241,8 +3778,371 @@ Pattern Editor
     end
 
 ----------------------------------------------------------------------------------------------------
-    Sockets
+    GUIs
 ----------------------------------------------------------------------------------------------------
+
+    A GUI in Picotron is a tree of tables ("gui elements"), where each element has some basic 
+    attributes like size and position, along with optional callbacks for responding to events like 
+    clicking and dragging.
+
+
+    create_gui(attribs)
+
+    Returns a root gui element. The root element is the same as any other gui element, with the 
+    addition of two special methods: draw_all() and update_all(), that are normally called oncer 
+    per frame from _draw  and _update. The root element can be expanded into a tree by using 
+    @{gui_el:attach()} to add child elements.
+
+    The following example program first creates a gui, and then adds 5 children to it. Each child 
+    has callbacks that allow it to be dragged, clicked, and for the colour to be changed with the 
+    mousewheel:
+
+        window(200,160)
+        gui = create_gui() -- create the root element
+        for i=1, 5 do -- add some children
+            local child = gui:attach{
+                x=rnd(100),y=rnd(100),width=80,height=20,
+                cursor="grab", -- cursor icon when hovering
+                clicks = 0, col = 7 + i -- custom attributes
+            }
+            function child:draw(msg)
+                rrectfill(0,0,self.width,self.height,3,self.col)
+                rrect(1,1,self.width-2,self.height-2,3,msg.has_pointer and 7 or 1)
+                print("clicks: "..self.clicks, 8,6, 1)
+            end
+            function child:drag(msg)
+                self.x += msg.dx  self.y += msg.dy
+            end
+            function child:click()
+                self:bring_to_front() -- put on top
+                self.clicks += 1
+            end
+            function child:mousewheel(msg)
+                self.col = (self.col + msg.wheel_y) % 32
+            end
+        end
+        function _draw() cls() gui:draw_all() end
+        function _update() gui:update_all() end
+
+
+    gui_el:attach(el)
+
+        Attaches an element (el) to the given gui_el, and returns the newly attached element.
+
+        el is a table that should have (at least) x, y, width and height attributes:
+
+        gui = create_gui()
+        new_el = gui:attach{
+            x=40, y=40, width=100, height=50,
+            -- event callbacks can be defined dirctly inside the table initialisation:
+            draw = function(self, msg)
+                rrectfill(0, 0, self.width, self.height, 3, msg.has_pointer and 14 or 1)
+            end
+        }
+        function _draw() cls() gui:draw_all() end
+        function _update() gui:update_all() end
+
+
+    gui_el:detach()
+
+        Remove self (gui_el) from the parent's list of child elements.
+
+        detach() can also be used to detach a particular child:
+
+        gui_el:detach(child)
+
+        In both cases, the detached element (if any) is returned.
+
+    :: GUI Event Callbacks
+
+        GUI elements can handle events by defining a function with the same name as the event. For 
+        example, when an element el is clicked, the "click" event is handled by a function 
+        el.click(self, msg) if it exists. self is  the element itself, and msg is a table 
+        describing the event.
+
+        Event callbacks (including draw and update) can opt to return true, which means that the 
+        event is NOT propagated to their children.
+
+        The msg table always has the following fields:
+
+        mx,my        mouse position
+        mb           mouse button
+        dx,dy        change in mouse position
+        has_pointer  true when the mouse cursor is inside the element
+
+        GUI elements can define a callback for the following events:
+
+        update        called gui:update_all
+        draw          gui_draw_all
+        click         mouse button is clicked
+        drag          mouse button is held: msg.mx0 msg.my0 give the original position
+        release       on mouse button release: msg.mx0 msg.my0 msg.last_mb give the previous state
+        doubleclick   after two clicks within 400ms
+        tap           when a click is released < 4 pixels away from its original position
+        doubletap     after two taps within 400ms
+        hover         mouse button is not held, but mouse cursor is over element
+        release       mouse button is released
+        mousewheel    msg.wheel_x msg.wheel_y
+        drag_items    msg.items is table of items dragged over that element but not yet dropped
+        drop_items    msg.items is table of items dropped into the window
+
+        drag_items / drop_items are unusual in that the event sequence can be initiated by another 
+        process, for example when dragging and dropping files. For the format of msg.items, see 
+        @drag_items
+
+        has_pointer is so named because in future it might include a more general button selection 
+        control mechanism (e.g. via keyboard), and not only the mouse cursor.
+
+    :: GUI Attributes
+
+        A gui element in its simplest form desribes a rectangle:
+
+        .x .y        top left position relative to parent
+        .width       width of the element in pixels 
+        .height      height of the element in pixels
+        .sx .sy      evaluated position relative to window (normally not used in userland programs)
+
+        All other attributes are optional:
+
+        .width_rel          width relative to parent (1.0 to match)
+        .height_rel         height relative to parent (1.0 to match)
+        .justify            horizontal justification: "left" "center" "right"
+        .vjustify           vertical justification: "top" "center" "bottom"
+        .hidden             self and children are not drawn and not interactive
+        .ghost              drawn but not interactive		 
+        .min_width          clamp element width to be no smaller that this value in pixels
+        .min_height         clamp element height to be no smaller that this value in pixels
+        .clip_to_parent     clip drawing and interaction to the parent's region
+        .confine_to_parent  force the position of the element inside parent with no overlaps
+        .confine_to_clip    force the position of the element inside clip rect with no overlaps
+        .squash_to_parent   automatically adjust size of element to remain inside parent region
+        .squash_to_clip     automatically adjust size of element to remain inside clipping region
+
+        Fields like width_rel offer a way to do some minimal adaptive layout, but it is common to 
+        have custom code for managing the gui layout that is run each time the window or root node 
+        size changes.
+
+    :: Non-Rectangular GUI Elements
+
+        A non-rectangular element can be defined by supplying a test_point callback function that 
+        takes self,x,y as parameters and returns true when the element occupies that pixel inside 
+        the bounding rectangle.
+
+        For example, to create some circular draggable elements:
+
+        gui = create_gui()
+        for xx=100,300,100 do
+            gui:attach{
+                x = xx, y = 95, width = 80, height = 80,
+                cursor = "grab",
+                radius = 39, -- custom attribute
+                draw = function(self, msg)
+                    circfill(self.width/2, self.height/2, self.radius, msg.has_pointer and 30 or 2)
+                end,
+                drag = function(self,msg)
+                    self:bring_to_front()
+                    self.x += msg.dx
+                    self.y += msg.dy
+                end,
+                test_point = function(self, x, y)
+                    local dx, dy = self.width/2-x, self.height/2-y
+                    return sqrt(dx*dx+dy*dy) < self.radius -- true when inside circle
+                end
+            }
+        end
+        function _draw() cls() gui:draw_all() end
+        function _update() gui:update_all() end
+
+    :: Standard GUI Elements
+
+        Although Picotron's GUI api is focused on the creation of custom elements, some standard 
+        GUI elements are also available:
+
+
+        gui:attach_button(el)
+
+            el should have .x and .y and optionally any of the following attributes:
+
+            label   the text on the button
+            fgcol   foreground colours
+            bgcol   background colours
+            border  border colours
+
+            Colours are 16-bit values, where the high 8 bits are used when has_pointer.
+
+            gui = create_gui()
+            b = gui:attach_button{
+                x = 220, y = 120,
+                border = 0x0605,
+                label = "Push Me",
+                tap = function(self) 
+                    self.label = "Boo!"
+                    self.bgcol = 0x0101
+                    self.fgcol = 0x080e
+                end
+            }
+            function _draw() cls() gui:draw_all() end
+            function _update() gui:update_all() end
+
+
+        gui_el:attach_scrollbars(attribs)
+
+            gui_el is expected to be a "container" element that has a single child (the 
+            "contents"). A vertical scrollbar will appended to the container element with the 
+            following attributes:
+
+            bgcol     background colour (high 8 bits used when has_pointer)
+            fgcol     foreground colour
+            autohide  when true, the bar disappears when there is nothing to scroll
+
+            attach_scrollbars() also attaches a mousewheel event handler to the container element 
+            that allows the contents to be scrolled vertically and horizontally (hold ctrl).
+
+            Currently there is no option to add a visual horizontal scrollbar.
+
+            Scrolling is achieved by modifying contents.x and contents.y. These values are clamped 
+            by the scrollbar's update callback so that the contents never scrolls out of view.
+
+
+        gui:attach_pulldown(attribs)
+
+            Create a pulldown menu with a list items, that closes when an item is selected.
+
+            The height is automatically determined by the number of items.
+
+            gui = create_gui()
+            p = gui:attach_pulldown{x = 40, y=40, width=200}
+            p:attach_pulldown_item{label = "Thing 1", action = function(self) end}
+            p:attach_pulldown_item{label = "Thing 2", action = function(self) end}
+            p:attach_pulldown_item{divider = true}
+            p:attach_pulldown_item{label = "Toggle 3", action = function(self) end}
+            function _draw() cls() gui:draw_all() end
+            function _update() gui:update_all() end
+
+            pulldown attributes:  onclose  a function that is called when the pulldown is dismissed
+
+            pulldown item attributes, also used by menus created with @menuitem below:  label      
+            The main item text shortcut   Text on the right showing a keyboard shortcut (e.g. 
+            "CTRL-A") stay_open  When true, the pulldown does not automatically close on selection
+
+
+        gui:attach_text_editor(el)
+
+            Return a text editor. This is a general purpose element that can used used for 
+            single-line text fields, and large multi-line texts. Both the bundled code editor and 
+            notepad.p64 both use this element to do most of the work.
+
+            show_line_numbers           show_line_numbers
+            embed_pods                  render images
+            syntax_highlighting         syntax_highlighting
+            show_tabs                   
+            max_lines                   maximum lines of text allowed
+            has_search                  ctrl+f brings up a search box
+            bgcol                       background colour
+            fgcol                       foreground 
+            curcol                      cursor colour (default: 14)
+            selcol                      selection colour (default: 10)
+            lncol                       line numbers background (default:16)
+            block_scrolling             when true, do not scroll
+            key_callback                per-key callbacks e,g, {enter=function() end, tab=function() end}
+            text_callback               similar, but for textinput events, e.g. {[" "] = function() end}
+            margin_top                  pixels at top (default: 3)
+            margin_left                 pixels at left (default: 4)
+
+            attach_text_editor returns the child of a "container" element with a proxy 
+            attach_scrollbars() method (it is forwarded to the parent) and attributes can be 
+            changed at runtime:
+
+            window{pauseable=false} -- allow pressing enter
+            gui = create_gui()
+            local text_editor = gui:attach_text_editor{
+                x = 40, y = 40, width = 200, height = 200,
+                key_callback = {
+                    -- every time enter is pressed, change the text colour
+                    ["enter"] = function(self, k)
+                        self.fgcol = rnd(16) + 8
+                        return nil -- don't enter a newline
+                    end
+                }
+            }
+            function _draw() cls() gui:draw_all() end
+            function _update() gui:update_all() end
+
+            The key_callback and text_callback fields can alternatively be a single function that 
+            handles all keypress / textinput events before they change the state of the text 
+            editor. For example, to filter out all text input except numbers:
+
+            text_editor.text_callback = function(self, txt)
+                if (tonum(txt)) return true -- let number pass through
+                -- otherwise, discard the textinput
+            end
+
+            Text editor elements have additional methods to get and set the text and cursor 
+            position:
+
+
+            text_editor:get_text()
+
+            text_editor:set_text(str_tbl)
+
+                Text is returned as a table of strings (one for each line), which is how it is 
+                stored internally.
+
+                To get the text as a single string: table.concat(el:get_text(), "\n")
+
+
+            text_editor:get_cursor()
+
+            text_editor:set_cursor(cur_x, cur_y)
+
+                Get and set the cursor position.
+
+    :: App Menu
+
+        The app menu is a single combined list of menu items availble via the hamburger menu at the 
+        top left of each window, or the pause menu for fullscreen cartridges. In each context, 
+        extra system items are added: for example, About App and Close Window is added for 
+        windowed/tabbed apps, and for fullscreen cartridges, an option to Favourite, Reset and Exit 
+        the cartridge are made available.
+
+
+        menuitem(attribs)
+
+            Add a custom menu item to the app menu. This works for both fullscreen and windowed 
+            apps.
+
+            attribs is a table that extends the attributes used by @attach_pulldown:
+
+            id         an identifying string used to update a particular menu item
+            label      a string, or a function returning the string shown to the user
+            shortcut   an optional shortcut to invoke that item (e.g. CTRL-C to copy)
+            action     a function that is called when the user selects that item
+            stay_open  when true, the pulldown / pause menu does not close on selection
+            divider    when true, a single non-interactive divider item is added
+
+            The following example program uses a menu to control the draw colour:
+
+            col = 0
+            window{width=160, height=120} -- comment for fullscreen example
+            menuitem{
+                id = "col_changer",
+                label = "Next Colour",
+                shortcut = "CTRL-N",
+                action = function()
+                    col = (col + 1) % 10 -- cycle colour
+                end
+            }
+            function _draw() cls(8 + col) end
+
+            Shortcuts in the form "CTRL-A".."CTRL-Z" and "CTRL-0".."CTRL-9" automatically
+
+            To clear the app menu, use menuitem() with no parameters.
+
+----------------------------------------------------------------------------------------------------
+    Network
+----------------------------------------------------------------------------------------------------
+
+:: Sockets
 
     Sockets allow Picotron to send data to other machines (or local programs) that support the same 
     type of socket;  currently TCP and UDP is supported. There is currently no web support, but web 
@@ -3275,17 +4175,18 @@ Pattern Editor
 
     sock:read()
 
-        read a string from a socket. This function is not blocking; it will return nothing when 
+        Read a string from a socket. This function is not blocking; it will return nothing when 
         there is no data available on the socket.
 
-        Returns the number of bytes written, or nil followed by an error message string.
+        On error, returns nil followed by an error message.
 
 
     sock:write(str)
 
-        write string str to socket. 
+        Write string str to socket. 
 
-        Returns the number of bytes written, or nil followed by an error message string.
+        Returns the number of bytes written (which may be less than #str), or nil followed by an 
+        error message string.
 
 
     sock:close()
@@ -3297,19 +4198,23 @@ Pattern Editor
 
         Returns a string describing the sockets status:
 
-        - "ready" means the socket that is ready to read/write to a given address
+        - "ready" means the socket that is ready to read/write
         - "listening" means the socket was created with a wildcard address and ready to :accept() connections
         - "closed" means :close() was called on the socket
-        - "closed by peer" means that the peer closed the connection (happens after attempt to :read)
-        - "disconnected" means the socket was closed for some other reason
+        - "disconnected" means the socket was closed by peer, or disconneted for some other reason
 
 
     sock:accept()
 
         This can be used with sockets that are listening to all traffic on a given port. When a new 
-        connection is made with tcp, or a UDP message is receieved from a new address+port, 
+        connection is made with TCP, or a UDP message is receieved from a new address+port, 
         :accept() will return a new socket that can be used to communicate with that particular 
-        client, or nil if none found.
+        client, or nil if there are none waiting.
+
+        > sock2 = listener_socket:accept()
+
+        The remote ip address and port number are stored in the socket table as: sock2.addr and 
+        sock2.port.
 
         Here is an example of a server that receives messages from multiple clients:
 
@@ -3322,7 +4227,10 @@ Pattern Editor
             print("\rlistening \f8"..("-\\|/")[1+(time()*4%4)\1])
             local new_client = listener:accept()
             if (new_client) then 
-                print("\r\fcnew client!") print("")
+                print("\r\fcnew client!")
+                print("addr: "..new_client.addr)
+                print("port: "..new_client.port)
+                print("")
                 add(clients, new_client)
             end
             for client in all(clients) do
@@ -3338,6 +4246,146 @@ Pattern Editor
         Now data can be sent to the server by writing to the socket:
 
         s:write("hi!")
+
+:: Online High Scores
+
+    Picotron provides an online high score table service that is available to Picotron users while 
+    logged in to their Lexaloffle account.
+
+    This service is still experimental. It is not yet available in exported cartridges.
+
+
+    scoresub(table_name, [score], [extra])
+
+    Submit a score (when one is given) and return the state of the table.
+
+    table_name determines which table to fetch / store to, and is automatically created if it 
+    doesn't already exist. It is a string up to 40 chars long, containing only characters a..z, 
+    0..9 and _.
+
+    To fetch the state of the table without submitting a score:
+
+    scoresub("mytable")
+
+    score is a number, and indicates the score entry should be submitted to the server.
+
+    extra is an string (cropped to a maximum of 1024 characters) that can optionally be used to  
+    store anything related to that score entry, for example a puzzle solution or additional game 
+    stats.
+
+    scoresub returns a table of up to 64 entry, where each entry is also a table with the fields:
+
+    user_id  --  a string that uniquely identifies the player
+    username --  the player's username (might change over time)
+    score    --  a number
+    extra    --  the extra string
+    icon     --  the 16x16 icon for that player
+
+    When attempting to submit a score when there is no user logged in (not stat(64)) or the BBS is 
+    not reachable, scoresub returns nil. In the case where the network is temporarily unavailable 
+    (e.g. wifi is off on the host OS), the process will periodically re-attempt to submit the 
+    score.
+
+    scoresub is not blocking and does not immediately return changes to the table. It should be 
+    normally be continuously polled to show live changes as they happen. Submitted scores do  not 
+    show up in the results until they have made the round trip to the server.
+
+    To tell if an empty table is yet to be populated by the server (and not just actually empty), 
+    an additional boolean field is set in the returned table: tbl.connecting.
+
+    tbl = scoresub("mytable")
+    if tbl.connecting then
+        print("connecting...")
+    else
+        print("[no scores]")
+    end
+
+    :: Scoresub Rate Limits
+
+    scoresub() can be called frequently, but both incoming and outgoing changes to each table are 
+    updated at most once  per second (or less frequently when there are many players).
+
+    The number of different channels that can be accessed by scoresub is also limited to 4 within 
+    10 seconds. After that, it will return nil.
+
+    :: Highscore Table Name Spaces
+
+    Each BBS cartridge has its own namespace for highscore tables, relative to the bbs id (with no 
+    revision number).  For example, a scoresub table "level1" that is being accessed from 
+    bbs://ranger-0.p64 is internally called "ranger-level1"
+
+    This means that different versions of a BBS cart can access the same highscore table, but can 
+    not access highscore tables from other BBS cartridges.
+
+    When a cartridge is run locally (e.g. during development or otherwise loading into /ram/cart 
+    first), a separate namespace is also used to prevent trivialy cheating by submitting scores 
+    from a modified cartridge. This means that when a cartridge is released on the BBS and is 
+    running from bbs://, the highscore tables will initially be empty even though the same table 
+    names are passed to scoresub() as during development.
+
+    For similar reasons, Picotron installations that use a modified /system (either a local patch 
+    or by writing anywhere to  /system in memory) are also unable to use the "official" highscore 
+    tables, and instead use the same namespace as carts  running locally.
+
+:: Podnet
+
+    Podnet is a public file storage service that can be used to share pods (and other files) with 
+    other Picotron users. Any address on podnet can be read by any other user even when not logged 
+    in:
+
+    > open podnet://1/hi_from_podnet.txt
+
+    The first number in a podnet location is the bbs user_id (a number) of the person who stored 
+    that file.  Each user folder is writeable (using @store etc) and listable (using @ls) only when 
+    logged in as that user. To view your folder, log in first and then view the root folder:
+
+    > open podnet://
+
+    Files on podnet are also published at podnet.flp.io, and are visible via web:
+
+    https://podnet.flp.io/1/hi_from_podnet.txt
+
+    In future it will be possible to apply for flp.io sub-domains that can be pointed at particular 
+    podnet paths, so that Picotron can be used to author tiny websites.
+
+    :: Podnet From Sandboxed Cartridges
+
+    Cartridges uploaded to the BBS and then run via Splore are able to write to podnet, but are 
+    allowed only 1MB of storage and must write only inside: podnet://user_id/appdata/bbs/cart_id/
+
+    user_id is the currently logged in user and can be obtained with stat(64). cart_id does not 
+    include the version number: "mygame" and not "mygame-0". Unlike the local filesystem,  there is 
+    no automatic mapping of the /appdata path to the sandboxed location, so the full path must be  
+    given:
+
+    local user_id = stat(64)
+    if (not user_id) return -- can't write to podnet unless logged in
+    local cart_id = env().bbs_id
+    if cart_id then
+        -- running from bbs; can only write to podnet://{user_id}/appdata/bbs/{cart_id}
+        cart_id = split(cart_id, "-", false)[1] -- strip version suffix
+        store("podnet://"..user_id.."/appdata/bbs/"..cart_id.."/savegame_1.pod", some_data)
+    else
+        -- running local cart unsandboxed during development, can use any path for testing
+        store("podnet://"..user_id.."/appdata/my_dev_test/savegame_1.pod", some_data)
+    end
+
+    :: Podnet Limitations
+
+    Maximum file size is 256k, and each user has a total storage limit of 64MB.
+
+    Cartridges on podnet are not mounted, so their metadata and icon is not available.
+
+    Cartridges and lua programs on podnet can not be run using create_process.
+
+    Filenames are limited to alphanumeric characters and _ - . (same as local filenames)
+
+    podnet does not implement any read access control, and should not be used to store sensitive 
+    information. Although files can be superficially hidden using hard-to-guess paths, there is no 
+    guarantee that they will not eventually be discovered.
+
+    0.3.0d note: Podnet does not [yet?] work well with @chooser and @wrangle_working_file for 
+    sandboxed cartridges.
 
 ====================================================================================================
     Userdata
@@ -3480,7 +4528,7 @@ Pattern Editor
         {1,2,3,-1}
         > ud:mutate("u8", 8,2)
         > ?pod{ud:get()}
-        {1,0,0,0,2,0,0,0,3,0,0,0,255,255,255}
+        {1,0,0,0,2,0,0,0,3,0,0,0,255,255,255,255}
 
         The total data size given by the new data type and dimensions must be the same as or 
         smaller than the old one. In the above example, the userdata starts with 2x2 i32's (16 
@@ -3519,13 +4567,22 @@ Pattern Editor
         ?pod{v:get()} -- 1,2,3, 0, 10,20,30
 
 
-    userdata:convert(data_type, [dest])
+    userdata:convert(data_type_str, src_offset, dest_offset, len)
 
-        Return a copy of userdata cast as a different type. When converting to ints, f64 values are 
-        flr()'ed and out of range values overflow.
+    userdata:convert(dest_ud, src_offset, dest_offset, len)
+
+        Copy values of different types between two userdata objects. When converting to ints, f64 
+        values are flr()'ed and out of range values overflow.
+
+        When data_type_str is given ("u8", "i16" etc), a new userdata of that type is returned. 
+        Otherwise, an existing userdata must be provided (dest_ud) and each value is converted to 
+        the type of that userdata.
 
         v = vec(5.3, 5.7, 257)
         ?pod{v:convert("u8"):get()} -- {5,5,1}
+
+        src_offset, dest_offset and len can be used to control which locations to read and write 
+        to, and how many items to convert.
 
 
     userdata:sort(index, descending)
@@ -3572,9 +4629,10 @@ Pattern Editor
 
     Additional unary operation metamethods that ignore the src parameter: 
 
-    :copy  --  equivalent to :add(0, ...) :abs   --  abs(x) for each element (except: int_min -> 
-    int_min, not int_max) :sgn   --  returns -1 for negative values and 1 for positive values and 
-    zero :sgn0  --  returns -1 for negative values and 1 for positive values, and 0 for zero
+    :copy  --  equivalent to :add(0, ...)
+    :abs   --  abs(x) for each element (except: int_min -> int_min, not int_max)
+    :sgn   --  returns -1 for negative values and 1 for positive values and zero
+    :sgn0  --  returns -1 for negative values and 1 for positive values, and 0 for zero
 
 
     userdata:op(src, dest, src_offset, dest_offset, len, src_stride, dest_stride, spans)
@@ -3879,7 +4937,7 @@ Pattern Editor
     A userdata can be used to represent lists of arguments to be passed to gfx functions, so that 
     multiple draws can be made with only the overhead of a single function call.
 
-    This is supported by @pset, @circ, @circfill, @rectfill, @line, @tline3d, and @spr.
+    This is supported by @pset, @circ, @circfill, @rectfill, @line, @tline3d, @spr and @sspr.
 
     The following draws 3 circles:
 
@@ -3899,12 +4957,18 @@ Pattern Editor
 
     num is the number of gfx calls to make. Default: p:height()
 
-    num_params is the number of parameters to pass to the gfx function. Default: p:width()
+    num_params is the number of parameters to pass to the gfx function. The default is p:width(),  
+    but when storing additional information in each row (that is not intended to be passed as 
+    parameters),  num_params should be explicitly given. It is not sufficient to depend on the 
+    maximum number of  parameters observed by the graphics functions, as this may change in future 
+    versions of Picotron.
 
     stride is the number of elements to jump after each call. Default: p:width()
 
     Batch operations that deal with sprite data always take sprite indexes as input. Use @set_spr 
-    to  assign an index to a userdata if needed.
+    to  assign an index to a userdata if needed. Only bits 0x1fff are used for the sprite lookup, 
+    and bits 0x4000 and 0x8000 can be set in the sprite index to flip the sprite horizontally 
+    and/or  vertically.
 
 ====================================================================================================
     Appendix
@@ -4117,4 +5181,1183 @@ Pattern Editor
          
         // any nibbles equal to 0 are ignored
         // tab_w (global tab width) values are in pixels * char_w
+
+----------------------------------------------------------------------------------------------------
+    Appendix B: Memory Layout
+----------------------------------------------------------------------------------------------------
+
+    Picotron has 16MB of addressable RAM (0x000000 ~ 0xffffff), that can be manipulated using 
+    standard @Memory functions ( @poke, @memset etc). Most of the values at the following special 
+    addresses can be manipulated using API functions (e.g. @pal() writes values to the colour 
+    tables), but they can also be manipulated directly in memory for greater control.
+
+:: Memory Layout
+
+    0x000000 ~ 0x003fff    Legacy PICO-8 range
+    0x004000 ~ 0x0047ff    Primary P8SCII Font (2k)
+    0x005000 ~ 0x0053ff    ARGB display palettes (1k)
+    0x005400 ~ 0x005477    Per-scanline rgb display palette selection (120 bytes)
+    0x005480 ~ 0x0054bf    Indexed display palette (64 bytes)
+    0x0054c0 ~ 0x00553f    Misc draw state (128 bytes)
+    0x005580 ~ 0x0055ff    Raw controller state (128 bytes)
+    0x005600 ~ 0x005dff    Secondary P8SCII font (2k)
+    0X005e00 ~ 0x005eff    Reserved: P8 persistent state (256 bytes)
+    0x005f00 ~ 0x005f7f    P8 draw State (some used by Picotron)
+    0x005f80 ~ 0x007fff    Reserved: legacy P8 gpio, video memory
+    0x008000 ~ 0x00bfff    Colour tables (16k)
+    0x00c000 ~ 0x00ffff    Reserved (16k)
+    0x010000 ~ 0x02ffff    Display / Draw Target (128k)
+    0x030000 ~ 0x07ffff    Default audio data range
+    0x100000 ~ 0x1fffff    Default map
+    0x200000 ~ 0xefffff    Unreserved
+    0xf00000 ~ 0xf7ffff    Wavetable data (reserved for future /system use)
+    0xf80000 ~ 0xffffff    Wavetable data (used by default WT-0)
+
+:: Draw State
+
+    0x5400  (120) per-scanline rgb display palette selection
+    0x5478  (4) display w,h
+    0x547c  (4) video_mode, alpha_bits, interact_bits, video_state_bits
+    0x5480  (64) indexed display palette
+    0x54c0  (48) reserved 
+    0x54f0  (12) cur_x, cur_y, cur_x_home
+    0x54fc  (4) reserved
+     
+    0x5500  (8) fill pattern 
+    0x5508  read mask
+    0x5509  write mask
+    0x550a  target mask (sprites)
+    0x550b  target mask (shapes)
+     
+    0x550c  (2) col0, col1 (draw colours)
+    0x550e  (2) map tile_w, tile_h in pixels
+    0x5510  (8) cam_x, cam_y
+    0x5518  (7) reserved
+    0x551f  (1) line_set_x1y1_mode   // set by line()
+    0x5520  (8) line_x, line_y
+    0x5528  (8) clip_x0, y0, x1, y1
+    0x5530  (4) tline3d_offset_x, y   
+    0x5534  (4) tline3d_loop_w, h  // val-1 is used as a mask, so when %0x5534 == 0, x mask is 0xffff
+
+:: Audio State
+
+    0x5538 app sfx_vol      //  0x80 means 1.0
+    0x5539 app music_vol    //  0x80 means 1.0
+    0x553a sfx vol          //  chan->mix_vol for next play
+    0x553b unused
+    0x553c sfx base_addr    //  for next play. 0x3 means 0x30000
+    0x553d music base_addr  //  for next play. can also set with @music()
+    0x553e unused(2)
+
+:: Audio Data
+
+    Refer to the PFX6416 working document: https://www.lexaloffle.com/dl/docs/picotron_synth.html
+
+----------------------------------------------------------------------------------------------------
+    Appendix C: System Messages
+----------------------------------------------------------------------------------------------------
+
+    Processes in Picotron each have an entirely separate Lua state, but are able to communicate 
+    with each other via messages, which are strings generated by using @pod() on a message. Each 
+    message has some standard fields: an .event that allows the receiving process to route it to 
+    the desired handler, the time it was sent, and the process that sent it. 
+
+    Most programs do not need to deal with messages directly; for example @mouse() can be used to 
+    retrieve the state of the mouse (instead of subscribing to mouse event messages). The following 
+    list is provided for low-level programming, and for some functionality that has not [yet] have 
+    a corresponding interface in the API.
+
+:: Messages To Window Manager
+
+    The following events can be sent to the window manager (always process 3) using @send_message:
+
+    send_message(3, {event="event_name", foo=bar, ...})
+
+
+    drag_items
+
+    Send this message to the window manager when initiating a drag-and-drop event, specifying the 
+    collection of items to be dragged. See: ${Drag and Drop}
+
+
+    grab
+
+    Indicates that the calling window has been grabbed by the user and should be moved around with 
+    the mouse. This is useful for frameless windows and desktop toys that can not otherwise be 
+    moved.
+
+    This program creates a circular window that can be dragged around:
+
+    window{
+        width=100, height=100, 
+        has_frame = false,
+        cursor="grab"
+    }
+    function _draw()
+        -- set masks for drawing and interacting with the window
+        poke(0x547d, 0xff, 0xff)
+        cls() circfill(50,50,49,8)
+    end
+    -- start dragging the window after a click
+    on_event("click", function()
+        send_message(3, {event="grab"})
+    end)
+
+
+    toggle_app_menu
+
+        This can be used to manually show / hide the @{App Menu}. This is useful for fullscreen 
+        programs that use pauseable=false, and windows that use has_frame=false, and thus have no 
+        access to the app menu button.
+
+        msg fields:  .x, .y       -- where to open the menu relative to the window  .hide_about  -- 
+        do not include the "About Program" item in the menu
+
+
+    capture_video
+
+        Initiate a video capture. msg fields:
+
+        .x .y  top left corner of the 
+        .width .height size of the capture in pixels
+        .scale 2 means the output gif is width*2 x height*2
+        .frames number of frames to capture (at ~30fps)
+        .delay number of frames to skip before capturing
+        .silent when true, do not notify user of capture
+
+
+    capture_screenshot
+
+        .x .y  top left corner of the 
+        .width .height size of the capture in pixels
+        .scale 2 means the output gif is width*2 x height*2
+        .frames number of frames to skip before capturing
+        .silent when true, do not notify user of capture
+        .as_label when true, save as /cart/ram/label.qoi
+
+
+    search
+
+        A search event received by the window manager prompts it to search through the open tabs of 
+        the current workspace until one is found that is editing a text file that contains the 
+        given search term: msg.term
+
+        > send_message(3, {event="search", term="todo"})
+
+        If found, the same message is forwarded to that process, and that window is made active, so 
+        that (if that program supports it) the cursor jumps to the position of the first found 
+        instance of msg.term.
+
+        It is expected that pressing ctrl-h within such an editor causes it to first look for the 
+        next instance within itself,  and if none is found, to then pass control to the window 
+        manager with a search event.
+
+        In this way, repeating ctrl-h allows control to jump back and forth between the window 
+        manager and each tab process, and to cycle through all instances of the search term in 
+        currently open tabs.
+
+    Other messages to the WM are mostly used internally, and can not be sent from sandboxed apps 
+    using send_message;  use the corresponding API function instead. e.g. instead of "set_window", 
+    use the window() function.
+
+:: Messages To Userland Programs
+
+    The following messages are sent from the window manager and other system processes. A process 
+    can subscribe to them by installing an event handler with @on_event():
+
+    on_event("gained_focus", function(msg)
+        printh("received: "..pod(msg))	--  dump the message to host console
+    end)
+
+
+    drop_items
+
+        Dispatched when the user drags and drops items into the application, or presses ctrl-v 
+        while there are items in the clipboard that have items.drop_on_paste == true, or when the 
+        user selects items via chooser(). See: ${Drag and Drop}
+
+
+    lost_visibility
+
+    gained_visibility
+
+        Dispatched when the window has lost or gained visibility, which means that part of all of 
+        the window is potentially visible.
+
+
+    lost_focus
+
+    gained_focus
+
+        Dispatched when the window has lost or gained focus. A window must be a child of the 
+        current workspace to have focus, and only one window can have focus. Focus is normally 
+        given to the window by clicking on it, or granted automatically when a window is first 
+        opened.
+
+        Only the window that has focus is able to receive text intput, to read the keyboard, and to 
+        read mouse clicks, and to read controller button states. Mouse position and mousewheel 
+        events can be read even when not in focus, while the mouse cursor is contained by the 
+        window's visible region.
+
+
+    resize
+
+    squash
+
+        The window is resized or squashed (when win.squashable), and possibly also moved.
+
+        Event fields: .x .y .width .height
+
+
+    move
+
+        The window has moved.  .x .y    new position .dx .dy  relative position since last frame
+
+
+    open_file
+
+    save_file
+
+    save_file_as
+
+        These messages are used by @wrangle_working_file() to communicate with filenav.p64 and the 
+        window manager in order to  implement the standard Open / Save / Save As menu items, and to 
+        keep the state of /ram/cart in sync when there are there  are changes that should be 
+        auto-saved when running or saving the cartridge.
+
+
+    jump_to_spot
+
+        Also handled by @wrangle_working_file(), but otherwise could be handled manually. This 
+        message is sent by the window manager when opening a file that is already open, giving the 
+        hash part of the requested location as msg.spot. For example, when the code editor is 
+        opening foo.lua#30, it should jump to line 30. See also: @Locations
+
+    :: Input Events
+
+        Some messages from the window manager are used to update the input state used reflected by 
+        @mouse(), 
+
+
+        keyp() etc, but can also be used directly from a program:
+
+        mouse mousewheel keyup keydown textinput
+
+    :: Gui Events
+
+    Some gui events are forwarded from the window's gui element to the window's process, and can 
+    optionally be used directly without creating a gui in the receiving process:
+
+    click, doubleclick, tap, doubletap, drag, release, hover
+
+    function _draw()
+        cls()
+        print("last click: "..pod{mx, my})
+    end
+     
+    on_event("click", function(msg) 
+        mx = msg.mx 
+        my = msg.my 
+    end)
+
+
+
+--------------------------------------------------------------------------------------------
+	PICOTRON VERSION HISTORY
+--------------------------------------------------------------------------------------------
+
+
+	0.3.0d
+
+		Added: batch sspr() drawing // same cost per pixel as spr()
+		Added: spr() and sspr() observe bits 0xc000 in the sprite index for flip_x, flip_y and 0xf0000 for center/right anchoring. 
+		Added: scoresub("/appdata/foo.pod") to fetch / store scores locally with same semantics as online scoresub
+		Added: fetch("settings.pod").allow_future_carts -- allow loading and running cartridges with a future runtime version
+		Added: about system shows if /system differs from rom (-> means that scoresub uses separate tables)
+		Added: BBS web player: family LXO accounts // all children automatically added to user account list
+		Added: default system palette is exposed at /system/palettes/system.pal
+		Added: gfx and map editors observe /ram/shared/default.pal (can just store() instead of sending out "set_palette" messages)
+		Added: export -r src_cart.p64 out.html to read from a cartridge other than /ram/cart
+		Added: sfx.p64: transpose in selected sfx editor with shift + note key (relative to C) //  e.g. shift-w for +2 semitones
+		Added: sfx.p64: hold ctrl in pitch drawing mode to snap to C minor pentatonic scale
+		Added: btn and btnp take a third parameter to read from only controllers (0x1), only keyboard (0x2) or both (0x3, default)
+		Added: keyboard controls can be customised by writing to /appdata/system/key_controls.pod (see "Controller Keys" in manual)
+		Added: Q/A/-, W/Z/+ to navigate sprites in gfx / map editors
+		Added: <, > to zoom (map, gfx editors)
+		Added: gfx.p64: L to set loop start and end point for previewing animations (use Q,W to skip through frames once loop set)
+		Added: gfx.p64: ctrl-h to toggle hex sprite index
+		Added: gfx.p64: ctrl-h to toggle black grid lines when zoomed in 
+		Added: ud:convert(dest, src_offset, dest_offset, len) to write to a target userdata of a different type, with offsets
+		Changed: scoresub aims for an update rate of once per second when the table is not too busy
+		Changed: separate rate limits for polling / posting scores // simpler and approximates behaviour of future websockets
+		Changed: final palette tweaks for 0.3 version posted on faq page (dark browns 20, 21 slightly duller / colder again)
+		Changed: cpu adjustments: userdata() creation cpu price increase; ud:convert() cpu cost greatly reduced
+		Changed: sandboxed process can bring_to_front
+		Fixed: large floating point scores losing precision
+		Fixed: scoresub() occasionally returns partially loaded items (with item.username "...")
+		Fixed: bbs://user result can not recover from a temporary network outage (once failed for user n, never re-tries)
+		Fixed: create_process("bbs://..") does not check runtime version (should not run future version by default)
+		Fixed: updates.p64 not installed in BBS web player; causes a warning when running a cart via desktop / terminal
+		Fixed: sspr causes excessive host cpu usage when target rectangle is very large (pre-scanline clipping was incorrect)
+		Fixed: chooser() opens on desktop from fullscreen program (and does not return after selection)
+		Fixed: gfx.p64 crashing when gained_focus message arrives before finish initialising (rare: due to a podnet fetch of "0.gfx")
+		Fixed: in tracker pitch view: paint instruments when holding shift also sets inst value on empty rows 
+		Fixed: alt+L/R causes keyboard controller buttons to fire (as read by btn, btnp)
+		Fixed: ud:lerp() cpu not charged. Should be 1 cycle per 16 values. // Endfield still runs within cpu
+		Fixed: sandboxed processes can not send / receive messages to and from children
+		Fixed: processes created by local carts do not inherit sandbox of parent cart the same way as carts running from bbs://
+
+
+	0.3.0c
+
+		Added: BBS web player supports scoresub & podnet for any LXO account // info: lexaloffle.com/lxo
+		Added: fetch() supports PUT / POST under web
+		Added: sandboxed podnet:// store(), ls(), mkdir(), rm() limited to 1MB of: podnet://user_id/appdata/bbs/cart_id/
+		Added: scoresub() returned table contains a boolean: tbl.connecting // true when the table is still loading
+		Added: (sprite editor) hold shift with stamp tool to stretch image in clipboard
+		Changed: BBS web player mounts a bbs:// .loc file to desktop instead of a copy of the cart
+		Changed: scoresub() rate limit is applied per-table (was per-process)
+		Fixed: scoresub polling while in background can block soresub called from foreground processes 
+		Fixed: freeze when reading an empty scoresub table
+		Fixed: binaries spam the icon server with requests when connection is aquired some time after boot
+		Fixed: podnet:// paths resolve when they contain illegal characters (should be only alphanumeric and -_.)
+		Fixed: fstat("podnet://...") returns nil for files that exist outside of home folder
+		Fixed: cp utility, cp() can't handle copying from https://
+		Fixed: cd command from terminal crashes with no parameters
+		Fixed: notify() crashes under web when message is not a string
+
+
+	0.3.0b
+
+		Added: detect when a newer version of bbs carts are available with option to update the location & metadata
+		Changed: dragging and dropping a location from splore saves it without the version number
+		Changed: splore shows bbs uploader username instead of metadata author in item list // consistent with PICO-8 splore
+		Fixed: local cache of user icon (and username) is not updated after changing from a different machine
+		Fixed: logged out / session is not stored when user icon is too complex (longer compressed strings clipped ._.)
+		Fixed: (security) podnet access token accessible from userland by using an echo server
+		Fixed: desktop icons jump around when renamed (regression)
+		Fixed: starting cursor position is wrong when renaming a file or folder with no extension
+		Fixed: flr() should clamp input to 64-bit range, because (unlike Math.flr) guaranteed to return an integer subtype
+		Fixed: stray 0xff at end of some host-written .lua files should be filtered (still don't know why this happens though)
+
+
+	0.3.0
+
+		Added: login.p64 // While logged in to a lexaloffle account, user_id and username are: stat(64), stat(65)
+		Added: podnet:// public storage. Can write up to 64MB of <= 256k files at "podnet://"..stat(64)
+		Added: scoresub(table_name, score, extra) -- read and write online highscores while logged in
+		Added: fetch() can grab the raw contents of a host file with option: {raw_str=true}
+		Added: fetch() can perform POST and PUT requests with options .method, .headers, .body
+		Changed: create_process() and include() can only read from local, anywhen:// or bbs://
+		Changed: when storing to an existing raw text file that has no metadata, no metadata fork is created
+		Changed: metadata fetched from a file with no metadata is implicitly {metadata_format="none"}
+		Fixed: filenav crash when dragging a large pile of desktop items
+		Fixed: exceeding Mac OS file handles after fetching many files (fd not released immediately after job)
+
+
+	0.2.2b:
+
+		Added: turn off workspace icon wiggle and toolbar transition animation from terminal: > config ui_animation false
+		Fixed: multi-file search can't be implemented by sandboxed apps ("search" message to wm is now allowed)
+		Fixed: other missing wm message exceptions: report_error, toggle_app_menu, set_unsaved_changes
+		Fixed: 2 second pause when using ctrl-r to run /ram/cart when sandboxed
+
+	0.2.2
+
+		Added: splore.p64 // open from the picotron menu, or type splore.  ctrl-1 to toggle fullscreen with labels!
+		Addde: Native window exports for binary exports: export -n foo.bin to get a window that runs directly on host desktop
+		Added: hyper-search in code editor: CTRL-F to find, CTRL-H to repeat search across open tabs. 
+		Added: can drag custom themes, wallpapers & screensavers straight into the settings lists to add them  
+		Added: edit .loc files using about.p64 // to create, use right-click > Make Desktop Shortcut or New File -> foo.loc 
+		Added: non blocking ls() for bbs: ls("bbs://new/0", {on_complete=function(res) printh(#res.." carts") end}) 
+		Added: window{fullscreen=true}, window{fullscreen=false} to move window between fullscreen, desktop workspaces
+		Added: hold menu button (ENTER) for half a second to force the pause menu to appear even when pauseable=false
+		Added: workspace icons jiggle up and down to show workspace has changed (e.g. when loading a cartridge)
+		Added: processes receive window gui messages at the top level: click, doubleclick, tap, doubletap, drag, release, hover
+		Added: Sections in the manual for GUI, Memory Layout, System Messages, wrangle_current_working_file(), create_process()
+		Added: pod() can take metadata as the second parameter to match fetch(), unpod() return value order
+		Added: gui elements can implement :drop_files() and :drag_files() callbacks
+		Added: gui:attach_text_editor() attribute: max_lines
+		Added: chooser() for selecting a file (or a group of files) -- see manual for examples 
+		Added: text_editor:text_callback() for acting on / filtering textinput events in the standard text editor
+		Added: right click on tab (or app menu) to access "About {current working file}" // doubles as a way to view full filename
+		Added: The ip address and port number of accepted connections are given in the returned socket: sock2.addr sock2.port 
+		Changed: ctrl-r on a fullscreen program always means restart that program (even if it is not /ram/cart)
+		Changed: filenav displays title of .loc file (when it exists) instead of the filename (truncated if > 20 chars)
+		Changed: tweaked colours 20,25,26 (too saturated on some displays)  31 (separate from 25 and pair better with 15,22,13)
+		Changed: fetch("https://...") automatically escapes non-url characters as %xx
+		Changed: "file_reference" drag-and-drop items are now pod_type "location" // see "Drag and Drop" section in manual
+		Changed: fullscreen program can use ~90% cpu before dropping to 30fps (was 86%)
+		Changed: shortcuts CTRL-0..CTRL-9 are automatically handled by wm when used as shortcut attribute in menuitem()
+		Changed: Save File As -> metadata is also copied over (including revision), because feels same as "cp old.txt new.txt"
+		Changed: send_message() uses a compressed binary format internally and is also cheaper (1/8th cpu) per-byte sent 
+		Changed: send_message() can not be used from sandboxed carts to send messages to wm (except for: capture_*, grab, drag_items)
+		Changed: fullscreen exports: runtime error no longer drops to desktop; only the lua call stack messages can be seen
+		Changed: exported cartridges and stored in a lightly encrypted form to discourage unwanted extraction
+		Changed: default wallpaper on new installs is trinkets
+		Changed: Windows build now ships with SDL2 2.0.8 dll (chosen for balance of size, features, wine compatibility)
+		Changed: broke /system/wm/wm.lua into smaller pieces
+		Changed: sock:status() now only returns "ready", "listening", "closed", or "disconnected"
+		Fixed: ("/usr"):dirname() returns ""  (should be "/")
+		Fixed: tostr(), tostr(nil) returns "nil","nil" (should be "","[nil]" to be P8 compatible)
+		Fixed: print() doesn't use tostr() for non-string values when printing to video (and was using tostring for console)
+		Fixed: x = ?"foo",200,100 --> returns stack junk // like PICO-8, ? only supports single return value (last x position)
+		Fixed: crash in fs.lua while performing multiple downloads at once
+		Fixed: fetch() on_complete callback called multiple times when the callback itself initiates more fetch()es
+		Fixed: anywhen: non-cart folder metadata is only logged on change --> causes missing metadata on restore
+		Fixed: fetch_metadata() does not work on anywhen paths outside of cartridges
+		Fixed: unpod("--[[pod,foo=true]]") does not return the metadata part (should be able to have an empty file w/ metadata)
+		Fixed: anywhen fstat() can not determine if a path with extension is a folder (need to add to bloom, scan daily to confirm)
+		Fixed: can view non-cart paths from anywhen:// while sandboxed (should be no read access at all for any file ops)
+		Fixed: pause menu not readable when colours 0 and 7 are similar (now searches for darkest, brightest)
+		Fixed: alt+up/down freezes when searching up from first line / down from last line
+		Fixed: text search for a single character does not jump to the next character
+		Fixed: text search fails when the only instance is on the same line as the cursor, but before cursor x
+		Fixed: drag event has wrong dx, dy when absolute cursor position did not change since the last change in window position 
+		Fixed: attach_pulldown_item() callback when pressed (action) does not receive self as the first parameter
+		Fixed: send_message(msg), store("foo.pod", msg) crashes when msg contains circular references
+		Fixed: pod(tbl) fails when tbl has multiple references to the same table (should only care about circular references)
+		Fixed: removing widget causes screen to go blank until click somewhere (regression; was setting palette of the dead process) 
+		Fixed: removing widget leaves a ghost window remaining in the tooltray that interferes with focus
+		Fixed: host crash when creating many download threads within ~30 seconds (was causing double call to curl_cleanup)
+		Fixed: many https fetches consume a lot of ram (could be an issue for web exports that have a fixed 256MB heap size)
+		Fixed: ?pod({[""]=3}) return illegal pod string "{=3}"
+		Fixed: text editor: when pressing enter inside leading whitespace, auto-indent is wrong (should match PICO-8 behaviour)
+		Fixed: ("/a/b/"):dirname() returns "/a/" --> should be "/a"
+		Fixed: code highlighting: "goto" is not pink, foo.t, foo:t() causes api function highlighting on t (should be grey)
+		Fixed: anywhen Y2026 bug (not listing anything after 2026-01-01)
+		Fixed: can process-bomb from sandboxed carts by creating a tree of opens()'s. -> use a system-wide rate limit
+		Fixed: crash on SDL_AUDIODEVICEREMOVED because audio device not closed (now tries to find a new audio output device)
+		Fixed: save command appending ".p64" to existing non-cartridge extensions (e.g. save "foo.src.p64"). Should leave as-is.
+		Fixed: load() can load bytecode chunks (should be forced to text mode in luaB_load)
+		Fixed: udp socket listener can not process connections from more than 512 different ip addresses even after close()ing
+		Fixed: Windows sockets status is wrong; causes zombie connections especially after using tcp sock:accept()
+
+
+	0.2.1e
+
+		Added: /system/demos/shadows.p64 to demo using stencil bits to draw overlapping shadows
+		Added: faster filled shape code paths when target_mask == 0x3f // see manual: Graphics CPU Costs
+		Added: stat(498) for a bitfield of currently active audio channels system-wide // see manual: Audio Control
+		Changed: fast sprite rendering (6px / cycle) does not depend on write mask (can write stencil bits cheaply)
+		Changed: dizzy.p64 screensaver uses colour tables
+		Changed: str:dirname() and str:basename() now uses linux convention (do not return or observe trailing slash)
+		Fixed: can delete /ram, /ram/mount, or /ram/mount/* from userland // dangerous -- mounted cartridges are still flushed
+		Fixed: ctrl-s / ctrl-r / info command can pause for 2 seconds when a tool never replies with "save_file_completed" 
+		Fixed: shapes read_mask sometimes applied to the colour table entry instead of draw colour // load #gfx_pipeline_test 
+		Fixed: bbs cart child process is not always sandboxed (should be "bbs" with the same bbs_id, not "bbs_companion")
+		Fixed: can not normalise paths for bbs:// sub-carts (e.g. bbs://new/0/foo.p64/subcart.p64.rom -> env().argv[0] is wrong)
+		Fixed: include() failing silently when source file path can not be resolved
+		Fixed: ctrl-z in tracker enters a note after undo (regression)
+		Fixed: crash when mounting an invalid .p64.png (wrong size / invalid format)
+		Fixed: stat(464..467) steals audio focus unnecessarily; should return -1 if other process has focus
+		Fixed: fetch("bbs://news.txt") succeeds but is empty
+
+
+	0.2.1d
+
+		Fixed: :take() only sets the first value of the last span (so fails on last row when span_len > 1)
+		Fixed: sprite fast path not masking output by 0x3f, causing stencil bits to be set
+		Fixed: gfx.p64 can draw cursed pixel values with high bits set (same as stencil bits bug)
+		Fixed: split("3a","") returns {196608, "a"}
+		Fixed: crash on boot when system version doesn't match runtime // printh not defined
+
+
+	0.2.1c
+
+		Added: batch matmul*() by specifying height as last param: v=userdata("f64",4,1000) v:matmul(matrix,true,4)
+		Added: /system/demos/treegen.p64: for testing batch transforms and woozy audio slides
+		Added: tline3d() flags 0x400 for faster low-quality mode (3 px/cycle, performs one divide every 8 pixels)
+		Added: superfast (x2) spr(), sspr(), map() under default draw state (no fill pattern or masks): 6px/cycle 
+		Added: show/hide tabs and line numbers in code editor
+		Added: bbs:// carts can run bundled carts inside their own sandbox: create_process("carts/foo.p64.rom")
+		Added: bbs:// carts can run other bbs carts inside their own sandbox: create_process("bbs://bells.p64")
+		Added: ctrl-r loads changes made externally to the cartridge file (so, can edit the .p64 in a text editor)
+		Added: info command lists external changes 
+		Added: new recommendations in manual for using external editors (search for "Using External Editors")
+		Added: per-channel volume control while music is playing: sfx(-4, channel_index, vol)
+		Added: music() play pattern from tick value (allows tracks that are playing at different speeds)
+		Added: shift-space to play a pattern from just before cursor
+		Added: tracker: ctrl-left/right to jump between tracks / track segments
+		added: tracker: ctrl-space to play from the cursor position, or shift+space for the cursor's group of 8 notes 
+		Added: [audio] faster arp commands: n,m
+		Added: [audio] o command to oscillate between the current and relative (p0) pitch at a given speed (p1)
+		Added: [audio] f command can be used to fade towards the channel's volume value (similar to the s command)
+		Added: ctrl-c in view.p64 to copy the image at the displayed scale
+		Added: /system/wallpapers/trinkets.p64
+		Changed: [audio] s command always applies volume fade to target channel volume if there is one set in that row
+		Changed: [audio] partially complete slide behaviour is different because of bug fixes below; is a breaking change
+		Changed: optimized / reduced cpu costs on batch draw overhead, userdata op per-span overhead, :take()
+		Changed: the default fullscreen terminal + windows created with ctrl-r share the same, merged command history
+		Changed: > cls from terminal now also clears the text layer (useful if print out something huge)
+		Changed: .p64 files are written with lua files at the top for .p8-style manual editing
+		Changed: themed.p64 reworked to function primarily as a previewer / chooser: has [Keep] and [Cancel] buttons
+		Changed: (internal) split /system/lib/head.lua into more files + misc changes to improve sandboxing
+		Fixed: enter in text editor removes one level of indentation when current line only contains whitespace
+		Fixed: cpu accounting when an expensive (> 10% cpu) single operation spans multiple frames
+		Fixed: drag and drop files from host is broken (regression caused by changes in sandbox rules)
+		Fixed: sandboxed apps corunning in terminal can create_process() without usual sandbox restrictions 
+		Fixed: abs(nil) produces a runtime error // should return 0 to be PICO-8 compatible
+		Fixed: tline3d observes fill pattern using only the first screen y value (i.e. only works for horizontal spans)
+		Fixed: /demos/proggy.p64 enter brings up pause menu
+		Fixed: :take() crash when the generated output userdata is larger than 16MB
+		Fixed: [audio] pitch snaps back after slides (s, -, +) even when there is no pitch command in the next row
+		Fixed: [audio] ditto for volume; a partially completed fade should carry over until next volume command
+		Fixed: [audio] instrument retriggers when there is no instrument command (state is meant to carry over)
+		Fixed: unsaved changes sometimes incorrectly reported for newly loaded cartridge
+		Fixed: on_event("modified:...") message is not generated when copying or moving over a file
+		Fixed: theme editor does not revert desktop to previous colour scheme when discarding unsaved changes
+		Fixed: double line breaks in app menu after using Save As
+		Fixed: family of sandbox injection attacks that rewrite functions used in kernal code (e.g. string.sub)
+		Fixed: screenshot scale in video mode 3,4 is wrong (again)
+		Fixed: ctrl-s / save command flushes the cartridge file to disk twice (mostly harmless but inefficient)
+		Fixed: notify() shows a message of nil instead of hiding current message (regression in 0.2.0h)
+		Fixed: sandboxed cartridges can not send/receive messages with their children (also breaks "modified:..")
+		Fixed: create_process() from local multicarts does not force sandbox inheritance the same way as from bbs://...
+
+
+	0.2.1b
+
+		Fixed: (Windows) anywhen crashes
+		Fixed: /system/apps/view.p64 missing
+
+
+	0.2.1
+
+		Added: anywhen listings; add /@ to any path to get a folder of changes. Works with folders too: filenav /desktop/@
+		Added: view.p64 -- can be used to view .p8 spritesheets and .png files (colourfitted to system palette)
+		Added: gfx.p64 spritesheet imported can directly load .p8 / .p8.png
+		Added: ?"\^o$ffhello" to use current colour for outline (thicken); ?"\^o!ff..." to draw only outline i current colour
+		Added: ?"\^uunderline"
+		Added: batch line(), circ() drawing
+		Added: One-off p8scii characters with \^, \^; (instead of \^. \^:) to respect the padding bit. ?"\#3\^;447cb67c3e7f0106"
+		Added: fullscreen mode uses the display that the host window currently occupies // use picotron -display n for initial choice
+		Added: can run bbs://foo.p64 from terminal with just: #foo
+		Added: ctrl-shift-r while editing a gfx file to reload just that spritebank while cart is running (0*.gfx .. 31*.gfx)
+		Added: send_message(pid, {event="..."}, func(msg)) to process a reply from that process
+		Added: on_event("foo", nil) to destroy all callbacks for that event type
+		Added: fetch() non-blocking form: fetch("https://example.com", {on_complete = function(obj, meta, err) printh(obj) end})
+		Added: rle 0x81 pod format for u8,i16 userdata: combines well with delta generation -> gfx/sfx/map undo is faster and uses less memory
+		Added: max 256k ram files (was 16k); needed for many temporary files created by anywhen / bbs cart mounting (and now w/ faster lookups)
+		Added: "overwrite [y/n]" and "discard unsaved changes? [y/n]" confirmations from terminal when using cp, save and load commands
+		Added: GUI confirmations when overwriting a file or loading / rebooting / shuttdown down with unsaved changes.
+		Added: wrangle_working_file() takes an optional state_hint callback function used to monitor for changes (see notes in notebook.p64)
+		Changed: confirmation buttons always on the right! cancel on the left.
+		Changed: reported gfx/map memory capacity treats 12MB as the limit (was 16MB), as running out of memory is currently catastrophic 
+		Changed: shared lz4'ed anywhen blob storage for efficiency // later: tool to sweep unreferenced blobs if want to delete old months
+		Changed: anywhen ignores binary exports (paths containing ".bin/") // later: customisable rules
+		Changed: New Cartridge (from context menu) also loads the cartridge after it is created
+		Changed: New Cart / New File / Rename ops from desktop opens a new window (more tidy, can change directory)
+		Changed: exit() from fullscreen carts also closes the workspace; other empty workspaces can only be closed via right-clicking the icon 
+		Fixed: coresume() only returns first return value
+		Fixed: p8scii characters are drawn 1,1px out of position when padding is disabled // ?"\^-bhey"
+		Fixed: storing .p64.rom and .p64 carts from raw binary strings broken // e.g. store("foo.p64.rom", "this is a tiny cart")
+		Fixed: (Mac) high host cpu load (bug in build script causing -O0!)
+		Fixed: anywhen loading (via utils/load) with time of day specified resolves to the wrong UTC time
+		Fixed: default p8scii text wrap x based on clip RHS (used when 0x5f36:0x80 is set) does not take camera into account
+		Fixed: selected files in grid mode are not drawn on top when selected (long filenames hidden by non-selected neighbour)
+		Fixed: automatic desktop icon placement is too close to existing files (and often ends up underneath drive.loc)
+		Fixed: Using app menu > about after ctrl-r shows metadata on /ram/cart/main.lua instead of /ram/cart
+		Fixed: ctrl+r program with no _draw() but creates a display using vid() or window() --> output not copied to terminal back_page
+		Fixed: crash when saving cart with ctrl+s while viewing and empty workspace
+		Fixed: memory consumption in map editor can jump up unexpectedly and run over limit before have a chance to save
+		Fixed: sfx.p64: entering many pitches quickly is laggy and sometimes get double undo points
+		Fixed: undo_stack:checkpoint() when there are no changes sometimes produces a redundant undo point
+		Fixed: undo_stack stores a superflous copy of state; re-worked /system/lib/undo.lua using a single "head" state to save memory
+		Fixed: stop/resume behavour when corunning cartridges with a custom mainloop (no _draw or _update, but using flip())
+		Fixed: pause menu does not open after resume
+		Fixed: set_wallpaper message to window manager can be used to escape sandbox (now ignored by wm)
+		Fixed: drop_items message can be sent by sandboxed process (maybe dangerous later)
+		Fixed: userdata :take() crashes when source and destination types do not match (should just return nothing)
+		Fixed: userdata :convert() from signed integer to f64 treats negative numbers as unsigned ints.
+
+
+	0.2.0h3:
+
+		Fixed: keyp(k) returns true when k does not map to a scancode (regression in 0.2.0h)
+		Fixed: humble uploads broken
+
+	0.2.0h:
+
+		Added: spritesheet importer (from the app menu in gfx.p64) -- paste [gfx] from PICO-8 or drag and drop pngs
+		Added: alt+up/down in code editor to jump to previous or next "function "
+		Added: key(), keyp() true when any key is pressed
+		Added: set default app using shorthand #foo notation for bbs carts. e.g. > default_app txt #strawberry_src
+		Changed: cart files are opened in a new window even if already open; tabs editing the same file are drawn inverted
+		Changed: (internal) removed .unique_location; app or caller (e.g. util/open.lua) can use .jump_to_matching_window instead
+		Changed: opt in to background _draw and _update callbacks: window{background_draws=true, background_updates=true}
+		Changed: keyp(),key() return nil when the process does not have a window that has input focus
+		Changed: gui_el:has_input_focus() returns false when parent process window does not have input focus 
+		Changed: default files (e.g. untitled.txt) are not created until saved (or auto-saved for /ram/cart files)
+		Changed: text editor cursor shows the character underneath inverted, and rendered at the width of that character 
+		Changed: sandboxed carts can not use metadata_format="none" // harder to store() malicious files on host
+		Changed: sandboxed carts do not allow arbitrary incoming socket connections // e.g. socket("tcp://*:1234)
+		Changed: terminal can extend fileview of argv[1] (matches wrangler), so can: bbs://strawberry_src.p64 /outside_sandbox.txt
+		Fixed: cart files autosave over other changes even when no changes made in that process // ref: #strawberry_src vs. code.p64
+		Fixed: fetch"foo.png" returns the raw string instead of colour-fitted u8 userdata (regression in 0.2.0e)
+		Fixed: many tabs open in editor cause foreground app to be starved of cpu (ref: #foxy_demo)
+ 		Fixed: yield() / GC sometimes causes process to underspend allocated cpu for that system frame
+		Fixed: exported binary with window{autoclose=true} drops to desktop when press ESC (should quit)
+		Fixed: exported binary with window{pauseable=false} switches to desktop when press ESC (should ignore)
+		Fixed: exported cart still shows boot screen for a short time after cart has started running
+		Fixed: controller pause button does not respect window{ pauseable = false }
+		Fixed: carts launched from startup.lua sometimes appear in a separate workspace instead of desktop (e.g. #dock)
+		Fixed: cursor attribute is ignored when passed to :attach_button // gui:attach_button{cursor = ...}
+		Fixed: stop() does not halt until the end of the frame
+		Fixed: carts with no spritebanks do not automatically load sfx/0.sfx into 0x30000
+		Fixed: filenav doesn't close after used for opening a Open File from a windowed program
+		Fixed: tline3d() can not take a sprite index as the first parameter (inconsistent with spr, sspr)
+		Fixed: can not click error messages to jump to lua files inside bbs:// locations
+		Fixed: cp, rm, mv commands report modifying target using bbs:// protocol instead of failure (can not modify bbs://)
+		Fixed: can not mount bbs:// carts that have "p64" in the cart id // fs.lua using :find(".p64") with pattern matching on .
+		Fixed: "Save As" text field in filenav does not have tab complete, and can not be used to change directory ("..")
+		Fixed: manual has vital pieces of information buried too deep // e.g. how to load & manipulate multiple gfx/map/sfx files
+		Fixed: bunny example in manual is too complex -- reduce to single page of code and give better suggestions how to extend.
+		Fixed: ctrl+r to restart a program with a listener socket does not allow that same port to be immediately reused
+		Fixed: sock:accept() under windows returns a new invalid socket when there are no new tcp connections available
+
+	0.2.0g:
+	0.2.0f:
+
+		Fixed: crash on saving files outside of /ram/cart
+		Fixed: carts run with ctrl-r crash when the first line is not a comment / whitespace
+
+	0.2.0e:
+
+		Added: raspi build // 64-bit only, no exporter yet
+		Added: socket() for tcp / udp connections // desktop builds only, but can use from sandboxed carts
+		Added: input() for interactive terminal programs // e.g. print(input("enter a number: ")+1)
+		Added: print("\rfoo") to replace last message in terminal history // for i=1,100 do print("\r"..i) end
+		Added: background processes (for now, all non-visible programs run on a fixed low priority)
+		Added: process list in picotron menu > About Picotron (press DEL to kill selected process)
+		Added: kana chracters in lil*.font (same as p8.font) and PICO-8 style unicode encoding/decoding for clipboard
+		Added: config util for managing system settings from commandline (e.g. > config sparkles on)
+		Added: "default_app -l" to list default apps by extension, "default_app txt" to remove by extension 
+		Added: child_completed and child_created_window messages are sent to parent // msg.proc_id for the child process id
+		Added: custom 720p upscaler (blit_720p in settings.pod)
+		Added: ctrl-click error to open in a new tab. When multiple tabs are open for a /ram/cart file, most recently edited wins
+		Changed: util/open.lua -j to jump to existing window (default for cart files), -n to force a new window (default otherwise)
+		Changed: add(tbl,el,nil) now the same as add(tbl,el)  --  P8 compatability
+		Changed: print() now yields after printing to terminal so that it is immediately visible
+		Changed: moved snap_to_grid (for desktop icons) to settings.pod -> removed /appdata/system/filenav.pod
+		Changed: corunning in terminal now uses a meandering center of execution instead of callbacks; fixes various issues
+		Changed: When running or saving the pwc, cart files (/ram/cart/*) open in editors are first given 2 seconds to autosave 
+		Fixed: inverted rrectfill, circfill is a NOP when clipped "out" (should fill clip area)
+		Fixed: rrectfill does not draw the curved sections when partially clipped top / left
+		Fixed: ("/"):dirname() returns "" -- should be "/"
+		Fixed: fetch("https://.../foo.png") freezes when the file is not a valid png file
+		Fixed: str:dirname() wrong when contains a hash part
+		Fixed: processes running in infinite loop have no limit on pending incoming messages (can exhaust host ram)
+		Fixed: rapidly storing files to host causes slowdown under web due to excessive indexedDB flushes (e.g. #stargazer)
+		Fixed: unpod("str") crashes
+		Fixed: multiple active windows can compete for pfx6416 audio control; window in focus should have priority
+		Fixed: unnecessarily blurry upscaling at 720p and above 
+		Fixed: (Windows) can not find picotron.dat when running picotron from commandline
+		Fixed: partially drawn frame is sometimes displayed when cpu > 1.0, for most recently created process (rare) 
+		Fixed: can't draw tiles in map editor using pencil tool from banks > 0 (regression)
+		Fixed: gfx bank auto-loading gfx/10*.gfx .. gfx/31*.gfx
+		Fixed: stale files in /ram/cart that were edited by another process sometimes save over those changes on CTRL-S / save
+		Fixed: open foo.lua#8 not jumping to line 8
+
+
+	0.2.0d:
+
+		Added: rounded rectangles: rrect(x,y,w,h,radius,col) / rrectfill(...)
+		Added: p8scii "\^o" for drawing outlines. 1 char: col, 2 chars hex to indicate neighbours. e.g. ?"\^o8ffhey"
+		Added: gfx editor: can edit multiple sprites at once when they are the same size
+		Added: map editor: can place multile tiles at once (shift + click & drag to select sprites)
+		Added: /system/demos/tinypaint.p64 -- minimal undo/redo example
+		Changed: icon colour 3 maps to a lighter theme colour (was the dark outline colour -- theme"icon3")
+		Changed: gfx editor: can pick up colour with rmb or ctrl-click to search/replace regardless of selected tool 
+		Changed: p8scii: print"\^w\^t\^=..." draws horizontal stripes (used to be the same as \^p)
+		Changed: filenav / desktop does not display files if initial cd() failed (for debugging disk access issues)
+		Changed: pal() doesn't reset the rgb display palette to system default (use pal(2) or reset())
+		Fixed: crash when screenshot while running a cartridge file name that is a number
+		Fixed: pal() not resetting changes made by palt() // dirty ram page bit not set by palt()
+		Fixed: palt(bitfield) sometimes modifing wrong colour table
+		Fixed: inverted ovalfill(), circfill() fails when width or height < 3
+		Fixed: some api functions are not highlighted green in code editor
+		Fixed: tokenoid() treats escaped quote at start of string as the closing quote
+		Fixed: note(100, ...) stops all sound unless a channel index is explicitly given (regression)
+		Fixed: print("foo",9) should behave the same as color(9) print("foo") (regression, + also fixed in terminal)
+
+
+	0.2.0c:
+
+		Added: colourful icons // can be disabled in settings or per-file with metadata.lowcol_icon
+		Added: icon editor: full colour / low-colour toggle, colourful templates, undo/redo, ctrl-click to swap a colour
+		Added: gui:attach_button{border=0x070e} for a 1px rounded border // colour when element has cursor in bits 0xff00
+		Changed: about windows have space for 3 lines of notes
+		Fixed: can not run sandboxed bbs carts using ctrl+r after load #foo ("can not find /ram/cart/main.lua")
+		Fixed: syntax error causes terminal to get stuck in a pauseable state (can't use enter)
+		Fixed: runtime error inside _init is not reported when corunning in terminal via CTRL+R
+		Fixed: text editor search box is not dismissed when pressing escape (regression: keydown event not sent from wm)
+		Fixed: x,y = print("\0",30,20) returns -1000000,-1000000 (should be 30,20 -- matches PICO-8 behaviour)
+		Fixed: opening lua files via error messages causes multiple tabs of the same file (.unique_location ignored)
+
+
+	0.2.0b:
+
+		Added: options sub-menu when paused allowing host fullscreen toggle
+		Added: export -e readme.txt foo.bin // to include files in the generated zips (can be a folder to flatten)
+		Added: binary exports set the host window title
+		Added: web exports can use fetch(stat(151).."extra.pod") to download extra files from the same location
+		Added: web exports: stat(150) for full window.location.ref, stat(152) for location.host, stat(153) for location.hash
+		Added: binary exports mount "/host_data" when a folder called "data" is found in the same path as the executable
+		Changed: fullscreen binary exports block wm elements & workspace switching unless window{can_escape_fullscreen=true}
+		Changed: exporter size limits: .p64.rom size can be 32MB (8MB for html) -- can use fetch() for more data
+		Changed: mac exports are now inside a folder called foo_mac in order to allow bundling extra files 
+		Changed: exported cartridge is now mounted as /ram/expcart (was /cart, which could be mistaken for persistent storage)
+		Fixed: no way for binary exports to quit to host without using shortcuts (now: "Exit" means shutdown)
+		Fixed: info command does not show up-to-date rom size; now saves and flushes to temporary .p64.rom first
+		Fixed: windows that are too large to fit on desktop get stuck above the toolbar and can not easily be closed
+		Fixed: filenav/desktop: icon colours outside of 0,1,13,6,7 are not mapped to theme
+		Fixed: unmap() crashes when used on colour table memory regions
+		Fixed: memmap() changes on live audio data does not immediately sync with PFX6416
+		Fixed: pod() does not handle int64 userdata
+		Fixed: process 2 freezes for a long time after binary export (e.g. can't use folder command)
+		Fixed: widgets not loading on boot
+
+
+	0.2.0:
+
+		Added: binary exporters for windows, mac and 64-bit linux // > export foo.bin
+		Added: window icon
+		Changed: Anywhen does not log changes for folders ending in .bin
+		Changed: readme.txt is not copied to desktop for web exports (only used for bbs player)
+		Changed: no screensaver or wallpaper settings in exports // avoids runtime mismatches between exports
+		Fixed: apps lose focus after using "Reset Cartridge" from the pause menu
+
+
+	0.1.1f:
+
+		Added: export foo.p64.png to save a copy of working cartridge (without switching from that working cart)
+		Changed: only foreground process can read controller buttons
+		Changed: ctrl-p opens picotron menu (useless now but reserved for future)
+		Changed: linux uses dynamically loaded libcurl (wget no longer required), mac uses static libcurl
+		Fixed: load #foo sometimes fails to fetch cartridge (when no version number specified)
+		Fixed: batch cart downloads don't happen in parallel on mac, web (-> slow to open bbs://new/0 etc)
+		Fixed: not caching cart fetches under web (now cached per session, but not persisted in IndexedDB)
+		Fixed: system level crash when a process include()s itself (temporary hack: can't include file > 256 times)
+		Fixed: exported html shell does not block all keypresses when picotron app has focus (e.g. ctrl-s, ctrl-o)
+		Fixed: sandboxed dev cartridge can store() to self -- only /appdata and /appdata/shared should be writeable
+		Fixed: (regression in 0.1.1e) some gui events are not dispatched when there are multiple active guis
+		Fixed: hiding a button on click throws an error // https://www.lexaloffle.com/bbs/?pid=160440#p
+
+
+	0.1.1e:
+
+		Added: /system/widgets/owl.p64
+		Added: widgets can be installed by dragging any window into the tooltray -- stored in /appdata/system/widgets.pod
+		Added: bbs:// protocol // try "BBS Carts" from the Picotron menu
+		Added: automatic sandboxing for all bbs carts. /appdata maps to /appdata/bbs/cart_id + restrictions on send_message()
+		Added: files created by bbs:// carts are associated (metadata.prog) as a fallback default app to open it.
+		Added: open(location) // uses /system/util/open.lua -- can be used by sandboxed cartridges w/ a rate limit
+		Added: pitch ratios (TUNE *) can now compound and observe envelopes, RAND, multipliers, be set in ROOT.
+		Added: mousewheel to adjust tracker number fields / mb + wheel for inst knobs & fields. hold ctrl for +8,-8
+		Added: play music from a separate .sfx file: fetch("music.sfx"):poke(0x80000) music(0,0,nil,0x80000)
+		Added: Audio mix volume (0x5538), music mix volume (0x5539) and per-channel volume (0x553a, used by sfx()).
+		Added: ud:convert(type) // can convert between any type. f64 values are floored to convert to ints.
+		Added: ud:sort(column, desc) // to sort by a given column index and desc==true to sort largest to smallest
+		Added: ud:pow(), ud:sgn(), ud:sgn0(), ud:abs()
+		Added: ud:transpose() works on any data type
+		Added: diagonal flip bit + r to rotate selection in map + gfx editor. Supported by map(), but not tline3d() [yet?]
+		Added: gui attributes: squash_to_clip, confine_to_clip, squash_to_parent, confine_to_parent
+		Added: squashable windows: window{width=200,height=100,squashable=true} -- /system/demos/squashable.p64
+		Added: menuitem() label can be a function that returns the string
+		Added: screen / gif captures are named after the active window
+		Added: /system/screensavers/xyzine.p64 (run directly to use it interactively)
+		Added: desktop support for web in exports (allows exports with tabbed interfaces, gif & png captures, persist /desktop)
+		Changed: Per-process RAM limit is 32MB, with 16MB addressable (was 16MB, 16MB)
+		Changed: Userdata lookups have a separate function: ud:take(idx,...); *** ud:copy(idx,...) will be removed in 0.1.2!
+		Changed: Reduced number of sprite banks from 64 -> 32 (in order to make diagonal flip bit standard)
+		Changed: userdata:op() with no args is now a NOP for all ops except :copy; used to use self as RHS which is confusing
+		Changed: include() returns the results from loaded function (used to return true) -> can use module loading pattern
+		Changed: tweaked default palette for pairings & separation: 16,18,21,24,25,26,31
+		Changed: cartridge label stored in ram in qoi format (was png) for faster encoding and .p64.png mounting
+		Changed: default sandbox profile for bbs carts relaxed; can read /desktop, can R/W /ram/cart, can launch filenav.p64
+		Changed: env().title removed, env().prog_name moved to env().argv[0]
+		Changed: get_clipboard() can only read the host clipboard after ctrl-v is pressed inside picotron (security)
+		Changed: all gui callbacks always get mx,my,mb (was missing in :update)
+		Changed: ?vec(1/3,2,3.1E+234) prints with more precision, and integers without the fractional part (same as ?pod{...})
+		Changed: map editor: f,v (and now r) when nothing is selected alters the current brush; not the whole map. cursors moves camera.
+		Changed: pal() only charges cpu for colour tables that have changed since last call (~ 2x as fast)
+		Changed: escape while running a fullscreen cartridge brings up pause menu. (use alt+L/R to switch to desktop instead)
+		Fixed: terminal launched from another terminal sends print() output of launched programs to the parent terminal instead of self
+		Fixed: .p64 files still sometimes only partially stored (!) // race condition; introduced atomic disk operations for safety
+		Fixed: pending disk changes are not flushed when closing window immediately (<100ms) after copying / saving a cartridge
+		Fixed: crash when > 256 carts are mounted in one session due to unneeded cart mounts not being swept
+		Fixed: a:take(b2d) returns the correct shape when b is 2d, but only takes the first row of items.
+		Fixed: a:copy(nil, dest, ...) does not observe offsets/strides
+		Fixed: userdata ops with a scalar and an output e.g. a:add(3, b) -> reads from b instead of a
+		Fixed: mutate() does not alter dimensionality
+		Fixed: context menu cut / copy callbacks are broken
+		Fixed: carts that are folders on host (folders named foo.64) are sorted out of order by ls()
+		Fixed: unpod"{foo[hoge]}" crashes
+		Fixed: srand() only gives a different seed every second in web player (see rain in /bbs/?tid=142370)
+		Fixed: gui element draw() needs to exist for an element's children to be clipped and hidden
+		Fixed: scrollbar content is clickable outside of parents even when clip_to_parent is true
+		Fixed: abs(), sgn(), min(), max(), mid() are slow (using placeholder lua implementations)
+		Fixed: coroutine.resume() doesn't handle nested coroutines -- now just an alias for coresume()
+		Fixed: userdata :div(0), :idiv(0) throw an error; should behave same as regular operators (return -min,+max for that type)
+		Fixed: pressing space while playing an instrument (in instrument editor) triggers sfx instead of stopping instrument
+		Fixed: app menu sometimes appears partially outside visible desktop area (now uses confine_to_clip)
+		Fixed: printing strings to terminal ending in \0 does not surpress "newline" // e.g. print("abc\0")print("def")
+		Fixed: unpod() always returning floats for numbers stored as integers // ?unpod(pod(3)) -> 3.0, should be 3
+		Fixed: tline3d flags in batch operation are ignored
+		Fixed: The main instrument tune knob in the sfx editor does not work as expected when set to multiply by just ratios
+		Fixed: Sandboxed carts grant read access to the folder they are inside
+		Fixed: File dropped from host produces drop_items message without mx, my set (now always center of active window)
+		Fixed: Wallpaper process sometimes set as active window (should be uninteractive except for mouse x,y,wheel_* events)
+		Fixed: New Cart produces a completely empty cart folder; should match the default cart with main.lua, gfx/, sfx/, map/ 
+		Fixed: Fill tool cursor is broken in gfx editor
+		Fixed: ctrl-r, ctrl-m causes key("r"), key("m") to be true in active window
+		Fixed: escape halts currently running pwc (run with ctrl-r) when not in that workspace
+		Fixed: program corun in terminal can clobber env(), causing subsequent terminal commands to crash (ref: #picovania)
+		Fixed: shift-ctrl-r broken // runs the file in the code editor and jumps back to output without restarting program
+		Fixed: note() is sometimes delayed or has no audible effect on a channel that was previously used by sfx()
+		Fixed: instrument playback logic is broken; should be able to hold, but also to stop long-tail instruments & tracks/music
+		Fixed: pause menu doesn't close after selected item and callback returns falsey value
+		Fixed: button state persists after closing pause menu (now: each button is ignored until released)
+		Fixed: ord() with a negative number of items freezes
+		Fixed: circ(x,y,rad) with no colour parameter is a NOP (should draw with current draw colour)
+
+
+	0.1.1d:
+
+		Added: batch gfx operations for pset,circfill,rectfill,tline3d,spr // many draws with a single function call
+		Added: /system/demos/pixeldust.p64 // demos batch draw operations
+		Added: userdata:lerp(offset, len, el_stride, num_lerps, lerp_stride)
+		Added: userdata:copy(idx, ...) to perform a copy using idx as a lookup table
+		Added: desktop file items close together form stacks (use mousewheel to flip through)
+		Added: new context menu structure and items: create, load carts / cut,copy,paste / open cartridge contents
+		Added: mouse(new_x, new_y) to warp mouse position // not supported under web [yet]
+		Added: filenav: shift-click in list or grid mode for range selection
+		Added: filenav list mode: show non-cart folders first with icons
+		Changed: some vm inst cost only 1 cycle instead of 2 (same as PICO-8: add, sub, bitwise ops, load*, move, unm)
+		Changed: ls() returns non-cart folders first, is case-insensitive, and sorts by numeric values first
+		Changed: mousewheel events are passed to the window under the cursor (used to be the active window)
+		Fixed: memcpy() freezes when len < 4
+		Fixed: i64 userdata indexed writes have no effect // a = userdata("i64",64) a[0] = 3
+		Fixed: drawing filled shapes completely outside of clip rectangle sometimes crashes under web (causes illegal read)
+		Fixed: undercharging cpu for shapes partially clipped horizontally
+		Fixed: overcharging cpu when expensive operation falls near the end of a process slice
+		Fixed: host screensaver is blocked while Picotron is running // now using SDL_HINT_VIDEO_ALLOW_SCREENSAVER
+		Fixed: fetch("http://..") fails // regression in 0.1.1c -- was handling only https
+		Fixed: gif capture: frame delta is wrong when scanline palette (0x5400) changes
+		Fixed: music fade in/out speed is slower than requested (was updating once per mix instead of once per tick)
+		Fixed: filenav list mode: context menu not updated after right-clicking file
+		Fixed: filenav list mode: file modified date missing (now loads from pod metadata when available)
+		Fixed: filenav grid mode: when showing many files in grid mode, start to get visual junk
+		Fixed: unnecessarily large mix buffer size (regression in 0.1.1c -- made sound triggering / tracker feel laggy)
+		Fixed: matmul functions fail when output is same as input (because clobbering input data as generate output)
+		Fixed: map editor sprite navigator showing sprites from wrong bank
+		Fixed: /desktop/readme.txt stored in binary format by 0.1.1b (0.1.1d now re-saves in host-readable txt format)
+		Fixed: ctrl-r in html exports drops to terminal (is meant to reset cartridge)
+		Fixed: .p64.png inside an .p64 is listed twice by ls() (and so filenav, ls command etc)
+		Fixed: panning position is not reset when audio channel is killed
+		Fixed: default instrument 0 data not initialised for new process (relies on loading a default .sfx before using note())
+		Fixed: when opening a file in host and in fullscreen, result of the action is not visible (now minimizes self)
+		Fixed: pulldown menu: parent.onclose is not called (causes e.g. extra click needed for focus after using context menu)
+		Fixed: renaming a file on desktop causes it to jump around
+		Fixed: renaming a file via menu drops the original extension when not specified
+
+
+	0.1.1c
+
+		Added: inverted drawing for rectfill,circfill,ovalfill // set bit 0x800000000 in col parameter
+		Added: ud:mutate(type, width, height) to change the type / size of a userdata object
+		Added: cut/copy/paste/delete selected files in filenav
+		Added: desktop snap to grid POC -- turn on with: store("/appdata/system/filenav.pod", {snap_to_grid=true})
+		Added: /system/demos/birds.p64 // demos /ram/shared/windows.pod subscription pattern + transparent window
+		Added: integer divide for f64 userdata // ?vec(-3.1,3.1,5.9) \ 1  --> (-4.0,3.0,5.0)
+		Added: sfx(-2, channel_index) to hard kill a channel (leftover state like echos / decay are cut short)
+		Added: shift-delete, ctrl-insert, shift-insert shortcuts in code editor to cut, copy and paste
+		Added: userdata :max :min // returns the largest / smallest of each element
+		Optimised: faster path for shape hspans where span_w >= 16, (window_w&0x7)==0, target_mask==0 (~6M pixels / frame @60fps)
+		Optimised: filenav (uses cached render at rest), squishy windows, process blitting used by wm
+		Changed: /ram/shared/windows.pod is published by wm every frame
+		Changed: mouse cursor position is clamped to display region in host fullscreen (can hide at bottom right pixel)
+		Changed: stat(400+chan_index, 12) returns -1 when sfx is not playing. 
+		Changed: sfx() offset can be negative to create a delay of n rows before notes are issued
+		Changed: sfx() channel selection prefers channel 8~15 to reduce accidental clobbering when music starts
+		Changed: Debug is not available to sandboxed programs
+		Fixed: event handling and menus breaks when using a custom mainloop; "vid(0)::_::flip()goto _" now works
+		Fixed: menuitem{id="rename"} does not remove item from menu
+		Fixed: menuitem() calls from non-active windows clobbering app menu (was affecting filenav)
+		Fixed: icons missing on drive.loc and readme.txt after fresh install
+		Fixed: capture.p64 doesn't respect video mode
+		Fixed: p8scii control character \^c missing -- \^d, \a is still missing, but probably won't support in Picotron
+		Fixed: filenav menu shows file ops for a single file when multiple files are selected (confusing)
+		Fixed: nil + vec(1) hard crashes // nil values should be treated as 0 for userdata ops
+		Fixed: dormant music channels that become active are played up to one mix buffer out of sync (erf!)
+		Fixed: text input buffer spills into textfield when it becomes active ~ should clear on gaining focus
+		Fixed: tracker playback following is broken when first track is empty, or when gui play button is used
+		Fixed: pressing enter in tracker should clear selection or insert a row otherwise, but not both
+		Fixed: ctrl-c to copy patterns in tracker cuts them
+		Fixed: off by 1 when blitting process displays to negative positions // causes red pixel in corner of squishy windows
+		Fixed: "picotron -home foo" host crashes when foo doesn't exist
+		Fixed: wrangle.lua crashes when opening legacy pods that do not have .revision in metadata
+		Fixed: gif encoder leaves inter-frame junk for colour 63 when using scanline display palette 3
+		Fixed: read mask not applied for non-aligned spans while drawing shapes with target mask == 0
+		Fixed: tonum(bool) doesn't return 0 or 1 (PICO-8 behaviour)
+		Fixed: mousewheel message is propagated to parent of scrollbox (should consume)
+		Fixed: Unable to send small number between processes // was happening for values serialised with scientific notation
+		Fixed: default tab width doesn't line up with monospace font ._.
+	
+
+	0.1.1b
+
+		Fixed: wm crash when trying to set workspace to "tooltray" when show_in_workspace == nil
+		Fixed: _rm not defined in fs.lua (causing "load #foo" to fail)
+		Fixed: gif recording initialisation sometimes fails silently and produces .gif of size 0
+
+
+	0.1.1 
+
+		Added: html exporter: export foo.html  //  single self-contained html file that can run locally
+		Added: web support (bbs/exports): /appdata storage (IDBFS), mouselock(), extended gamepad (twin-stick + SL,SR)
+		Added: gif capture // ctrl+8 to start, ctrl+9 to end -- max 16 seconds
+		Added: capture.p64 tool - can be opened with with shift+ctrl+6 or shift+ctrl+8 to select a region from anywhere
+		Added: FX:FILTER:RES knob can be multiplied by FX:FILTER:LOW for better resonant peak behaviour
+		Added: FX:SHAPE:MIX knob can be multiplied by the instrument's root node volume
+		Added: store("foo.bin", "some binary string\0\1\2\3", {metadata_format="none"}) to generate raw host file output
+		Added: adaptive battery saver: drop down to 30fps when idle for 500ms, and not running fullscreen app or /ram/cart
+		Added: sandboxing // WIP -- used by web bbs player to prevent carts from being able to clobber each other's data
+		Added: semi-transparent notification bar
+		Added: show selected colour index in sprite editor
+		Added: headless script execution: picotron -x foo.lua (experimental! foo.lua must be inside picotron's drive)
+		Added: picotron -home foo // to specify a home folder where config.txt / default drive is stored
+		Changed: show_in_workspace taken defaults to true when creating a window
+		Fixed: filenav is slow with many / large files // improved fstat(), fetch_metadata()
+		Fixed: segfault when too many ord() results
+		Fixed: pod("abc\0def", 0x0) only encodes "abc"
+		Fixed: reading a cartridge as a file (fetch"foo.p64") immediately after its content changes returns the older version
+		Fixed: screenshots do not observe scaneline palette
+		Fixed: time() is wrong when battery saver is active
+		Fixed: removed EXIT from pause menu when running in BBS player
+		Fixed: stale audio ram mixed after poking to unmapped pages (is supposed to mark as dirty and send to pfx6416)
+		Fixed: slide effects use same keys as SFX navigation (-, +) --> should block navigation when cursor is in fx channel!
+		Fixed: sound is not paused when pause menu is active
+		Fixed: arpeggios a-00, b-00 producing high-pitched when group of 4 contains empty rows
+		Fixed: stereo mixing broken under web
+
+
+	0.1.0h
+
+		Added: PFX6416 effects: tremelo, vibrato, wibble, slide, fade, arps, retrigger, cut, delay, pan
+		Added: PFX6416 stereo mixing, + wide instruments (allows nodes to have separate panning position)
+		Added: tracker interface: thumbnails, channel output scopes, cursor/playback following, re-order instrument nodes
+		Added: tracker can now handle up to 64 instruments, 384 SFXs and 128 patterns
+		Added: text editor shortcuts: ctrl+e (end), ctrl+w (staWt), ctrl+up (same as ctrl-home), ctrl+down
+		Added: text editor operations: ctrl+b (block comment) ctrl+d (duplicate) shift+enter (add "end" and indent), ctrl+l
+		Added: monospace toggle button in code editor's app menu
+		Added: file modification events // on_event("modified:/foo.txt", function(msg) end)
+		Added: select/copy/paste multiple items (shift+drag/click): sprites, instruments, SFXs, patterns
+		Added: gfx editor: batch resize and flag modification, shift to snap shape tools, 1,2 to switch colours
+		Added: run command // similar to ctrl-r, but can pass commandline arguments
+		Added: "Fullscreen:Window" in settings to be multi-monitor friendly (uses a borderless window)
+		Added: memory accounting: max 16MB per process (stat(0)) // total Lua allocations + 4k ram pages allocated on write
+		Added: fget / fset supports reading/writing a single bit  // fget(n, b), fset(n, b, val)
+		Added: unmap(ud, addr) to unmap only one userdata that may still be mapped elsewhere
+		Added: userdata :peek(addr) :poke(addr) // e.g. can fetch("/system/fonts/p8.font"):poke(0x4000)
+		Added: map() can take tile_w, tile_h as the last two parameters (integers); defaults to 0x550e, 0x550f
+		Added: userdata:row(), userdata:column()
+		Added: ord("abc",1,3) multiple return values
+		Changed: resonance knob in filter FX tweaked to have a more even distribution of values
+		Changed: ctrl+left/right in text editor skips whitespace 
+		Changed: memmap(ud, addr) (was memmap(addr, ud) -- that legacy form is still supported)
+		Changed: maximum values that can be poked / peeked in a single call: 65536
+		Changed: map() does not draw (or charge   for) spr 0 by default // for old behaviour: poke(0x5f36, 0x8)
+		Changed: foldback uses a more usual triangle function instead of cosine (sounds similar, but less harmonic junk)
+		Changed: many cpu accounting adjustments to get closer to real-world cost
+		Optimised: transparent window blits (filenav.p64 on desktop), and pal() calls use less host cpu
+		Fixed: crash when blit()ing to a region outside the target, but partially inside source userdata (0.1.0g fix was incomplete)
+		Fixed: thread contention slowing down tracker while playing music in pattern mode on low end machines
+		Fixed: text editor: doesn't handle trailing newline in selection
+ 		Fixed: text editor: cursor x position is lost when moving across short lines
+		Fixed: text editor: shift-tab on selection does nothing when line starts with spaces instead of tabs
+		Fixed: can't use file wrangler from /ram/cart; e.g. file open -> filenav launches terminal instead of /ram/cart
+		Fixed: when saving a cart with ctrl+S, files deleted in /ram/cart are not also removed from the rewritten .p64
+		Fixed: window{pauseable=false} doesn't disable pausing on Enter for fullscreen apps
+		Fixed: changing draw target or display size does not release the old userdata for garbage collection
+		Fixed: palt() ignores single integer parameter (is means to act as a 64-bit bitfield)
+		Fixed: tline3d crash on tiles that use flip bits // now supports tile flipping
+		Fixed: map editor slow when zoomed out and/or there are more than a few layers
+		Fixed: can not assign integer userdata element to a real number using flat indexing // get_draw_target()[0] = 9.1
+		Fixed: matmul cpu cost is wrong for large matrices (was charging for only w*h multiplies instead of w*h*h)
+		Fixed: scalar-userdata operations with scalar on LHS treated as if RHS ((2/vec(1))[0] == 0.5 instead of 2.0
+		Fixed: userdata:tranpose() broken for non-square matrices
+		Fixed: f64 userdata loses its data type on copy (as reported by :attribs())
+		Fixed: resetting a cartridge from the pause menu sometimes kills it
+		Fixed: doubletap / doubleclick message firing even when two clicks are far apart
+		Fixed: global mute setting not observed
+		Fixed: (web) multiple webaudio mixer on reset / open multiple carts in one bbs thread (causes speedup / glitches)
+
+
+	0.1.0g
+
+		Added: pause menu for fullscreen programs (ENTER -> continue, toggle sound, reset cartridge, exit)
+		Added: file extension associations. To specify a default app: default_app vgfx /apps/tools/veditor.p64
+		Added: shortcuts: ctrl-home, ctrl-end in code/text editor;  ctrl-a (home) and ctrl-d (delete) in terminal
+		Changed: .sfx format and resource loader now stores 256k by default (space for 398 SFX; is backwards compatible)
+		Changed: Open File and New File (via app menu) always open in the program that requested it (ref: VisiTrack, VGFX)
+		Changed: Can not rename a file over an existing filename in filenav
+		Fixed: sometimes boot into an invalid workspace and need to switch back and forth to mend
+		Fixed: web player: audio, key(), touch controls (but only P8 buttons for now)
+		Fixed: the first file change logged by anywhen each day is stored as the newly written version instead of the old version
+		Fixed: stray globals in terminal: k, res, cproj_draw, cproj_update
+		Fixed: node output missing in instrument designer
+		Fixed: crash when blit()ing from outside of source bitmap // was happening when using magnifying glass at bottom right
+		Fixed: magnifying glass drawing black as transparent
+		Fixed: btn(), btnp() when no _update() callback exists only works via ctrl-r and not when run directly from desktop / terminal
+		Fixed: several types of crackles / discontinuities in audio mixer, mostly relating to echo nodes
+		Fixed: SFXs 64 and above are not initialised to "empty" (instead, zeroed data that shows up as C0's)
+		Fixed: some ctrl- combinations produce a textinput event. e.g. ctrl-1 // explicitly blocked in events.lua
+		Fixed: (Mac) icon is slightly too big
+		Fixed: (Mac) Option key not mapped to "alt"
+		Fixed: cursor in terminal doesn't wrap with command string
+		Fixed: Locked mouse speed is different along X & Y (partial fix)
+		Fixed: Moving a folder inside itself causes folder to be deleted
+		Fixed: crash if call clip() in _init (before a display is created)
+
+
+	0.1.0f
+
+		Added: reboot
+		Added: logged disk writes for backups / versioning ("anywhen" in settings)
+		Added: load cart.p64@2024-04-06_14:00:00 to load a cart from the past (or just @14:00 for short if same day -- local time)
+		Added: date() can take a time to convert (string or epoch time) and a delta: date(nil, "2024-02-01_15:00:00", delta_secs)
+		Added: stat(87) for timezone delta in seconds (add to local time to get UTC)
+		Added: drag and drop host files into picotron (copied to /ram/drop -- not mounted) -> generates a "drop_items" message
+		Added: drop a png into gfx editor to load it (colour fits to current display palette)
+		Added: filenav: open files or folder on host via app menu ("View in Host OS")
+		Added: can fetch .p64 host files directly as binary strings // same semantics as fetching "https://...foo.p64"		
+		Added: PICO-8 style string indexing;  ?("abcde")[4] --> "d"    ?("abcde")[02] --> nil
+		Added: btnp() repeat rates (follows PICO-8: initial repeat delay: @5f5c, subsequent delays at @5f5d specified at 30fps)
+		Added: >>, << operators for integer userdata
+		Added: Row markers in tracker pattern view + 
+		Added: mouselock(true, event_sensitivity, movement_sensitivity) -- mouselock(false) to disable; dx,dy = mouselock()
+		Added: tline3d dev flags (last param): 0x100 skip last pixel; 0x200 apply sub-pixel adjustment // see: /bbs/?tid=141647
+		Added: music() fade in and out
+		Changed: increased userdata ops per cycle (2x for mul,div,mod; 4x for others) 
+		Changed: ls() sorts results with (non-cart) folders first by default
+		Changed: renamed create_diff / apply_diff -> create_delta / apply_delta
+		Changed: timestamps shown by about.p64 and default tooltray clock show local times
+		Changed: when pixel_perfect is off, blitter prescales to 960x540 (still quite blurry though)
+		Changed: screenshots stored to /desktop/host -- a folder automatically mounted on host at {Desktop}/picotron_desktop
+		Changed: cp, mv take -f flags (required if copying over an existing folder / cartridge)
+		Fixed: trailing slash for folders on tab complete in filenav, terminal
+		Fixed: delete key + AltGr not working in terminal
+		Fixed: tracker note keys using mapped key names -- should be raw scancode layout
+		Fixed: tracker knobs hard to use when close to edge of the screen (now using mouselock and finer sensitivity)
+		Fixed: using keyboard controls while a game controller is plugged in causes ghost button presses
+		Fixed: ceil(1.0) returns 2 ._.
+		Fixed: crash on multiplying userdata by scalar on LHS //  ?(tostring (1 * vec(1, 1, 1)))
+		Fixed: redundant cartridge file flushing (writes that happen within 300ms are now batched)
+		Fixed: search for an empty spot on desktop to create dropped files
+		Fixed: key() / keyp() returns false when received keyup and keydown messages in same frame (should be true for 1 frame)
+		Fixed: keyboard btn() responds to keypress one frame late
+		Fixed: memmap(0x8000) crashes // update: can't unmap pages like this, can only unmap by userdata: unmap(ud)
+		Fixed: high dpi display modes blurry [not sure if will be fixed in 0.1.0f]
+		Fixed: fetching https:// forces url to be lowercase
+		Fixed: LFO phase knob ignored
+
+
+	0.1.0e
+
+		Added: sfx tracker: undo / selections / copy + paste single instruments / track data / patterns
+		Added: gfx bank selection in map editor
+		Added: pixel_perfect x stretch: each axis separately uses largest integer multiple that fits
+		Added: hold down ctrl x 2 to boot into terminal (useful for recovering from borked configurations)
+		Added: create new tab flow: guess file extension from other files in the target folder when none is given
+		Added: home/end/ctrl+e in terminal to control cursor position
+		Changed: palt(1) sets colour 0 as transparent, not 63 (departure from P8 style)
+		Fixed: double listings of .p64 files in /
+		Fixed: host folders called foo.p64 collapse back into .p64 files on save (but still happens on mv / cp)
+		Fixed: flip bits not observed when drawing with map()
+		Fixed: map editor draws an out of bounds row and column at bottom and right
+		Fixed: workspace icons lose transparency after using magnifying glass
+		Fixed: \n\r pasted from windows creates overlapping lines in code editor (now filtered out)
+		Fixed: host keypresses getting through to Picotron (alt+tab, ctrl+alt+left/right)
+		Fixed: filenav crashes when actioning intention with a filename that can not be resolved
+		Fixed: can not use AltGR during text entry 
+		Fixed: default key mappings: command keys & delete were missing in 0.1.0d
+		Fixed: bad keycodes.pod / scancodes.pod format causes wm crash on boot
+
+	0.1.0d
+
+		Added: default keyboard mapping for key()/keyp() uses host OS layout by default
+		Added: can map multiple physical keys to a single virtual key
+		Added: sfx len (becomes loop0 when loop1 > len)
+		Added: warning on startup when the /system version does not match the build version
+		Changed: about.p64 now shows/edits the metadata of /ram/cart by default (i.e. just type: about)
+		Changed: rename triplane.p64 to biplane.p64 (need to re-select it again from wallpapers)
+		Fixed: /system rom in 0.1.0c was the wrong version! (caused map drawing and other things to break)
+		Fixed: (Windows) rm does not delete host folders 
+		Fixed: (Mac) crashes after ~13.5 minutes
+		Fixed: host system user data paths are clipped at non-ascii characters
+		
+	0.1.0c
+
+		Added: custom map tile sizes (taken from sprite 0)
+		Added: layer naming and ordering (the first layer in the list is now drawn on top)
+		Added: mget(), mset(), ceil()
+		Added: async remote fetch (put it in a coroutine)
+		Added: /system/util: shutdown pwd info
+		Added: right click on desktop to create new file / get file info
+		Added: /appdata/system/keycodes.pod to map virtual key (to a raw name or directly to scancode)
+			// store("/appdata/system/keycodes.pod", {a="q",z="w",q="a",w="z",m=51})
+		Added: future version checking; a separate runtime version number is stored with each cart.
+		Added: delete file menu item in filenav (moves a single file to /ram/compost)
+		Added: send_message(pid, {msg=..., _delay = 2}) to send a delayed message (_delay is in seconds)		
+		Changed: filenames can contain hyphens
+		Changed: terminal searches for commands in current path /after/ standard paths (/system/util, ..)
+		Changed: added more undo checkpoints to the text editor
+		Changed: gui elements must explicitly :set_keyboard_focus(true) on click to consume textinput events
+		Changed: screenshots and untitled cart filenames are given an integer suffix to reduce collisions 
+		Changed: when saving a file with no extension, wrangler automatically adds the default filename extension
+		Changed: track (sfx) length can be specified pico-8 style by increasing loop0 (memory layout doesn't change)
+		Fixed: load #bbs_id twice over the same local file -> fails to unmount the first cartridge
+		Fixed: audio lock causing random crashes on Mac (tentative ~ not sure if that was the cause or the only cause)
+		Fixed: cp allows copying to inside self (-> crash; e.g. when save cart to /ram/cart)
+		Fixed: reset() does not reset scanline palette selection bits at 0x5400
+		Fixed: (Mac) vertical red line junk on letterboxed area in fullscreen mode
+		Fixed: (Windows) printh doesn't send anything to terminal
+		Fixed: drop file into a folder exactly when it opens --> hard freeze (wm crashes)
+		Fixed: when dragging files and move mouse quickly, offset from mouse doesn't match original position
+		Fixed: flr("garbage") causes runtime error (should return 0 to match PICO-8 behaviour)
+		Fixed: text editor operations (undo, indent, double click select) stop working after using search
+		Fixed: width/height fields dump earlier keypress junk + no way to delete characters
+		Fixed: msg.has_pointer not always set when it should be (--> cursor not changing on window title)
+		Fixed: msg.mx, msg.my absolute values for draw callbacks; should be relative to gui element 
+		Fixed: no printh output under Windows (switched to using SDL_Log)
+		Fixed: ctrl+6 screenshot while in video mode 3 or 4 is not scaled to cover the 480x270 output
+		Fixed: flashing when windowed cartridge runs at < 60fps with a custom display palette (e.g. inst editor)
+		Fixed: flashing when video mode 3 or 4 running at < 60fps
+		Fixed: filenav selects .loc files (drive.loc) as target to save over instead of opening it like a folder
+		Fixed: corrupted /desktop/drive.loc due to aforementioned bug -- now automatically mended on startup
+		Fixed: run bells.p64 and then enter tracker -> audio is mixed from left over junk state 
+		Fixed: note entry sometimes does not play in pattern editing mode 
+		Fixed: can edit track that is not currently visible
+		Fixed: ASDR release is calculated incorrectly (is way too long) when played in track view
+		Fixed: clipping: tline3d (w is wrong), spr() when flipped
+
+
+	0.1.0b
+
+		Added: system event logging in log.txt (same folder as picotron_config.txt)
+		Added: /appdata/system/scancodes.pod to remap physical key scancode
+				// e.g. store("/appdata/system/scancodes.pod", {lctrl=57})
+		Changed: apple option / windows menu keys are mapped to "ctrl"
+		Fixed: Default mapping of lctrl is wrong
+		Fixed: Windows file saving generating corrupt data (opened in text instead of binary mode)
+		Fixed: Crash when reading corrupted lz4 pods -- now returns a nil object 
+				// (& deals with existing corrupt settings.pod)
+		Fixed: Windows BSOD on boot
+		Fixed: Button mappings wrong for controller index 1 and above
+
+
+	0.1.0 First release of binaries
+
 

@@ -272,7 +272,7 @@ local function update_monster(t)
 			local sz = (mode == MODE_BSP and t.z or 0) + 40
 			local tz = eye_z() - 8
 			local ux, uy, uz = dx / d, dy / d, (tz - sz) / d
-			add(things, {cls = "fireball", x = t.x + ux * 20, y = t.y + uy * 20, z = sz, vx = ux * 5, vy = uy * 5, vz = uz * 5,
+			add(things, {cls = "fireball", x = t.x + ux * 20, y = t.y + uy * 20, z = sz, vx = ux * 3.5, vy = uy * 3.5, vz = uz * 3.5,
 				spr = 38, w = 16, h = 16, sw = 16, sh = 16, r = 6, fullbright = true, bb_z = -8, tm = 0})
 			snd("enemy")
 		end
@@ -281,7 +281,7 @@ local function update_monster(t)
 	end
 	-- chase
 	t.spr = 32 + flr(t.tm / 12) % 2
-	if sees and d < 700 and t.tm > 60 and rnd(1) < 0.03 then t.st, t.tm = "attack", 0 return end
+	if sees and d < 700 and t.tm > 90 and rnd(1) < 0.015 then t.st, t.tm = "attack", 0 return end
 	if d > 70 then
 		local sp = 1.4
 		local ox, oy = t.x, t.y
@@ -299,7 +299,7 @@ local function update_fireball(t)
 	t.spr = 38 + flr(t.tm / 4) % 2
 	local dx, dy, dz = player.x - t.x, player.y - t.y, eye_z() - 16 - t.z
 	if dx * dx + dy * dy < 22 * 22 and (mode == MODE_RAY or abs(dz) < 40) then
-		player.hp = player.hp - 12
+		player.hp = player.hp - 10
 		snd("hurt")
 		t.dead = true
 		return
@@ -474,7 +474,7 @@ function _draw()
 		print("cols " .. ray_stats.cols .. "  rows " .. ray_stats.rows, 3, 11, 6)
 		print("sprites " .. ray_stats.sprites .. "  tline3d rows " .. ray_stats.lines, 3, 20, 6)
 	end
-	local fps = stat and stat(7) or 60
+	local fps = flr(stat and stat(7) or 60)
 	print("cpu " .. flr(cpu_hist[1] * 100) .. "% " .. fps .. "fps " .. (detail_half and "240" or "480"),
 		detail_half and 3 or 128, detail_half and 29 or 20, fps >= 60 and 11 or fps >= 30 and 10 or 8)
 	print("kills " .. player.kills .. "/" .. count_monsters(), SW - 60, 2, 7)
