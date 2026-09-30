@@ -1,31 +1,33 @@
-# Workflow for building and deploying Picotron Playtesting to GitHub Pages
+# Build the playtesting site (+ any Picotron carts under carts/) and deploy
+# it to GitHub Pages.
+#
+# Picotron carts (carts/<name>.p64) are exported headlessly to HTML using a
+# private Linux Picotron build supplied through the PICOTRON_ZIP secret
+# (pipeline ported from RubenTipparach/picotron-build-demo). When the secret
+# is missing the cart step is skipped with a warning and the rest of the site
+# still builds/deploys.
 name: Build and Deploy to Pages
 
 on:
-  # Runs on pushes targeting the default branch
   push:
+    branches: ["main", "claude/**"]
+  pull_request:
     branches: ["main"]
-
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+# Allow only one concurrent deployment, skipping runs queued between the run
+# in-progress and latest queued. Do NOT cancel in-progress production deploys.
 concurrency:
-  group: "pages"
+  group: "pages-${{ github.ref }}"
   cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -40,17 +42,60 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build
+      - name: Install Picotron runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb unzip libsdl2-2.0-0 libfreetype6 ca-certificates curl
+
+      - name: Fetch Picotron from secret
+        id: picotron
+        env:
+          # A download URL (recommended) or base64 of the Linux Picotron zip.
+          PICOTRON_ZIP: ${{ secrets.PICOTRON_ZIP }}
+        run: |
+          if [[ -z "$PICOTRON_ZIP" ]]; then
+            echo "::warning::PICOTRON_ZIP secret is not set - Picotron carts in carts/ will NOT be built."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          else
+            bash scripts/picotron/fetch-picotron.sh
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Export Picotron carts to HTML
+        if: steps.picotron.outputs.available == 'true'
+        run: bash scripts/picotron/build-all-carts.sh
+
+      - name: Build site
         run: npm run build
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload artifact
+      - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload the dist folder
           path: 'dist'
+
+      - name: Deploy carts to itch.io (Butler)
+        # Optional: only when BUTLER_API_KEY is set and on main. Targets are
+        # listed in carts/itch-targets.txt. An itch hiccup never blocks Pages.
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && steps.picotron.outputs.available == 'true'
+        continue-on-error: true
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          if [[ -z "$BUTLER_API_KEY" ]]; then echo "BUTLER_API_KEY not set - skipping itch.io"; exit 0; fi
+          bash scripts/picotron/butler-deploy.sh
+
+  deploy:
+    # Only publish from main; branches/PRs build (and export carts) as a check.
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
 
       - name: Deploy to GitHub Pages
         id: deployment

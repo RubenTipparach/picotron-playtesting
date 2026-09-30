@@ -6,6 +6,9 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 const publicDir = path.resolve(__dirname, '../public')
+// Picotron carts exported by scripts/picotron/build-all-carts.sh (CI only,
+// gitignored) - processed exactly like hand-committed public/ games
+const cartsDistDir = path.resolve(__dirname, '../carts-dist')
 const distDir = path.resolve(__dirname, '../dist')
 
 // Improvements to apply to Picotron HTML exports
@@ -280,11 +283,11 @@ function copyDirRecursive(src: string, dest: string) {
   }
 }
 
-function processGames() {
-  console.log('Processing games from public/ to dist/...')
+function processGames(sourceDir: string) {
+  console.log(`Processing games from ${path.basename(sourceDir)}/ to dist/...`)
 
-  if (!fs.existsSync(publicDir)) {
-    console.log('No public directory found')
+  if (!fs.existsSync(sourceDir)) {
+    console.log(`No ${path.basename(sourceDir)} directory found`)
     return
   }
 
@@ -293,7 +296,7 @@ function processGames() {
     fs.mkdirSync(distDir, { recursive: true })
   }
 
-  const entries = fs.readdirSync(publicDir, { withFileTypes: true })
+  const entries = fs.readdirSync(sourceDir, { withFileTypes: true })
   let processedCount = 0
 
   for (const entry of entries) {
@@ -301,7 +304,7 @@ function processGames() {
     if (!entry.isDirectory()) continue
     if (entry.name === 'previews') continue
 
-    const gameSourceDir = path.join(publicDir, entry.name)
+    const gameSourceDir = path.join(sourceDir, entry.name)
     const indexPath = path.join(gameSourceDir, 'index.html')
 
     // Skip if no index.html
@@ -348,7 +351,7 @@ function processGames() {
   }
 
   // Copy preview images to dist
-  const previewsSourceDir = path.join(publicDir, 'previews')
+  const previewsSourceDir = path.join(sourceDir, 'previews')
   const previewsDistDir = path.join(distDir, 'previews')
 
   if (fs.existsSync(previewsSourceDir)) {
@@ -370,4 +373,5 @@ function processGames() {
   console.log(`Done! Processed ${processedCount} game(s)`)
 }
 
-processGames()
+processGames(publicDir)
+processGames(cartsDistDir)
