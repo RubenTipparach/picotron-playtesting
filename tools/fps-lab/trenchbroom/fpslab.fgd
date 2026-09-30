@@ -1,0 +1,29 @@
+// Entity definitions for the Picotron FPS Lab (carts/fps-render-lab.map).
+// Everything here is understood by tools/fps-lab/map2bsp.py + main.lua.
+
+@SolidClass = worldspawn : "World"
+[
+	_ambient(integer) : "Ambient light added everywhere (0-255)" : 24
+	_fog(integer) : "Fog distance hint" : 420
+]
+
+@BaseClass = Angle [ angle(integer) : "Facing (degrees, 0 = east, 90 = north)" : 0 ]
+
+@PointClass base(Angle) size(-16 -16 -24, 16 16 32) color(0 255 0) = info_player_start : "Player start" []
+
+@PointClass size(-8 -8 -8, 8 8 8) color(255 255 64) = light : "Point light, baked into the lightmaps by map2bsp.py"
+[
+	light(integer) : "Intensity / radius in units" : 300
+]
+
+@PointClass base(Angle) size(-16 -16 0, 16 16 56) color(255 32 32) = monster_grunt : "Grunt (40 hp, throws fireballs)" []
+
+@PointClass base(Angle) size(-16 -16 0, 16 16 32) color(180 120 60) = prop_crate : "Crate (3D mesh / billboard in the raycaster)" []
+@PointClass base(Angle) size(-12 -12 0, 12 12 36) color(40 160 60) = prop_barrel : "Barrel (3D mesh / billboard in the raycaster)" []
+@PointClass size(-4 -4 0, 4 4 72) color(255 160 0) = prop_torch : "Torch - also bakes a light at its flame"
+[
+	light(integer) : "Intensity" : 170
+]
+
+@PointClass size(-10 -10 0, 10 10 16) color(255 255 255) = item_health : "Health +25" []
+@PointClass size(-10 -10 0, 10 10 16) color(255 200 0) = item_ammo : "Shells +10" []
