@@ -13,10 +13,11 @@
 	  * darken whole polygons for distance fog by swapping colour table 0
 	    (one 4k poke) instead of calling pal() 48 times
 
-	The rasteriser (textri) is the batched-scanline tline3d triangle filler
-	used in RubenTipparach/ld58-pictoron-3d-engine: per triangle half it
-	builds every scanline's tline3d args with 3 userdata ops and draws them
-	all with ONE tline3d(userdata) call.
+	The rasteriser (fill_poly) grew out of the batched-scanline textri of
+	RubenTipparach/ld58-pictoron-3d-engine: instead of fanning polygons into
+	triangles it walks the convex polygon's two edge chains, builds each
+	span's scanlines with a start row + slope expanded in C (copy + prefix
+	sum add), and draws the whole polygon with ONE tline3d(userdata) call.
 ]]
 
 SW, SH = 480, 270
@@ -131,50 +132,60 @@ function build_surfaces()
 	return texels
 end
 
--- textri: perspective-correct textured triangle via batched tline3d scanlines.
--- vd: 6x3 f64 userdata, rows = x,y,z,w,u,v (w = 1/z). Sorted in place by y.
+-- scanline buffer for fill_poly (one row of tline3d args per screen row)
 local scan = userdata("f64", 11, 270)
-function textri(spr, vd)
-	vd:sort(1)
-	local x1, y1, w1, y2, w2, x3, y3, w3 =
-		vd[0], vd[1], vd[3], vd[7], vd[9], vd[12], vd[13], vd[15]
-	local u1, v1, u3, v3 = vd[4] * w1, vd[5] * w1, vd[16] * w3, vd[17] * w3
-	local t = (y2 - y1) / (y3 - y1)
-	local ud, vvd = (u3 - u1) * t + u1, (v3 - v1) * t + v1
-	local a = vec(spr, x1, y1, x1, y1, u1, v1, u1, v1, w1, w1)
-	local b = vec(spr, vd[6], y2, (x3 - x1) * t + x1, y2,
-		vd[10] * w2, vd[11] * w2, ud, vvd, w2, (w3 - w1) * t + w1)
-	local start_y = y1 < -1 and -1 or flr(y1)
-	local mid_y = y2 < -1 and -1 or y2 > SH - 1 and SH - 1 or flr(y2)
-	local stop_y = y3 <= SH - 1 and flr(y3) or SH - 1
-	local dy = mid_y - start_y
-	if dy > 0 then
-		local slope = (b - a):div(y2 - y1)
-		scan:copy(slope * (start_y + 1 - y1) + a, true, 0, 0, 11)
-			:copy(slope, true, 0, 11, 11, 0, 11, dy - 1)
-		tline3d(scan:add(scan, true, 0, 11, 11, 11, 11, dy - 1), 0, dy)
-	end
-	dy = stop_y - mid_y
-	if dy > 0 then
-		local slope = (vec(spr, x3, y3, x3, y3, u3, v3, u3, v3, w3, w3) - b) / (y3 - y2)
-		scan:copy(slope * (mid_y + 1 - y2) + b, true, 0, 0, 11)
-			:copy(slope, true, 0, 11, 11, 0, 11, dy - 1)
-		tline3d(scan:add(scan, true, 0, 11, 11, 11, 11, dy - 1), 0, dy)
-	end
-end
 
--- fill a convex screen polygon (arrays of x,y,w,u,v; 1-based) as a fan
-local vd = userdata("f64", 6, 3)
+-- fill_poly: convex screen polygon (1-based arrays x,y,w,u,v; w = 1/z) in ONE
+-- batched tline3d call. Walks the two monotone chains from the top vertex;
+-- each y-span between vertices has both edges linear, so its scanlines are a
+-- start row + per-row slope, expanded in C with copy() + a prefix-sum add().
+-- Replaces a triangle fan through textri: a quad is 2-3 spans and one
+-- tline3d instead of 4 half-triangles, 2 sorts and 4 tline3d calls.
+local slope = userdata("f64", 11)
 function fill_poly(spr, n, px, py, pw, pu, pv)
-	local tris = 0
-	for i = 2, n - 1 do
-		vd[0], vd[1], vd[3], vd[4], vd[5] = px[1], py[1], pw[1], pu[1], pv[1]
-		vd[6], vd[7], vd[9], vd[10], vd[11] = px[i], py[i], pw[i], pu[i], pv[i]
-		vd[12], vd[13], vd[15], vd[16], vd[17] = px[i + 1], py[i + 1], pw[i + 1], pu[i + 1], pv[i + 1]
-		if vd[1] ~= vd[7] or vd[1] ~= vd[13] then
-			textri(spr, vd)
-			tris = tris + 1
-		end
+	local top, bot = 1, 1
+	for i = 2, n do
+		if py[i] < py[top] then top = i end
+		if py[i] > py[bot] then bot = i end
 	end
-	return tris
+	if py[bot] - py[top] < 0.01 then return 0 end
+	local a0, b0 = top, top
+	local a1, b1 = top % n + 1, (top - 2) % n + 1
+	local ys, rows = py[top], 0
+	local shm = SH - 1
+	while a0 ~= bot and b0 ~= bot do
+		local yA0, yA1, yB0, yB1 = py[a0], py[a1], py[b0], py[b1]
+		local ye = yA1 < yB1 and yA1 or yB1
+		local r0, r1 = flr(ys) + 1, flr(ye)
+		if r0 < 0 then r0 = 0 end
+		if r1 > shm then r1 = shm end
+		if r1 >= r0 and yA1 > yA0 and yB1 > yB0 then
+			local ia, ib = 1 / (yA1 - yA0), 1 / (yB1 - yB0)
+			local ta, tb = (r0 - yA0) * ia, (r0 - yB0) * ib
+			local wa0, wa1, wb0, wb1 = pw[a0], pw[a1], pw[b0], pw[b1]
+			local ua0, ua1, va0, va1 = pu[a0] * wa0, pu[a1] * wa1, pv[a0] * wa0, pv[a1] * wa1
+			local ub0, ub1, vb0, vb1 = pu[b0] * wb0, pu[b1] * wb1, pv[b0] * wb0, pv[b1] * wb1
+			local dxa, dxb = (px[a1] - px[a0]) * ia, (px[b1] - px[b0]) * ib
+			local dua, dva, dwa = (ua1 - ua0) * ia, (va1 - va0) * ia, (wa1 - wa0) * ia
+			local dub, dvb, dwb = (ub1 - ub0) * ib, (vb1 - vb0) * ib, (wb1 - wb0) * ib
+			scan:set(0, rows, spr,
+				px[a0] + dxa * (r0 - yA0), r0, px[b0] + dxb * (r0 - yB0), r0,
+				ua0 + dua * (r0 - yA0), va0 + dva * (r0 - yA0),
+				ub0 + dub * (r0 - yB0), vb0 + dvb * (r0 - yB0),
+				wa0 + dwa * (r0 - yA0), wb0 + dwb * (r0 - yB0))
+			local cnt = r1 - r0 + 1
+			if cnt > 1 then
+				local o = rows * 11
+				slope:set(0, 0, dxa, 1, dxb, 1, dua, dva, dub, dvb, dwa, dwb)   -- [0] = sprite: no slope
+				scan:copy(slope, true, 0, o + 11, 11, 0, 11, cnt - 1)
+				scan:add(scan, true, o, o + 11, 11, 11, 11, cnt - 1)
+			end
+			rows = rows + cnt
+		end
+		ys = ye
+		if yA1 <= ye then a0 = a1; a1 = a0 % n + 1 end
+		if yB1 <= ye then b0 = b1; b1 = (b0 - 2) % n + 1 end
+	end
+	if rows > 0 then tline3d(scan, 0, rows) end
+	return n - 2
 end

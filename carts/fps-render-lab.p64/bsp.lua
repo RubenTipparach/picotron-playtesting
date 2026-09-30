@@ -99,39 +99,38 @@ local function draw_q(spr, n)
 	return fill_poly(spr, n, px, py, pw, pu, pv)
 end
 
+local INV_NEAR = 1 / NEAR
 local function draw_level_poly(p)
 	local n = (#p - 5) / 3
+	local dx, dy, dz = p[3] - ex, p[4] - ey, p[5] - ez
+	local fog = flr(sqrt(dx * dx + dy * dy + dz * dz) / BSP_FOG)
+	local t
+	-- common path: screen coords were batch-projected in C (Sud); w = 1/z
+	-- doubles as the near-plane test (z < NEAR <=> w outside (0, 1/NEAR])
+	local minx, maxx, miny, maxy = 1e9, -1e9, 1e9, -1e9
 	local clip = false
 	for k = 1, n do
-		local vi = (p[3 + k * 3] - 1) * 3
-		if Cud[vi + 2] < NEAR then clip = true break end
+		local b = 3 + k * 3
+		local sx, sy, w = Sud:get(0, p[b] - 1, 3)
+		if not (w > 0 and w <= INV_NEAR) then clip = true break end
+		px[k], py[k], pw[k], pu[k], pv[k] = sx, sy, w, p[b + 1], p[b + 2]
+		if sx < minx then minx = sx end
+		if sx > maxx then maxx = sx end
+		if sy < miny then miny = sy end
+		if sy > maxy then maxy = sy end
 	end
-	local dx, dy, dz = p[3] - ex, p[4] - ey, p[5] - ez
-	local t
 	if clip then
 		-- rare path: camera-space verts through the near-plane clipper
 		for k = 1, n do
 			local b = 3 + k * 3
-			local vi = (p[b] - 1) * 3
-			qx[k], qy[k], qz[k], qu[k], qv[k] = Cud[vi], Cud[vi + 1], Cud[vi + 2], p[b + 1], p[b + 2]
+			qx[k], qy[k], qz[k] = Cud:get(0, p[b] - 1, 3)
+			qu[k], qv[k] = p[b + 1], p[b + 2]
 		end
-		set_fog(min(3, flr(sqrt(dx * dx + dy * dy + dz * dz) / BSP_FOG)))
+		set_fog(fog > 3 and 3 or fog)
 		t = draw_q(SURF_BASE + p[1], n)
 	else
-		-- common path: screen coords were batch-projected in C (Sud)
-		local minx, maxx, miny, maxy = 1e9, -1e9, 1e9, -1e9
-		for k = 1, n do
-			local b = 3 + k * 3
-			local vi = (p[b] - 1) * 3
-			local sx, sy = Sud[vi], Sud[vi + 1]
-			px[k], py[k], pw[k], pu[k], pv[k] = sx, sy, Sud[vi + 2], p[b + 1], p[b + 2]
-			if sx < minx then minx = sx end
-			if sx > maxx then maxx = sx end
-			if sy < miny then miny = sy end
-			if sy > maxy then maxy = sy end
-		end
 		if maxx < 0 or minx >= SW or maxy < 0 or miny >= SH then return end
-		set_fog(min(3, flr(sqrt(dx * dx + dy * dy + dz * dz) / BSP_FOG)))
+		set_fog(fog > 3 and 3 or fog)
 		t = fill_poly(SURF_BASE + p[1], n, px, py, pw, pu, pv)
 	end
 	if t > 0 then
@@ -237,37 +236,53 @@ local function draw_objs(list)
 end
 
 -- ------------------------------------------------------------ traversal ---
-local function box_visible(n)
+-- returns nil when the box is outside, else the bitmask of planes it still
+-- straddles (children of a box fully inside a plane skip that plane)
+local function box_test(n, mask)
+	local out = 0
 	for i = 1, 4 do
-		local p = planes[i]
-		local a, b, c = p[1], p[2], p[3]
-		local x = a > 0 and n[11] or n[8]
-		local y = b > 0 and n[12] or n[9]
-		local z = c > 0 and n[13] or n[10]
-		if a * (x - ex) + b * (y - ey) + c * (z - ez) < 0 then return false end
+		local bit = 1 << (i - 1)
+		if mask & bit ~= 0 then
+			local p = planes[i]
+			local a, b, c = p[1], p[2], p[3]
+			-- farthest corner along the plane normal ("p-vertex")
+			local x = a > 0 and n[11] or n[8]
+			local y = b > 0 and n[12] or n[9]
+			local z = c > 0 and n[13] or n[10]
+			local dx, dy, dz = x - ex, y - ey, z - ez
+			if a * dx + b * dy + c * dz < 0 then return nil end
+			-- nearest corner: if it is inside too, the whole box is inside
+			local nx = (a > 0 and n[8] or n[11]) - ex
+			local ny = (b > 0 and n[9] or n[12]) - ey
+			local nz = (c > 0 and n[10] or n[13]) - ez
+			if a * nx + b * ny + c * nz < 0 then out = out | bit end
+		end
 	end
-	return true
+	return out
 end
 
-local function walk(i)
+local function walk(i, mask)
 	local n = nodes[i]
-	if not box_visible(n) then
-		bsp_stats.culled = bsp_stats.culled + 1
-		draw_objs(sub[i])             -- objects under a culled subtree still sort here
-		return
+	if mask ~= 0 then
+		mask = box_test(n, mask)
+		if not mask then
+			bsp_stats.culled = bsp_stats.culled + 1
+			draw_objs(sub[i])             -- objects under a culled subtree still sort here
+			return
+		end
 	end
 	bsp_stats.nodes = bsp_stats.nodes + 1
 	local front = n[1] * ex + n[2] * ey + n[3] * ez - n[4] >= 0
 	local near_c, far_c = n[5], n[6]
 	local near_s, far_s = 1, 0
 	if not front then near_c, far_c, near_s, far_s = n[6], n[5], 0, 1 end
-	if far_c > 0 then walk(far_c) else draw_objs(slots[i * 2 + far_s]) end
+	if far_c > 0 then walk(far_c, mask) else draw_objs(slots[i * 2 + far_s]) end
 	local want = front and 1 or 0
 	for pi in all(n[7]) do
 		local p = polys[pi]
 		if p[2] == want then draw_level_poly(p) end
 	end
-	if near_c > 0 then walk(near_c) else draw_objs(slots[i * 2 + near_s]) end
+	if near_c > 0 then walk(near_c, mask) else draw_objs(slots[i * 2 + near_s]) end
 end
 
 -- cam: {x,y,eye,yaw,pitch}; objs: things with x,y,z (+ mesh or spr)
@@ -326,6 +341,6 @@ function bsp_draw(cam, objs)
 		end
 	end
 	bsp_stats.nodes, bsp_stats.polys, bsp_stats.tris, bsp_stats.culled, bsp_stats.objs = 0, 0, 0, 0, 0
-	walk(1)
+	walk(1, 15)
 	set_fog(0)
 end

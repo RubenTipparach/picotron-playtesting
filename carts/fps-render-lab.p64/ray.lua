@@ -27,7 +27,8 @@ local wall_rows = userdata("f64", 11, 1024)
 local spr_rows = userdata("f64", 11, 4096)
 local zbuf = {}
 local floor_maps, ceil_maps = {}, {}
-ray_stats = {cols = 0, rows = 0, sprites = 0, steps = 0}
+local rcells                -- grid cells with a forced solid border (DDA needs no bounds checks)
+ray_stats = {cols = 0, rows = 0, sprites = 0, lines = 0}
 
 function ray_init()
 	G = LEVEL.grid
@@ -46,6 +47,14 @@ function ray_init()
 		floor_maps[k], ceil_maps[k] = fm, cm
 	end
 	poke(0x550e, 32) poke(0x550f, 32)         -- map tile size = 32px
+	rcells = {}
+	for gy = 0, G.h - 1 do
+		for gx = 0, G.w - 1 do
+			local i = gy * G.w + gx + 1
+			local edge = gx == 0 or gy == 0 or gx == G.w - 1 or gy == G.h - 1
+			rcells[i] = edge and 1 or G.cells[i]
+		end
+	end
 end
 
 local function fogk(d) return min(3, flr(d / RAY_FOG)) end
@@ -59,6 +68,7 @@ function ray_draw(cam, things)
 	local x0w, y0w = G.x0, G.y0
 	local ytop = G.y0 + G.h * CELL
 	local rows = 0
+	local inv_fog = 1 / RAY_FOG
 
 	-- 1. floor + ceiling rows (map mode, per-cell textures)
 	local kl, kr = (0.5 - CX) / FOCAL, (SW - 0.5 - CX) / FOCAL
@@ -77,73 +87,70 @@ function ray_draw(cam, things)
 		if d then
 			local ax, ay = px + lx * d, py + ly * d
 			local bx, by = px + rxx * d, py + ryy * d
-			tline3d(maps[fogk(d)], 0, y, SW - 1, y,
+			local fk = flr(d * inv_fog)
+			tline3d(maps[fk > 3 and 3 or fk], 0, y, SW - 1, y,
 				(ax - x0w) / CELL, (ytop - ay) / CELL,
 				(bx - x0w) / CELL, (ytop - by) / CELL)
 			rows = rows + 1
 		end
 	end
 
-	-- 2. walls: DDA per column into one batch
+	-- 2. walls: DDA per column into one batch. rcells has a solid border, so
+	-- the inner loop needs no bounds checks and walks a flat cell index.
 	local posx, posy = (px - x0w) / CELL, (py - y0w) / CELL
-	local n, steps = 0, 0
-	local cells, gw, gh, gtex, glight = G.cells, G.w, G.h, G.tex, G.light
-	local inv_fog = 1 / RAY_FOG
+	local n = 0
+	local cells, gw, gtex, glight = rcells, G.w, G.tex, G.light
+	local pmx, pmy = flr(posx), flr(posy)
+	local start = pmy * gw + pmx + 1
+	local seg_top, seg_mid = WALL_H - eye, WALL_H - 64 - eye
 	for x = 0, SW - 1 do
 		local k = (x + 0.5 - CX) / FOCAL
 		local dx, dy = fx + rx * k, fy + ry * k
-		local mx, my = flr(posx), flr(posy)
 		local ddx = dx == 0 and 1e30 or abs(1 / dx)
 		local ddy = dy == 0 and 1e30 or abs(1 / dy)
-		local sx, sy, sdx, sdy
-		if dx < 0 then sx = -1; sdx = (posx - mx) * ddx else sx = 1; sdx = (mx + 1 - posx) * ddx end
-		if dy < 0 then sy = -1; sdy = (posy - my) * ddy else sy = 1; sdy = (my + 1 - posy) * ddy end
-		local side, lastlight = 0, 0
-		local prev = my * gw + mx + 1
-		for _ = 1, 64 do
-			if sdx < sdy then sdx = sdx + ddx; mx = mx + sx; side = 0
-			else sdy = sdy + ddy; my = my + sy; side = 1 end
-			steps = steps + 1
-			if mx < 0 or my < 0 or mx >= gw or my >= gh then break end
-			local i = my * gw + mx + 1
-			if cells[i] ~= 0 then break end
-			prev = i
+		local sx, syw, sdx, sdy
+		if dx < 0 then sx = -1; sdx = (posx - pmx) * ddx else sx = 1; sdx = (pmx + 1 - posx) * ddx end
+		if dy < 0 then syw = -gw; sdy = (posy - pmy) * ddy else syw = gw; sdy = (pmy + 1 - posy) * ddy end
+		local i, side = start, 0
+		repeat
+			if sdx < sdy then sdx = sdx + ddx; i = i + sx; side = 0
+			else sdy = sdy + ddy; i = i + syw; side = 1 end
+		until cells[i] ~= 0
+		local perp, prev, t, u
+		local tx = gtex[i]
+		if side == 0 then
+			perp = sdx - ddx
+			prev = i - sx
+			u = ((py + perp * dy * CELL) / 2) % 32
+			t = tx and (sx > 0 and tx[2] or tx[1]) or 0
+		else
+			perp = sdy - ddy
+			prev = i - syw
+			u = ((px + perp * dx * CELL) / 2) % 32
+			t = tx and (syw > 0 and tx[4] or tx[3]) or 0
 		end
-		local perp = side == 0 and (sdx - ddx) or (sdy - ddy)
 		local dist = perp * CELL
 		if dist < 1 then dist = 1 end
 		zbuf[x] = dist
-		-- texture + u in world-aligned texels (matches the Quake uv of the 3D mode)
-		local t, u
-		local ci = my * gw + mx + 1
-		local tx = gtex[ci]
-		if side == 0 then
-			local wy = py + perp * dy * CELL
-			u = (wy / 2) % 32
-			t = tx and (sx > 0 and tx[2] or tx[1]) or 0
-		else
-			local wx = px + perp * dx * CELL
-			u = (wx / 2) % 32
-			t = tx and (sy > 0 and tx[4] or tx[3]) or 0
-		end
 		local lvl = (glight[prev] or 2) + flr(dist * inv_fog)
 		if lvl > 3 then lvl = 3 end
 		local sprn = VAR_BASE + t * 4 + lvl
 		local s = FOCAL / dist
 		-- two 64u segments (z 128..64 and 64..0), each v 0..32: no wrapping needed
-		for seg = 0, 1 do
-			local za = WALL_H - seg * 64
-			local ya, yb = hy - (za - eye) * s, hy - (za - 64 - eye) * s
-			local va, vb = 0, 32
-			if ya < 0 then va = (0 - ya) / (yb - ya) * 32; ya = 0 end
-			if yb > SH then vb = va + (SH - ya) / (yb - ya) * (32 - va); yb = SH end
-			if yb > ya then
-				local o = n * 11
-				wall_rows[o], wall_rows[o + 1], wall_rows[o + 2], wall_rows[o + 3], wall_rows[o + 4] = sprn, x, ya, x, yb
-				wall_rows[o + 5], wall_rows[o + 6], wall_rows[o + 7], wall_rows[o + 8] = u, va, u, vb
-				wall_rows[o + 9], wall_rows[o + 10] = 1, 1
-				n = n + 1
-			end
+		local ya, ym, yb = hy - seg_top * s, hy - seg_mid * s, hy + eye * s
+		if ym > 0 and ya < SH then
+			local va, y0, y1, vb = 0, ya, ym, 32
+			if y0 < 0 then va = -y0 / (ym - ya) * 32; y0 = 0 end
+			if y1 > SH then vb = (SH - ya) / (ym - ya) * 32; y1 = SH end
+			wall_rows:set(0, n, sprn, x, y0, x, y1, u, va, u, vb, 1, 1)
+			n = n + 1
+		end
+		if yb > 0 and ym < SH then
+			local va, y0, y1, vb = 0, ym, yb, 32
+			if y0 < 0 then va = -y0 / (yb - ym) * 32; y0 = 0 end
+			if y1 > SH then vb = (SH - ym) / (yb - ym) * 32; y1 = SH end
+			wall_rows:set(0, n, sprn, x, y0, x, y1, u, va, u, vb, 1, 1)
+			n = n + 1
 		end
 	end
 	if n > 0 then tline3d(wall_rows, 0, n) end
@@ -183,16 +190,13 @@ function ray_draw(cam, things)
 				if cz < zbuf[x] and m < 4096 then
 					local u = (x + 0.5 - xl) / (xr - xl) * th.sw
 					if th.flip then u = th.sw - u end
-					local o = m * 11
-					spr_rows[o], spr_rows[o + 1], spr_rows[o + 2], spr_rows[o + 3], spr_rows[o + 4] = sprn, x, ya, x, yb
-					spr_rows[o + 5], spr_rows[o + 6], spr_rows[o + 7], spr_rows[o + 8] = u, va, u, vb
-					spr_rows[o + 9], spr_rows[o + 10] = 1, 1
+					spr_rows:set(0, m, sprn, x, ya, x, yb, u, va, u, vb, 1, 1)
 					m = m + 1
 				end
 			end
 		end
 	end
 	if m > 0 then tline3d(spr_rows, 0, m) end
-	ray_stats.cols, ray_stats.rows, ray_stats.sprites, ray_stats.steps = n, rows, #list, steps
+	ray_stats.cols, ray_stats.rows, ray_stats.sprites = n, rows, #list
 	ray_stats.lines = n + m + rows
 end

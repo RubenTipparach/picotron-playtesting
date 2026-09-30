@@ -78,9 +78,10 @@ the hall's braces, is fine).
 
 - **Batched `tline3d`**: a userdata of args, one Lua->C call. The raycaster
   draws every wall column (≈960 textured lines) in *one* call, and every
-  billboard column in one more. The polygon filler (`textri`, from
-  ld58-pictoron-3d-engine) builds each triangle half's scanlines with 3
-  userdata ops and one batched `tline3d`.
+  billboard column in one more. The polygon filler (`fill_poly`, grown from
+  ld58-pictoron-3d-engine's `textri`) walks a convex polygon's two edge
+  chains, expands each span's scanlines in C (`copy` + prefix-sum `add`) and
+  draws the whole polygon with one batched `tline3d` - no triangle fan.
 - **`matmul3d` batch transform**: every level vertex goes to camera space in
   one call per frame; Lua only reads the vertices of polygons it draws.
 - **Surface cache** (Quake's trick): lightmaps are baked into per-surface
@@ -125,30 +126,42 @@ level, 40 frames each, reporting mean `stat(1)` and `stat(7)`. Treat CI
 runner numbers as relative; the in-game readout (cpu %, fps, 480/240) is the
 truth on your machine.
 
-### Mock profile (cart-side Lua VM instructions per frame)
+First CI run (before the second optimisation pass), 40 frames per row -
+`stat(1)` reads 0 inside a headless `-x` script, so fps comes from `stat(7)`
+and `time()`:
 
-| pose | ray 480 | bsp 480 (before opt) | bsp 480 (now) | ray 240 | bsp 240 |
-| --- | --- | --- | --- | --- | --- |
-| hall | 232k | 226k | 132k | 116k | 129k |
-| hall, looking up | 216k | 192k | 98k | | |
-| courtyard | 270k | 151k | 62k | | |
-| corridor | 209k | 195k | 117k | | |
-| arena | 253k | 141k | 60k | | |
-| storage | 259k | 157k | 73k | | |
+| | raycaster | true 3D |
+| --- | --- | --- |
+| 480x270 | 20-30 fps | 30 fps (arena ~37) |
+| 240x135 | 60 in 3 of 6 poses, else 30 | 60 in 4 of 6 poses, else 30 |
 
-Pixel fill (`tline3d` px) is ~135-220k per frame at 480x270 and ~40k at
-240x135 for both renderers.
+Those runs lined up with the mock: frames under ~130k mock instructions
+(`_update` + `_draw`, 240x135) held 60 fps, frames above it dropped to 30.
 
-- The raycaster's cost is **flat** (480 rays + 270 rows at full detail) and
-  the Lua DDA dominates; half detail halves it.
-- The true-3D renderer's cost follows **visible polygons**; after CSG +
-  merging + surface caching + object culling it is 30-75% cheaper than the
-  raycaster in Lua at full detail while showing stairs, platforms, the
-  bridge, pitch, real props and per-texel lighting. Its Lua cost is per
-  polygon, so half detail mainly saves fill.
-- Take away: in Picotron a Quake-style pipeline, with the heavy lifting done
-  offline and per-frame work pushed into batched userdata calls, is the
-  better deal. The raycaster's remaining advantage is simplicity.
+### Second pass
+
+- raycaster DDA: the grid gets a solid border so the inner loop has no
+  bounds checks and walks one flat cell index; wall/sprite batch rows are
+  written with one `userdata:set()` each instead of 11 stores
+- true 3D: `fill_poly` (one `tline3d` per polygon instead of 4 per quad),
+  vertex fetch with `get(…, 3)`, near-plane test folded into the projected
+  `w`, hierarchical frustum culling (children skip planes their parent box
+  is fully inside)
+- gameplay: monster line-of-sight re-checked every 8 frames (staggered),
+  solid props in their own list, monster floor height only when it moved
+
+### Mock profile (Lua VM instructions per frame, `_update` + `_draw`)
+
+| pose | ray 240 | bsp 240 | ray 240 (before) | bsp 240 (before) |
+| --- | --- | --- | --- | --- |
+| hall | 79k | 116k | 136k | 152k |
+| courtyard | 84k | 74k | 155k | 92k |
+| corridor | 69k | 103k | 118k | 133k |
+| arena | 89k | 68k | 148k | 81k |
+| storage | 85k | 80k | 149k | 90k |
+
+At 480x270 the raycaster is 114-148k and the true-3D renderer 55-106k
+(`_draw` only). CI re-measures every push; see the job summary.
 
 ## Verification without Picotron
 

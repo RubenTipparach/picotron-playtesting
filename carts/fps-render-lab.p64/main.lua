@@ -27,6 +27,7 @@ MODE_RAY, MODE_BSP = 1, 2
 mode = MODE_BSP
 local EYE, RADIUS = 46, 14
 local fx_list, msg, msg_t
+local solids = {}
 things, player = nil, nil        -- globals so tools/fps-lab/mock can pose the camera
 local frame, fire_cd, flash, bob, locked = 0, 0, 0, 0, false
 local cpu_hist = {0, 0}
@@ -77,18 +78,19 @@ local KIND = {
 local function spawn(cls, x, y, z, ang)
 	local k = KIND[cls]
 	if not k then return end
-	local t = {cls = cls, x = x, y = y, z = 0, yaw = ang / 360, hp = k.hp, st = "idle", tm = 0}
+	local t = {cls = cls, x = x, y = y, z = 0, yaw = ang / 360, hp = k.hp, st = "idle", tm = 0, slot = #things}
 	for key, v in pairs(k) do t[key] = v end
 	t.base_spr = k.spr
 	t.mesh_def = k.mesh and MESHES[k.mesh]
 	t.z3 = floor_at(x, y, 4, z + 64)
 	if t.z3 < -1000 then t.z3 = 0 end
 	add(things, t)
+	if k.solid then add(solids, t) end
 	return t
 end
 
 function reset_game()
-	things, fx_list = {}, {}
+	things, fx_list, solids = {}, {}, {}
 	player = {x = 0, y = 0, z = 0, vz = 0, yaw = 0.25, pitch = 0, hp = 100, ammo = 30, kills = 0}
 	for th in all(LEVEL.things) do
 		local cls, x, y, z, ang = th[1], th[2], th[3], th[4], th[5]
@@ -144,8 +146,9 @@ function _init()
 end
 
 -- ------------------------------------------------------------- physics ---
+-- solid props never move, so they live in their own short list (solids)
 local function prop_block(x, y, r, self)
-	for t in all(things) do
+	for t in all(solids) do
 		if t.solid and t ~= self then
 			local dx, dy = x - t.x, y - t.y
 			local rr = r + t.r
@@ -247,7 +250,11 @@ local function update_monster(t)
 	end
 	local dx, dy = player.x - t.x, player.y - t.y
 	local d = sqrt(dx * dx + dy * dy)
-	local sees = d < 1100 and grid_los(t.x, t.y, player.x, player.y)
+	-- line of sight is re-checked every 8 frames per monster, staggered
+	if (frame + (t.slot or 0)) % 8 == 0 or t.sees == nil then
+		t.sees = d < 1100 and grid_los(t.x, t.y, player.x, player.y)
+	end
+	local sees = t.sees
 	if t.st == "idle" then
 		t.spr = 32
 		if sees or t.hp < KIND.monster_grunt.hp then t.st, t.tm = "chase", flr(rnd(40)) end
@@ -373,9 +380,11 @@ function _update()
 		-- 3D mode: things sit on the brush floors; raycaster: everything on z=0
 		if t.cls ~= "fireball" then
 			if mode == MODE_BSP then
-				if t.cls == "monster_grunt" then
+				if t.cls == "monster_grunt" and (t.x ~= t._fx or t.y ~= t._fy or t._fz ~= t.z3) then
 					local g = floor_at(t.x, t.y, 6, t.z3 + 50)
 					t.z3 = t.z3 + (g - t.z3) * 0.3
+					if abs(g - t.z3) < 0.5 then t.z3 = g end
+					t._fx, t._fy, t._fz = t.x, t.y, t.z3
 				end
 				t.z = t.z3
 			else
@@ -462,7 +471,7 @@ function _draw()
 		print("objs " .. bsp_stats.objs .. "  culled " .. bsp_stats.culled, 3, 20, 6)
 	else
 		print("RAYCASTER  grid slice", 3, 2, 12)
-		print("cols " .. ray_stats.cols .. "  rows " .. ray_stats.rows .. "  dda " .. ray_stats.steps, 3, 11, 6)
+		print("cols " .. ray_stats.cols .. "  rows " .. ray_stats.rows, 3, 11, 6)
 		print("sprites " .. ray_stats.sprites .. "  tline3d rows " .. ray_stats.lines, 3, 20, 6)
 	end
 	local fps = stat and stat(7) or 60
