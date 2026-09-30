@@ -18,6 +18,8 @@ pages=(carts-dist/*/index.html)
 
 if [[ -z "${PLAYWRIGHT_MODULE:-}" ]]; then
   mkdir -p .smoke
+  # its own package.json, or npm walks up and installs into the repo root
+  [[ -f .smoke/package.json ]] || echo '{"private": true}' > .smoke/package.json
   ( cd .smoke && [[ -d node_modules/playwright ]] || npm install --no-save --silent playwright@1.56.1 >/dev/null )
   npx --prefix .smoke playwright install --with-deps chromium >/dev/null
   export PLAYWRIGHT_MODULE="$ROOT/.smoke/node_modules/playwright"
