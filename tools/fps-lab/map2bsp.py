@@ -343,7 +343,8 @@ class Voxels:
 
 # ---------------------------------------------------------------- lighting --
 LUXEL = 8                  # lightmap sample spacing in texels (16 units)
-LIGHT_HI, LIGHT_LO = 155.0, 30.0   # brightness -> level 0 (full) .. 3 (darkest)
+LIGHT_SUB = 8              # light samples are stored in 1/8ths of a shade level
+LIGHT_HI, LIGHT_LO = 120.0, 44.0   # brightness -> level 0 (full) .. 3 (darkest)
 
 
 def light_value(p, n, lights, ambient, vox):
@@ -456,20 +457,20 @@ class Surface:
         self.w = max(1, int(math.ceil(uv[:, 0].max() - 1e-6)) - self.u0)
         self.h = max(1, int(math.ceil(uv[:, 1].max() - 1e-6)) - self.v0)
         self.name, self.s, self.so, self.t, self.to = name, s, so, t, to
-        self.lw = (self.w + LUXEL - 1) // LUXEL
-        self.lh = (self.h + LUXEL - 1) // LUXEL
+        # light samples on a LUXEL grid of texel positions (clamped to the
+        # last texel); the cart lerps between them and dithers the fraction
+        xs = list(range(0, self.w - 1, LUXEL)) + [self.w - 1]
+        ys = list(range(0, self.h - 1, LUXEL)) + [self.h - 1]
+        self.lw, self.lh = len(xs), len(ys)
         if name.startswith(FULLBRIGHT):
-            self.lights = "0" * (self.lw * self.lh)
+            self.lights = ""
             return
-        # luxel centres (texel space, clamped inside the surface) -> world
-        lu = np.minimum(self.u0 + (np.arange(self.lw) + 0.5) * LUXEL, self.u0 + self.w - 0.5)
-        lv = np.minimum(self.v0 + (np.arange(self.lh) + 0.5) * LUXEL, self.v0 + self.h - 0.5)
-        LU, LV = np.meshgrid(lu, lv)                       # row-major: j (v) rows
+        LU, LV = np.meshgrid(self.u0 + np.array(xs) + 0.5, self.v0 + np.array(ys) + 0.5)
         M = np.array([s, t, n])
         rhs = np.stack([LU.ravel() - so, LV.ravel() - to, np.full(LU.size, d)], axis=1)
         P = np.linalg.solve(M, rhs.T).T + n * 2
         lvl = to_levelf(light_points(P, n, lights, ambient, vox))
-        self.lights = "".join(str(int(round(x))) for x in lvl)
+        self.lights = "".join(chr(48 + int(round(x * LIGHT_SUB))) for x in lvl)
 
     def uv(self, q):
         return float(np.dot(q, self.s)) + self.so - self.u0, float(np.dot(q, self.t)) + self.to - self.v0
@@ -582,7 +583,7 @@ def main():
             lights.append((o, float(pr.get("light", 300))))
             continue
         if cls == "prop_torch":
-            lights.append((o + np.array([0, 0, 56]), float(pr.get("light", 170))))
+            lights.append((o + np.array([0, 0, 56]), float(pr.get("light", 220))))
         things.append((cls, o, float(pr.get("angle", 0))))
     if start is None:
         raise SystemExit("no info_player_start")
@@ -745,7 +746,7 @@ def main():
     for sf in surfs:
         sl.append('{%d,%d,%d,%d,%d,%d,%d,"%s"}' % (tex_ids.get(sf.name, 0), sf.u0 % TEX_PX, sf.v0 % TEX_PX,
                                                    sf.w, sf.h, sf.lw, sf.lh, sf.lights))
-    L.append("luxel=%d," % LUXEL)
+    L.append("luxel=%d,lsub=%d," % (LUXEL, LIGHT_SUB))
     L.append("surfs={\n%s}," % ",\n".join(sl))
     nl = []
     for r in out_nodes:

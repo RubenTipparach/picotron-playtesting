@@ -112,9 +112,19 @@ function set_fog(k)
 end
 
 -- Quake surface cache: tile the base texture over each surface's texel
--- rectangle, then darken it luxel-run by luxel-run from the baked lightmap.
+-- rectangle, then darken it by the baked lightmap: samples every LUXEL
+-- texels (in 1/lsub shade steps) are lerped into a smooth field and dithered
+-- down to the 4 palette ramps, so light pools fade instead of stepping.
 function build_surfaces()
 	local L = LEVEL.luxel
+	-- dither thresholds (b + 0.5) / 16, 4 rows as wide as the widest surface
+	DITHER_W = 1
+	for _, s in ipairs(LEVEL.surfs) do DITHER_W = max(DITHER_W, s[4]) end
+	DITHER = userdata("f64", DITHER_W, 4)
+	local bayer = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5}
+	for y = 0, 3 do
+		for x = 0, DITHER_W - 1 do DITHER:set(x, y, (bayer[y * 4 + x % 4 + 1] + 0.5) / 16) end
+	end
 	local texels = 0
 	for id, s in ipairs(LEVEL.surfs) do
 		local tex, uo, vo, w, h, lw, lh, lm = s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8]
@@ -134,22 +144,27 @@ function build_surfaces()
 			end
 			ty = ty + 32
 		end
-		-- light: one add() per horizontal run of equal luxels
-		for j = 0, lh - 1 do
-			local y0 = j * L
-			local rows = min(L, h - y0)
-			local i = 0
-			while i < lw do
-				local c = ord(lm, j * lw + i + 1) - 48
-				local i2 = i
-				while i2 + 1 < lw and ord(lm, j * lw + i2 + 2) - 48 == c do i2 = i2 + 1 end
-				if c > 0 then
-					local x0 = i * L
-					local len = min((i2 + 1) * L, w) - x0
-					ud:add(16 * c, true, 0, y0 * w + x0, len, 0, w, rows)
+		-- light: bilinear between the baked samples + ordered dither, all in C
+		if #lm > 0 then
+			local F = userdata("f64", w, h)
+			local seg, rem = flr((w - 1) / L), (w - 1) % L
+			for j = 0, lh - 1 do
+				local y = min(j * L, h - 1)
+				for i = 0, lw - 1 do
+					F:set(min(i * L, w - 1), y, (ord(lm, j * lw + i + 1) - 48) / LEVEL.lsub)
 				end
-				i = i2 + 1
+				if seg > 0 then F:lerp(y * w, L, 1, seg, L) end
+				if rem > 0 then F:lerp(y * w + seg * L, rem) end
 			end
+			for j = 0, lh - 2 do
+				local y0, y1 = j * L, min((j + 1) * L, h - 1)
+				if y1 - y0 > 1 then F:lerp(y0 * w, y1 - y0, w, w, 1) end
+			end
+			-- + a 4x4 Bayer threshold, then floor: the fraction becomes dither
+			for r = 0, min(3, h - 1) do
+				F:add(DITHER, true, r * DITHER_W, r * w, w, 0, 4 * w, flr((h - 1 - r) / 4) + 1)
+			end
+			ud:add(F:convert("u8"):mul(16, true), true)
 		end
 		set_spr(SURF_BASE + id, ud)
 		texels = texels + w * h

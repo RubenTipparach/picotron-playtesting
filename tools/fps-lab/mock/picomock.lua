@@ -116,6 +116,21 @@ mt.__sub = function(a, b) return binop(a, b, OPS.sub) end
 mt.__mul = function(a, b) return binop(a, b, OPS.mul) end
 mt.__div = function(a, b) return binop(a, b, OPS.div) end
 
+function UD.lerp(u, off, len, es, n, ls)
+	off, es, n, ls = off or 0, es or 1, n or 1, ls or 0
+	len = len or (u.w * u.h - 1 - off) // es
+	for k = 0, n - 1 do
+		local o = off + k * ls
+		local a, b = u.d[o], u.d[o + len * es]
+		for i = 1, len - 1 do u.d[o + i * es] = conv(u.typ, a + (b - a) * i / len) end
+	end
+	return u
+end
+function UD.convert(u, typ)
+	local c = userdata(typ, u.w, u.dims == 2 and u.h or nil)
+	for i = 0, u.w * u.h - 1 do c.d[i] = conv(typ, math.floor(u.d[i])) end
+	return c
+end
 function UD.width(u) return u.w end
 function UD.height(u) return u.h end
 function UD.get(u, x, y, n)

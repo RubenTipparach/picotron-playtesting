@@ -10,7 +10,7 @@ level**. Press **TAB** in game to flip between them live:
 | floors / ceilings | one height each (0 / 128), per-cell textures | anything: stairs, dais, platform, pool, bridge over the arena |
 | walls | whole grid cells (a 32u pillar becomes a 64u block) | exact brushes, incl. sloped braces |
 | look up/down | y-shear (horizon moves; verticals stay vertical) | real pitch |
-| lighting | per-cell light on walls + distance fog | baked lightmaps (16u luxels) in a surface cache + fog |
+| lighting | per-cell light on walls + distance fog | baked lightmaps (16u samples, bilinear + dithered) in a surface cache + fog |
 | props | billboards | real meshes (crate, 8-sided barrel, torch stand) |
 | occlusion | 1D z-buffer per column | BSP back-to-front (painter's that is always right) |
 | cost scales with | screen width (480 DDA rays) | visible polygons |
@@ -43,7 +43,8 @@ tools/fps-lab/map2bsp.py                      -> carts/fps-render-lab.p64/level.
    that look into the void (and stop with `LEAK` if the map isn't sealed)
 5. coplanar faces with the same material are re-merged into big rectangles
    (2316 -> 372 polygons for this map); each becomes a **surface** whose
-   lightmap is baked from `light` entities with voxel shadow rays
+   lightmap is baked from `light` entities (and torches) with voxel shadow
+   rays: one sample every 16u, stored in 1/8ths of a shade level
 6. polygon **BSP** (fewest splits, balanced, axial preferred): 445 polys,
    246 nodes, depth 12
 7. the raycaster's grid: a cell is a wall if brushes cover the z 30..62 band
@@ -85,8 +86,12 @@ the hall's braces, is fine).
 - **`matmul3d` batch transform**: every level vertex goes to camera space in
   one call per frame; Lua only reads the vertices of polygons it draws.
 - **Surface cache** (Quake's trick): lightmaps are baked into per-surface
-  textures at load, built with `blit` + run-length `userdata:add(16*level,
-  ...)` (~1.8M texels). Lighting then costs *nothing* per frame and
+  textures at load (~1.8M texels). Per surface, the light samples go into an
+  f64 field, `userdata:lerp` fills it in bilinearly (one call per sample row,
+  one per row pair), a 4x4 Bayer threshold is added with one strided `add`
+  per dither row, and `convert("u8")` floors it to a shade level that is
+  added as `16*level`. So the 4 palette ramps fade smoothly instead of
+  stepping in 16u squares. Lighting then costs *nothing* per frame and
   doesn't split geometry.
 - **Palette light ramps**: colours 16..63 are 3 darker copies of 0..15, so
   "darker by k" is just `+16*k`. Distance fog on world polygons swaps a
