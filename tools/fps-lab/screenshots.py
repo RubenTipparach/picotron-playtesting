@@ -67,6 +67,7 @@ def main():
         for m, tag in ((1, "ray"), (2, "bsp")):
             shots.append("""{name="%s_%s", frames=1, setup=function()
   set_detail(%s)
+  in_menu=false; show_stats=true
   mode=%d; player.x=%g; player.y=%g; player.yaw=%g; player.pitch=%g
   player.z = (mode==2) and math.max(0, floor_at(player.x, player.y, 12, 72)) or 0
 end},""" % (name, tag, "true" if half else "false", m, x, y, yaw, pitch))

@@ -57,6 +57,7 @@ for _, half in ipairs({false, true}) do
 	for _, m in ipairs({1, 2}) do
 		for _, p in ipairs(POSES) do
 			reset_game()
+			in_menu, show_stats = false, true
 			mode = m
 			local x, y = cell(p[2], p[3])
 			local function pose()

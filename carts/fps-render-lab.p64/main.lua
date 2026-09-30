@@ -12,8 +12,10 @@
 	                        lightmaps in a surface cache, real pitch, stairs,
 	                        platforms, bridges, sloped braces, 3D props
 
+	A menu picks the renderer at start (up/down + Z, or click); M returns to it.
 	Controls: WASD move, mouse (click to lock) or arrows look, click / Z /
-	space to fire, TAB switch renderer, V detail (480x270 / 240x135), H hide stats bar, R restart.
+	space to fire, TAB switch renderer, V detail (480x270 / 240x135),
+	H show/hide the renderer stats, R restart.
 ]]
 
 include("level.lua")
@@ -101,8 +103,13 @@ function reset_game()
 			spawn(cls, x, y, z, ang)
 		end
 	end
-	msg, msg_t = "TAB: raycaster / true 3D", 240
+	msg, msg_t = "", 0
 	won = false
+end
+
+-- renderer/debug notices: only shown with the stats bar on (H)
+function info(m, t)
+	if show_stats then msg, msg_t = m, t end
 end
 
 -- ------------------------------------------------------------- detail ---
@@ -111,7 +118,8 @@ end
 -- scanlines. AUTO starts FULL and drops to HALF if Picotron has to run
 -- _draw below 60fps for ~2 seconds; V toggles by hand (and ends AUTO).
 detail_half, detail_auto = false, true
-show_stats = true        -- H hides the renderer stats bar at the top
+show_stats = false       -- H shows the renderer stats bar (off: gameplay HUD only)
+in_menu, menu_sel = true, MODE_BSP
 local slow_frames = 0
 function set_detail(half)
 	detail_half = half
@@ -125,14 +133,14 @@ local function update_detail()
 	if keyp("v") then
 		detail_auto = false
 		set_detail(not detail_half)
-		msg, msg_t = detail_half and "detail: 240x135" or "detail: 480x270", 90
+		info(detail_half and "detail: 240x135" or "detail: 480x270", 90)
 		return
 	end
 	if detail_auto and not detail_half and stat then
 		if (stat(7) or 60) < 60 then slow_frames = slow_frames + 1 else slow_frames = 0 end
 		if slow_frames > 120 then
 			set_detail(true)
-			msg, msg_t = "auto detail: 240x135 (V to change)", 150
+			info("auto detail: 240x135 (V to change)", 150)
 		end
 	end
 end
@@ -311,19 +319,74 @@ local function update_fireball(t)
 	end
 end
 
+-- ---------------------------------------------------------------- menu ---
+-- pick the renderer; the level spins slowly behind, drawn by the one selected
+local MENU_ITEMS = {
+	{MODE_RAY, "RAYCASTER", "grid DDA, Wolfenstein style"},
+	{MODE_BSP, "TRUE 3D", "BSP + lightmaps, Quake style"},
+}
+local function menu_box(i)
+	local w, h = detail_half and 180 or 220, detail_half and 26 or 34
+	local y = CY - h - 4 + (i - 1) * (h + 8)
+	return CX - w / 2, y, w, h
+end
+
+local menu_mouse = 0
+function update_menu()
+	if keyp("up") or keyp("w") or btnp(2) then menu_sel = MODE_RAY end
+	if keyp("down") or keyp("s") or btnp(3) then menu_sel = MODE_BSP end
+	if keyp("h") then show_stats = not show_stats end
+	local start = keyp("z") or keyp("space") or keyp("enter") or btnp(4) or btnp(5)
+	local mx, my, mb = mouse()
+	for i, it in ipairs(MENU_ITEMS) do
+		local x, y, w, h = menu_box(i)
+		if mx >= x and mx < x + w and my >= y and my < y + h then   -- mouse() is in vid() pixels
+			menu_sel = it[1]
+			if mb & 1 == 1 and menu_mouse & 1 == 0 then start = true end
+		end
+	end
+	menu_mouse = mb
+	player.yaw = player.yaw + 0.0008
+	if mode ~= menu_sel then mode = menu_sel; settle_player() end
+	if start then
+		in_menu = false
+		fire_cd = 20          -- the click/Z that started the game doesn't fire
+		locked = mb & 1 == 1
+	end
+end
+
+local function draw_menu()
+	for i, it in ipairs(MENU_ITEMS) do
+		local x, y, w, h = menu_box(i)
+		local on = menu_sel == it[1]
+		rectfill(x, y, x + w - 1, y + h - 1, on and 1 or 0)
+		rect(x, y, x + w - 1, y + h - 1, on and 10 or 5)
+		print(it[2], x + 8, y + 5, on and 7 or 6)
+		print(it[3], x + 8, y + h - 12, on and 12 or 5)
+	end
+	local _, y, _, h = menu_box(2)
+	print("up/down + Z or click", CX - 50, y + h + 8, 6)
+end
+
 -- -------------------------------------------------------------- update ---
 function _update()
 	frame = frame + 1
 	snd_update()
 	if msg_t > 0 then msg_t = msg_t - 1 end
+	update_detail()
+	if in_menu then update_menu() return end
+	if keyp("m") then
+		in_menu, menu_sel, locked = true, mode, false
+		if mouselock then mouselock(false) end
+		return
+	end
 	if keyp("tab") then
 		mode = (mode == MODE_BSP) and MODE_RAY or MODE_BSP
 		settle_player()
-		msg, msg_t = (mode == MODE_BSP) and "TRUE 3D  (BSP + surface cache)" or "RAYCASTER  (grid slice at eye height)", 120
+		info((mode == MODE_BSP) and "TRUE 3D  (BSP + surface cache)" or "RAYCASTER  (grid slice at eye height)", 120)
 	end
 	if keyp("r") then reset_game() end
 	if keyp("h") then show_stats = not show_stats end
-	update_detail()
 	if player.hp <= 0 then
 		if btnp(4) or btnp(5) then reset_game() end
 		return
@@ -443,6 +506,12 @@ function _draw()
 	cls(0)
 	local cam = camera_state()
 	local list = draw_list()
+	if in_menu then
+		cam.pitch = 0
+		if mode == MODE_BSP then bsp_draw(cam, list) else ray_draw(cam, list) end
+		draw_menu()
+		return
+	end
 	if mode == MODE_BSP then
 		bsp_draw(cam, list)
 	else
