@@ -74,17 +74,6 @@ jobs:
         with:
           path: 'dist'
 
-      - name: Deploy carts to itch.io (Butler)
-        # Optional: only when BUTLER_API_KEY is set and on main. Targets are
-        # listed in carts/itch-targets.txt. An itch hiccup never blocks Pages.
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && steps.picotron.outputs.available == 'true'
-        continue-on-error: true
-        env:
-          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
-        run: |
-          if [[ -z "$BUTLER_API_KEY" ]]; then echo "BUTLER_API_KEY not set - skipping itch.io"; exit 0; fi
-          bash scripts/picotron/butler-deploy.sh
-
   deploy:
     # Only publish from main; branches/PRs build (and export carts) as a check.
     needs: build

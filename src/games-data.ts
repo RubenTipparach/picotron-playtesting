@@ -24,5 +24,11 @@ export const games: GameInfo[] = [
     "name": "Incremental Coding Game",
     "path": "./incremental-coding-game/index.html",
     "preview": null
+  },
+  {
+    "id": "mining-mike-codex",
+    "name": "Mining Mike Codex",
+    "path": "./mining-mike-codex/index.html",
+    "preview": "/mining-mike-codex/preview.png"
   }
 ]

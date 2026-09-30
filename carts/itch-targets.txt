@@ -1,4 +1,0 @@
-# Optional itch.io publishing (needs the BUTLER_API_KEY secret). Only runs on
-# pushes to main. One line per cart:  <cart-name> <itch-user>/<game>:<channel>
-# Uncomment / edit to enable, e.g.
-# fps-render-lab ruben-tipparach/fps-render-lab:html5

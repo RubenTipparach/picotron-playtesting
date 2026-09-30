@@ -9,7 +9,6 @@ pipeline is ported from
 carts/<name>.p64/        a cart = a folder (main.lua + gfx/ map/ sfx/)
   sprites/**/NNN_*.png   optional: baked into gfx/0.gfx at build time
 carts/<name>.png         optional: gallery thumbnail
-carts/itch-targets.txt   optional: which carts to push to itch.io
 ```
 
 On every push/PR, `.github/workflows/static.yml`:
@@ -26,8 +25,7 @@ On every push/PR, `.github/workflows/static.yml`:
 3. `npm run build` - `scripts/process-games.ts` treats `carts-dist/` exactly
    like `public/` (mobile/touch fixes for Picotron exports), then the gallery
    is rebuilt.
-4. On `main` only: deploy to GitHub Pages, and (optionally) push the carts
-   listed in `carts/itch-targets.txt` to itch.io with butler.
+4. On `main` only: deploy to GitHub Pages.
 
 Branches and PRs build and export everything as a check but never deploy.
 
@@ -39,7 +37,6 @@ secret**:
 | Secret | Required | What it is |
 | --- | --- | --- |
 | `PICOTRON_ZIP` | **yes** (to build carts) | A private **direct-download URL** to the Linux Picotron zip (release asset, signed bucket URL, or a Google Drive "anyone with the link" share - Drive links are handled specially). Base64 of the zip also works but an Actions secret is capped at ~48 KB, so a URL is the realistic option. The zip must contain the executable at `.../picotron/picotron`. Same value as in picotron-build-demo. |
-| `BUTLER_API_KEY` | no | An itch.io API key (<https://itch.io/user/settings/api-keys>). Only used on `main`, and only for carts listed in `carts/itch-targets.txt`. |
 
 Also make sure **Settings -> Pages -> Build and deployment -> Source** is
 **GitHub Actions** (it already is if the gallery deploys today).
