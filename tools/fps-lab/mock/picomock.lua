@@ -205,12 +205,13 @@ local drawpal = {}
 local function reset_ct()
 	for c = 0, 63 do
 		transp[c] = (c == 0); drawpal[c] = c
-		for d = 0, 63 do RAM[0x8000 + c * 64 + d] = transp[c] and d or c end
+		-- like Picotron 0.3: opaque entries carry the table-select bits 0xc0
+		for d = 0, 63 do RAM[0x8000 + c * 64 + d] = transp[c] and d or (c | 0xc0) end
 	end
 end
 reset_ct()
 local function ct_row(c)
-	for d = 0, 63 do RAM[0x8000 + c * 64 + d] = transp[c] and d or drawpal[c] end
+	for d = 0, 63 do RAM[0x8000 + c * 64 + d] = transp[c] and d or (drawpal[c] | 0xc0) end
 end
 function pal(c0, c1, p)
 	if c0 == nil then for c = 0, 63 do drawpal[c] = c end; for c = 0, 63 do ct_row(c) end return end
@@ -238,13 +239,13 @@ STATS = {tl_calls = 0, tl_lines = 0, tl_px = 0, spr_px = 0, shape_px = 0}
 
 local function put_shape(x, y, c)
 	if x >= clipx0 and x < clipx1 and y >= clipy0 and y < clipy1 then
-		FB[y * SW + x] = RAM[0x8000 + (c & 63) * 64]
+		FB[y * SW + x] = RAM[0x8000 + (c & 63) * 64] & 0x3f     -- write mask
 		STATS.shape_px = STATS.shape_px + 1
 	end
 end
 local function put_spr(x, y, c)
 	local i = y * SW + x
-	FB[i] = RAM[0x8000 + (c & 63) * 64 + FB[i]]
+	FB[i] = RAM[0x8000 + (c & 63) * 64 + FB[i]] & 0x3f
 end
 
 function cls(c)

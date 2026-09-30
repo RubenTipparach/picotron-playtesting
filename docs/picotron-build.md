@@ -22,6 +22,10 @@ On every push/PR, `.github/workflows/static.yml`:
    - runs `tools/picotron/build.lua`, which drives Picotron's own
      `export foo.html` exporter under `xvfb`
    - writes `carts-dist/<name>/index.html` (+ `preview.png`)
+   - `scripts/picotron/browser-smoke.sh` then opens every exported page in
+     headless Chromium, clicks to start, screenshots it
+     (`carts-dist/<name>/smoke.png`) and **fails the build if the screen is
+     blank** (headless `-x` runs can't see what the web player draws)
 3. `npm run build` - `scripts/process-games.ts` treats `carts-dist/` exactly
    like `public/` (mobile/touch fixes for Picotron exports), then the gallery
    is rebuilt.

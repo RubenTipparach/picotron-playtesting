@@ -164,6 +164,22 @@ Those runs lined up with the mock: frames under ~130k mock instructions
 At 480x270 the raycaster is 114-148k and the true-3D renderer 55-106k
 (`_draw` only). CI re-measures every push; see the job summary.
 
+## Picotron 0.3 lessons (found in the real web player)
+
+The first deployed build showed a black screen, which neither the mock nor
+the headless benchmark could see. Loading the export in headless Chromium
+with `printh()` breadcrumbs found two 0.3 behaviours:
+
+- **Colour-table entries carry the 0xc0 table-select bits** (colour 7 is
+  stored as 199). The fog tables remapped whole bytes and dropped those bits,
+  which blanked every draw. Fix: remap only `v & 0x3f`, keep `v & 0xc0`.
+- **`tline3d` loops non-power-of-two sprites**: the 32x40 grunt drew with
+  its head repeated in the raycaster. Billboards are now padded into
+  power-of-two canvases at load (`pad_pow2`, offsets in `SPR_OX/OY`).
+
+CI now runs `scripts/picotron/browser-smoke.sh` on every export, and the
+mock models the 0xc0 bits.
+
 ## Verification without Picotron
 
 `tools/fps-lab/mock/picomock.lua` implements (in plain Lua 5.4) the Picotron

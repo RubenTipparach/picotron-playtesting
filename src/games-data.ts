@@ -14,6 +14,12 @@ export const games: GameInfo[] = [
     "preview": null
   },
   {
+    "id": "fps-render-lab",
+    "name": "Fps Render Lab",
+    "path": "./fps-render-lab/index.html",
+    "preview": "/fps-render-lab/preview.png"
+  },
+  {
     "id": "grand-theft-chicken",
     "name": "Grand Theft Chicken",
     "path": "./grand-theft-chicken/index.html",

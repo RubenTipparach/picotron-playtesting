@@ -101,7 +101,7 @@ end
 
 local INV_NEAR = 1 / NEAR
 local function draw_level_poly(p)
-	local n = (#p - 5) / 3
+	local n = flr((#p - 5) / 3)
 	local dx, dy, dz = p[3] - ex, p[4] - ey, p[5] - ez
 	local fog = flr(sqrt(dx * dx + dy * dy + dz * dz) / BSP_FOG)
 	local t
@@ -201,7 +201,7 @@ local function billboard(o, spr, w, h, sw, sh, zoff, lvl)
 	local ww, hh = w * s, h * s
 	local sx, sy = CX + cx * s - ww / 2, CY - cy * s - hh / 2
 	if sx + ww < 0 or sx >= SW or sy + hh < 0 or sy >= SH then return end
-	sspr(VAR_BASE + spr * 4 + lvl, 0, 0, sw, sh, sx, sy, ww, hh, o.flip)
+	sspr(VAR_BASE + spr * 4 + lvl, SPR_OX[spr] or 0, SPR_OY[spr] or 0, sw, sh, sx, sy, ww, hh, o.flip)
 end
 
 local function draw_object(o)

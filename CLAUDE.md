@@ -18,3 +18,15 @@ committed; Picotron carts in `carts/<name>.p64/` are exported in CI.
   under `tools/fps-lab/mock/picomock.lua`, needs lua5.4 + Pillow). Keep cart
   code plain Lua 5.4 compatible (no `+=`, `!=`, `\`) so the mock can run it.
 - Picotron Lua has no `table.sort`.
+- The mock is not Picotron. CI's `browser-smoke.sh` opens the real exported
+  page in headless Chromium and fails on a blank screen; for a fast local
+  loop with the real runtime: fetch Picotron into a scratch dir
+  (`PICOTRON_DIR=<scratch> PICOTRON_ZIP=<url> scripts/picotron/fetch-picotron.sh`),
+  `PICOTRON_BIN=<bin> scripts/picotron/build-cart.sh <cart> carts-dist/<name>`,
+  then `PLAYWRIGHT_MODULE=$(npm root -g)/playwright scripts/picotron/browser-smoke.sh`
+  (printh() output shows up as `[pid] ...` console lines).
+- Picotron 0.3 gotchas (docs/picotron_manual.txt is the 0.3.0d manual):
+  colour-table entries carry the 0xc0 table-select bits (remap
+  only the low 6 bits, keep `v & 0xc0`); tline3d loops/garbles
+  non-power-of-two sprites (pad billboards to 2^n); sprite wrapping is an
+  explicit mask at 0x5534/0x5536.
