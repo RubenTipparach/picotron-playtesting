@@ -14,6 +14,9 @@
 	  walls          DDA per column; each column = 2 textured segments (one
 	                 per 64u texture repeat) pushed into ONE batched tline3d
 	                 call for the whole screen (~960 lines, 1 Lua->C call)
+	  doors          Wolfenstein-style: a door cell stops the DDA, the ray is
+	                 tested against the panel half a cell further in and
+	                 passes the part that has slid into the wall
 	  sprites        billboards clipped per column against a 1D z-buffer,
 	                 also batched into one tline3d call
 	Looking up/down is faked by y-shearing (moving the horizon).
@@ -99,7 +102,7 @@ function ray_draw(cam, things)
 	-- the inner loop needs no bounds checks and walks a flat cell index.
 	local posx, posy = (px - x0w) / CELL, (py - y0w) / CELL
 	local n = 0
-	local cells, gw, gtex, glight = rcells, G.w, G.tex, G.light
+	local cells, gw, gtex, glight, doors = rcells, G.w, G.tex, G.light, DOOR_AT
 	local pmx, pmy = flr(posx), flr(posy)
 	local start = pmy * gw + pmx + 1
 	local seg_top, seg_mid = WALL_H - eye, WALL_H - 64 - eye
@@ -112,22 +115,48 @@ function ray_draw(cam, things)
 		if dx < 0 then sx = -1; sdx = (posx - pmx) * ddx else sx = 1; sdx = (pmx + 1 - posx) * ddx end
 		if dy < 0 then syw = -gw; sdy = (posy - pmy) * ddy else syw = gw; sdy = (pmy + 1 - posy) * ddy end
 		local i, side = start, 0
-		repeat
-			if sdx < sdy then sdx = sdx + ddx; i = i + sx; side = 0
-			else sdy = sdy + ddy; i = i + syw; side = 1 end
-		until cells[i] ~= 0
 		local perp, prev, t, u
-		local tx = gtex[i]
-		if side == 0 then
-			perp = sdx - ddx
-			prev = i - sx
-			u = ((py + perp * dy * CELL) / 2) % 32
-			t = tx and (sx > 0 and tx[2] or tx[1]) or 0
-		else
-			perp = sdy - ddy
-			prev = i - syw
-			u = ((px + perp * dx * CELL) / 2) % 32
-			t = tx and (syw > 0 and tx[4] or tx[3]) or 0
+		while true do
+			repeat
+				if sdx < sdy then sdx = sdx + ddx; i = i + sx; side = 0
+				else sdy = sdy + ddy; i = i + syw; side = 1 end
+			until cells[i] ~= 0
+			if cells[i] ~= 2 then break end
+			-- door cell: the panel sits mid-cell; entering along the tunnel the
+			-- ray meets it half a step on (unless it leaves the cell first)
+			local d = doors[i]
+			local pd, f
+			if side == 0 and d.sy ~= 0 then
+				pd = sdx - ddx * 0.5
+				if pd <= sdy then f = posy + pd * dy end
+			elseif side == 1 and d.sx ~= 0 then
+				pd = sdy - ddy * 0.5
+				if pd <= sdx then f = posx + pd * dx end
+			end
+			if f then
+				f = f - flr(f)
+				local o = d.open
+				local sd = d.sx + d.sy
+				if (sd > 0 and f >= o) or (sd < 0 and f <= 1 - o) then
+					perp, prev, t = pd, i, d.tex
+					u = (sd > 0 and (f - o) or (1 - o - f)) * 32
+					break
+				end
+			end
+		end
+		if not t then
+			local tx = gtex[i]
+			if side == 0 then
+				perp = sdx - ddx
+				prev = i - sx
+				u = ((py + perp * dy * CELL) / 2) % 32
+				t = tx and (sx > 0 and tx[2] or tx[1]) or 0
+			else
+				perp = sdy - ddy
+				prev = i - syw
+				u = ((px + perp * dx * CELL) / 2) % 32
+				t = tx and (syw > 0 and tx[4] or tx[3]) or 0
+			end
 		end
 		local dist = perp * CELL
 		if dist < 1 then dist = 1 end
@@ -157,12 +186,23 @@ function ray_draw(cam, things)
 
 	-- 3. billboards, far to near, clipped per column by the z-buffer
 	local list = {}
+	local xs = CX / FOCAL                  -- half screen width per unit depth
 	for th in all(things) do
 		local ddx, ddy = th.x - px, th.y - py
 		local cz = ddx * fx + ddy * fy
-		if cz > 8 then
+		local cx = ddx * rx + ddy * ry
+		-- only on-screen sprites that some wall column doesn't hide get
+		-- sorted (the bigger level has ~90 things, many behind closed doors)
+		local vis = cz > 8 and cz < 2400 and abs(cx) < cz * xs + th.w
+		if vis then
+			local sxc, hw = CX + cx * FOCAL / cz, th.w * 0.5 * FOCAL / cz
+			local xa, xb = max(0, flr(sxc - hw)), min(SW - 1, flr(sxc + hw))
+			local xm = flr((xa + xb) / 2)
+			vis = xa <= xb and (cz < zbuf[xa] or cz < zbuf[xm] or cz < zbuf[xb])
+		end
+		if vis then
 			th._cz = cz
-			th._cx = ddx * rx + ddy * ry
+			th._cx = cx
 			-- insertion sort, farthest first (Picotron has no table.sort)
 			local j = #list
 			add(list, th)

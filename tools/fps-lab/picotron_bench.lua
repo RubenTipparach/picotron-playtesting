@@ -39,7 +39,7 @@ ok, err = pcall(_init)
 if not ok then mark("FAIL.init." .. tostring(err):sub(1, 120)) exit(1) end
 mark("init_ok")
 
-local GH = 26
+local GH = 33
 local function cell(c, r) return c * 64 + 32, (GH - 1 - r) * 64 + 32 end
 local POSES = {  -- same as tools/fps-lab/screenshots.py
 	{"hall", 6, 9.4, 0.25, 0.0},
@@ -48,6 +48,9 @@ local POSES = {  -- same as tools/fps-lab/screenshots.py
 	{"corridor", 12.5, 5.5, 0.0, 0.0},
 	{"arena", 6.5, 15.2, 0.75, 0.03},
 	{"storage", 18.8, 20.5, 0.04, 0.0},
+	{"airlock", 26.5, 20, 0.0, 0.0},
+	{"acid", 37.2, 21.6, 0.07, -0.03},
+	{"atrium", 43, 6.4, 0.25, 0.05},
 }
 local WARM, N = 10, 40
 

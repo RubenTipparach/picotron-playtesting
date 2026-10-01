@@ -55,7 +55,9 @@ const stats = await probe.evaluate(async (b64) => {
 }, png.toString('base64'));
 await browser.close();
 
-const ok = stats.lit > 0.25 && stats.colours > 16 && errors.length === 0;
+// a black/blank or garbled screen has a handful of colours at most; a real
+// frame has more (a dim 32-colour scene can legitimately use only ~16)
+const ok = stats.lit > 0.25 && stats.colours >= 8 && errors.length === 0;
 console.log(`smoke ${ok ? 'PASS' : 'FAIL'}: ${(stats.lit * 100).toFixed(0)}% lit pixels, ${stats.colours} colours, ${errors.length} page errors`);
 for (const e of errors) console.log('  page error: ' + e);
 for (const l of cartLog.slice(-20)) console.log('  cart: ' + l);

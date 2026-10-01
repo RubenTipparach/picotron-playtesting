@@ -2,16 +2,17 @@
 --[[
 	gfx.lua - shared rendering setup for both renderers.
 
-	Light model: the 64-colour palette is rebuilt as 4 brightness ramps of the
-	16 base (PICO-8) colours: colour c at level k = c + 16*k (k=0 full .. 3
-	darkest). Shading is therefore just "add 16*k" to a pixel, which lets us:
+	Light model: a texel is colour + 64 * light level (k=0 full .. 3 darkest);
+	the level bits select one of Picotron's 4 colour tables, each mapping a
+	colour to its darker neighbour in the active palette (see "palettes"
+	below). Shading is therefore just "add 64*k" to a pixel, which lets us:
 
 	  * pre-shade sprites/textures once (VAR_BASE + i*4 + k) for things that
 	    must shade per draw inside ONE batch call (raycaster columns, rows)
 	  * bake Quake-style lightmaps into cached surface textures at load
 	    (SURF_BASE + surface id) with a handful of userdata:add() calls
-	  * darken whole polygons for distance fog by swapping colour table 0
-	    (one 4k poke) instead of calling pal() 48 times
+	  * darken whole polygons for distance fog by swapping the 4 colour
+	    tables (one 16k poke) instead of calling pal() per colour
 
 	The rasteriser (fill_poly) grew out of the batched-scanline textri of
 	RubenTipparach/ld58-pictoron-3d-engine: instead of fanning polygons into
@@ -25,12 +26,9 @@ CX, CY = 240, 135
 FOCAL = 240                          -- 90 degree horizontal fov
 VAR_BASE = 256                       -- shaded sprite variants: VAR_BASE + i*4 + k
 SURF_BASE = 1024                     -- cached world surfaces: SURF_BASE + surface id
-SHADE = {1, 0.66, 0.42, 0.22}        -- keep in sync with RAMP in gen_art.py
+SHADE = {1, 0.66, 0.42, 0.22}        -- brightness per light level (gen_art.py's sheet previews it)
 
-PAL16 = {0x000000, 0x1d2b53, 0x7e2553, 0x008751, 0xab5236, 0x5f574f, 0xc2c3c7, 0xfff1e8,
-         0xff004d, 0xffa300, 0xffec27, 0x00e436, 0x29adff, 0x83769c, 0xff77a8, 0xffccaa}
-
-fog_tables = {}                      -- [0..3] colour table 0 variants (u8 64x64)
+fog_tables = {}                      -- [0..3] all 4 colour tables per fog level (u8 64x256)
 SPR_OX, SPR_OY = {}, {}              -- art offset inside padded billboard sprites
 
 local function pow2(n) local p = 1 while p < n do p = p * 2 end return p end
@@ -49,28 +47,116 @@ local cur_fog = -1
 
 function fsin(a) return -sin(a) end  -- Picotron's sin() is inverted (PICO-8 style)
 
--- rows 1..3 of the palette are darker copies of row 0, cooled a little
+-- ------------------------------------------------------------ palettes ---
+-- Two art sets for palette experiments (G switches): Picotron's default 32
+-- colours, and a custom 64-colour palette. Each set has its own sprites:
+-- set 1 at sprite index i, set 2 at i + 64 (sprites/pal64/).
+PALETTES = {
+	{name = "default 32", n = 32, off = 0, rgb = {
+		0x000000, 0x1d2b53, 0x7e2553, 0x008751, 0xab5236, 0x5f574f, 0xc2c3c7, 0xfff1e8,
+		0xff004d, 0xffa300, 0xffec27, 0x00e436, 0x29adff, 0x83769c, 0xff77a8, 0xffccaa,
+		0x2463b0, 0x00a5a1, 0x654688, 0x125359, 0x703233, 0x432932, 0xa28879, 0xffacc5,
+		0xb9003e, 0xe26b13, 0x95f04b, 0x00b251, 0x64dff6, 0xbd9adf, 0xe40dab, 0xf49671}},
+	{name = "custom 64", n = 64, off = 64, rgb = {
+		0x000000, 0x12173d, 0x293268, 0x464b8c, 0x6b74b2, 0x909edd, 0xc1d9f2, 0xffffff,
+		0xa293c4, 0x7b6aa5, 0x53427f, 0x3c2c68, 0x431e66, 0x5d2f8c, 0x854cbf, 0xb483ef,
+		0x8cff9b, 0x42bc7f, 0x22896e, 0x14665b, 0x0f4a4c, 0x0a2a33, 0x1d1a59, 0x322d89,
+		0x354ab2, 0x3e83d1, 0x50b9eb, 0x8cdaff, 0x53a1ad, 0x3b768f, 0x21526b, 0x163755,
+		0x008782, 0x00aaa5, 0x27d3cb, 0x78fae6, 0xcdc599, 0x988f64, 0x5c5d41, 0x353f23,
+		0x919b45, 0xafd370, 0xffe091, 0xffaa6e, 0xff695a, 0xb23c40, 0xff6675, 0xdd3745,
+		0xa52639, 0x721c2f, 0xb22e69, 0xe54286, 0xff6eaf, 0xffa5d5, 0xffd3ad, 0xcc817a,
+		0x895654, 0x61393b, 0x3f1f3c, 0x723352, 0x994c69, 0xc37289, 0xf29faa, 0xffccd0}},
+}
+pal_set = 1
+function art_off() return PALETTES[pal_set].off end
+
+-- Light model: every texel is  colour (low 6 bits) + 64 * light level (0..3).
+-- With the read mask at 0xff the level bits pick one of Picotron's 4 colour
+-- tables, and table k maps each colour to the palette colour nearest to it
+-- at SHADE[k] brightness. So shading works for ANY palette and still costs
+-- nothing per pixel:
+--   * sprites/textures are pre-shaded once (VAR_BASE + i*4 + k = s + 64k)
+--   * lightmaps are baked into cached surfaces with userdata:add(64*level)
+--   * distance fog swaps all 4 tables for ones shifted f levels darker (one
+--     16k poke) instead of touching any texel
+shade_map = {}                       -- [k][c] -> palette colour
+local base_ct                        -- Picotron's own colour table 0 (4k)
+
+local function nearest(r, g, b, rgb, n)
+	local best, bi = 1e9, 0
+	for i = 0, n - 1 do
+		local v = rgb[i + 1]
+		local dr, dg, db = ((v >> 16) & 0xff) - r, ((v >> 8) & 0xff) - g, (v & 0xff) - b
+		local rm = (((v >> 16) & 0xff) + r) / 2
+		local d = (2 + rm / 256) * dr * dr + 4 * dg * dg + (2 + (255 - rm) / 256) * db * db
+		if d < best then best, bi = d, i end
+	end
+	return bi
+end
+
 function gfx_palette()
-	for k = 1, 3 do
-		local f = SHADE[k + 1]
-		for c = 0, 15 do
-			local rgb = PAL16[c + 1]
-			local r = flr(((rgb >> 16) & 0xff) * f)
-			local g = flr(((rgb >> 8) & 0xff) * f)
-			local b = min(255, flr((rgb & 0xff) * f + 6 * k))
-			pal(16 * k + c, (r << 16) | (g << 8) | b, 2)
-		end
+	local P = PALETTES[pal_set]
+	for c = 0, 63 do pal(c, P.rgb[c + 1] or 0, 2) end
+end
+
+-- HUD/menu colours are written as PICO-8 numbers: UI[c] is the closest
+-- colour to PICO-8 colour c in the active palette
+UI = {}
+local function build_ui()
+	local P, D = PALETTES[pal_set], PALETTES[1].rgb
+	for c = 0, 15 do
+		local v = D[c + 1]
+		UI[c] = c == 0 and 0 or nearest((v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff, P.rgb, P.n)
 	end
 end
 
-function gfx_init()
-	gfx_palette()
-	-- 2. shaded copies of every sprite 0..63 (textures, billboards).
-	--    Billboards (32..47, 50) are padded into power-of-two canvases first:
-	--    Picotron 0.3's tline3d loops non-power-of-two sprites (a 32x40 grunt
-	--    came out with its head repeated). SPR_OX/OY say where the art sits.
+local function build_shades()
+	local P = PALETTES[pal_set]
+	build_ui()
+	for k = 0, 3 do
+		local m = {}
+		local f = SHADE[k + 1]
+		for c = 0, 63 do
+			if k == 0 or c == 0 or c >= P.n then
+				m[c] = c
+			else
+				local v = P.rgb[c + 1]
+				m[c] = nearest(flr(((v >> 16) & 0xff) * f), flr(((v >> 8) & 0xff) * f),
+					min(255, flr((v & 0xff) * f + 6 * k)), P.rgb, P.n)
+			end
+		end
+		shade_map[k] = m
+	end
+end
+
+-- fog level f: 4 tables (one per light level), table k = light min(3, k + f).
+-- Colour-0 rows (transparency) pass through; every other entry keeps the
+-- 0xc0 bits Picotron 0.3 stores in it and only its colour moves.
+local function build_fog_tables()
+	for f = 0, 3 do
+		local t = userdata("u8", 64, 256)
+		for k = 0, 3 do
+			local m = shade_map[min(3, k + f)]
+			local o = k * 4096
+			for i = 0, 4095 do
+				local v = base_ct[i]
+				t[o + i] = i < 64 and v or ((v & 0xc0) | m[v & 0x3f])
+			end
+		end
+		fog_tables[f] = t
+	end
+	cur_fog = -1
+	set_fog(0)
+end
+
+-- shaded copies of every sprite 0..63 of the active art set (textures,
+-- billboards, weapon). Billboards (32..47, 50) are padded into power-of-two
+-- canvases first: Picotron 0.3's tline3d loops non-power-of-two sprites (a
+-- 32x40 grunt came out with its head repeated). SPR_OX/OY: art offset.
+local function build_variants()
+	local off = art_off()
 	for i = 0, 63 do
-		local s = get_spr(i)
+		local s = get_spr(i + off) or get_spr(i)
 		if s and s:width() > 1 and ((i >= 32 and i <= 47) or i == 50) then
 			s = pad_pow2(s, i)
 		end
@@ -78,36 +164,91 @@ function gfx_init()
 			set_spr(VAR_BASE + i * 4, s)
 			local mask = s:min(1)                    -- 1 where opaque, 0 where transparent
 			for k = 1, 3 do
-				set_spr(VAR_BASE + i * 4 + k, s:add(mask:mul(16 * k)))
+				set_spr(VAR_BASE + i * 4 + k, s:add(mask:mul(64 * k)))
 			end
 		end
 	end
-	-- 3. fog colour tables: remap the OUTPUT colour of table 0 k levels darker
-	--    (layout agnostic: we only rewrite the values, never the indexing)
-	local base = userdata("u8", 64, 64)
-	base:peek(0x8000)
-	local shift = {}
-	for k = 0, 3 do
-		local t = userdata("u8", 64, 64)
-		for c = 0, 63 do
-			local lvl = min(3, flr(c / 16) + k)
-			shift[c] = (c == 0) and 0 or (c % 16 + 16 * lvl)
-		end
-		-- keep the table-selection bits (0xc0) Picotron 0.3 stores in each
-		-- entry; only the colour (low 6 bits) moves down the light ramp
-		for i = 0, 4095 do
-			local v = base[i]
-			t[i] = (v & 0xc0) | shift[v & 0x3f]
-		end
-		fog_tables[k] = t
-	end
-	cur_fog = 0
 end
 
+function gfx_init()
+	if not base_ct then
+		base_ct = userdata("u8", 64, 64)
+		base_ct:peek(0x8000)
+	end
+	poke(0x5508, 0xff)                           -- read mask: texel bits 0xc0 pick the light table
+	gfx_palette()
+	build_shades()
+	build_fog_tables()
+	build_variants()
+	anim_init()
+end
+
+-- switch art set + palette (G). The caller rebuilds the surface cache.
+function gfx_set_palette(n)
+	pal_set = n
+	gfx_palette()
+	build_shades()
+	build_fog_tables()
+	build_variants()
+	anim_init()
+end
+
+-- each switch copies 16k (4 tables), so callers avoid switching: world
+-- polygons keep the current level near a fog boundary (fog_for) and objects
+-- draw under whatever level is current (see bsp.lua's draw_object)
+fog_cur = 0
 function set_fog(k)
 	if k ~= cur_fog then
 		fog_tables[k]:poke(0x8000)
-		cur_fog = k
+		cur_fog, fog_cur = k, k
+	end
+end
+
+-- fog level for a distance in fog units (dist / BSP_FOG), with hysteresis:
+-- stay on the current level while within 0.4 of its band
+function fog_for(f)
+	if f > cur_fog - 0.4 and f < cur_fog + 1.4 then return cur_fog end
+	f = flr(f)
+	return f > 3 and 3 or f
+end
+
+-- ----------------------------------------------------- scrolling textures ---
+-- sky and acid (slime) are unlit "turbulent" textures: their pixels are
+-- scrolled in place every frame (4 blits per shade variant), so the
+-- raycaster's floor/ceiling maps and the BSP's wrapped liquid polygons both
+-- pick the motion up for free
+local anims = {}
+local ANIM = {{tex = 12, sx = 1 / 3, sy = 1 / 7}, {tex = 13, sx = 1 / 4, sy = -1 / 11}}   -- sky, slime
+function anim_init()
+	anims = {}
+	for a in all(ANIM) do
+		for k = 0, 3 do
+			local dst = get_spr(VAR_BASE + a.tex * 4 + k)
+			if dst then
+				local src = userdata("u8", 32, 32)
+				blit(dst, src, 0, 0, 0, 0, 32, 32)
+				add(anims, {idx = VAR_BASE + a.tex * 4 + k, src = src, dst = dst, sx = a.sx, sy = a.sy, ox = -1, oy = -1})
+			end
+		end
+	end
+end
+
+local function wrap_blit(src, dst, ox, oy)
+	local w1, h1 = 32 - ox, 32 - oy
+	blit(src, dst, 0, 0, ox, oy, w1, h1)
+	if ox > 0 then blit(src, dst, w1, 0, 0, oy, ox, h1) end
+	if oy > 0 then blit(src, dst, 0, h1, ox, 0, w1, oy) end
+	if ox > 0 and oy > 0 then blit(src, dst, w1, h1, 0, 0, ox, oy) end
+end
+
+function anim_update(frame)
+	for a in all(anims) do
+		local ox, oy = flr(frame * a.sx) % 32, flr(frame * a.sy) % 32
+		if ox ~= a.ox or oy ~= a.oy then
+			wrap_blit(a.src, a.dst, ox, oy)
+			set_spr(a.idx, a.dst)
+			a.ox, a.oy = ox, oy
+		end
 	end
 end
 
@@ -128,8 +269,9 @@ function build_surfaces()
 	local texels = 0
 	for id, s in ipairs(LEVEL.surfs) do
 		local tex, uo, vo, w, h, lw, lh, lm = s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8]
+		if s[9] == 1 then goto next_surf end        -- sky/slime: drawn from the scrolling texture
 		local ud = userdata("u8", w, h)
-		local src = get_spr(tex)
+		local src = get_spr(VAR_BASE + tex * 4)
 		-- tile (clipped blits; the texel origin starts uo,vo into the texture)
 		local ty = -vo
 		while ty < h do
@@ -164,10 +306,11 @@ function build_surfaces()
 			for r = 0, min(3, h - 1) do
 				F:add(DITHER, true, r * DITHER_W, r * w, w, 0, 4 * w, flr((h - 1 - r) / 4) + 1)
 			end
-			ud:add(F:convert("u8"):mul(16, true), true)
+			ud:add(F:convert("u8"):mul(64, true), true)
 		end
 		set_spr(SURF_BASE + id, ud)
 		texels = texels + w * h
+		::next_surf::
 	end
 	return texels
 end

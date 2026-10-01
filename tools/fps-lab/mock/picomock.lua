@@ -190,6 +190,8 @@ end
 RAM = {}
 function peek(a) return RAM[a] or 0 end
 function poke(a, ...) for i, v in ipairs({...}) do RAM[a + i - 1] = v & 0xff end end
+function poke2(a, ...) for i, v in ipairs({...}) do RAM[a + 2 * i - 2] = v & 0xff; RAM[a + 2 * i - 1] = (v >> 8) & 0xff end end
+function peek2(a) return (RAM[a] or 0) | ((RAM[a + 1] or 0) << 8) end
 function UD.peek(u, addr, off, n)
 	off = off or 0; n = n or (u.w * u.h - off)
 	for i = 0, n - 1 do u.d[off + i] = RAM[addr + i] or 0 end
@@ -221,8 +223,12 @@ local function reset_ct()
 	for c = 0, 63 do
 		transp[c] = (c == 0); drawpal[c] = c
 		-- like Picotron 0.3: opaque entries carry the table-select bits 0xc0
-		for d = 0, 63 do RAM[0x8000 + c * 64 + d] = transp[c] and d or (c | 0xc0) end
+		for d = 0, 63 do
+			local v = transp[c] and d or (c | 0xc0)
+			for t = 0, 3 do RAM[0x8000 + t * 4096 + c * 64 + d] = v end
+		end
 	end
+	RAM[0x5508], RAM[0x5509], RAM[0x550a], RAM[0x550b] = 0x3f, 0x3f, 0x3f, 0
 end
 reset_ct()
 local function ct_row(c)
@@ -252,15 +258,20 @@ function cursor() end
 
 STATS = {tl_calls = 0, tl_lines = 0, tl_px = 0, spr_px = 0, shape_px = 0}
 
+-- read mask 0x5508: the draw colour's bits 0xc0 pick one of 4 colour tables
+local function ct_addr(c)
+	c = c & RAM[0x5508]
+	return 0x8000 + ((c >> 6) & 3) * 4096 + (c & 63) * 64
+end
 local function put_shape(x, y, c)
 	if x >= clipx0 and x < clipx1 and y >= clipy0 and y < clipy1 then
-		FB[y * SW + x] = RAM[0x8000 + (c & 63) * 64] & 0x3f     -- write mask
+		FB[y * SW + x] = RAM[ct_addr(c)] & 0x3f     -- write mask
 		STATS.shape_px = STATS.shape_px + 1
 	end
 end
 local function put_spr(x, y, c)
 	local i = y * SW + x
-	FB[i] = RAM[0x8000 + (c & 63) * 64 + FB[i]] & 0x3f
+	FB[i] = RAM[ct_addr(c) + FB[i]] & 0x3f
 end
 
 function cls(c)

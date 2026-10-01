@@ -27,3 +27,8 @@
 
 @PointClass size(-10 -10 0, 10 10 16) color(255 255 255) = item_health : "Health +25" []
 @PointClass size(-10 -10 0, 10 10 16) color(255 200 0) = item_ammo : "Shells +10" []
+
+@SolidClass = func_door : "Sliding door. map2bsp.py makes it a moving door AND a sector boundary: with every door of a tunnel shut, the renderer skips what's behind. Opens when the player (or a chasing grunt) comes near."
+[
+	angle(integer) : "Slide direction (degrees, 0 = east, 90 = north); it slides its own width into the wall" : 90
+]

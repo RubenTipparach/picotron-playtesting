@@ -15,10 +15,25 @@ level**. Press **TAB** in game to flip between them live:
 | occlusion | 1D z-buffer per column | BSP back-to-front (painter's that is always right) |
 | cost scales with | screen width (480 DDA rays) | visible polygons |
 | collision | grid cells, z = 0 | brush boxes, step-up 20u, gravity |
+| doors | Wolfenstein door cells: ray tested against the panel mid-cell | sliding boxes clipped to the doorway |
+| hidden areas | free: the DDA stops at the first wall/door | sectors behind closed doors skipped by one bitmask test per BSP node |
+| sky / acid | scrolling textures on per-cell ceiling/floor tiles | scrolling, unlit, wrapped textures on any polygon (the sunroof, the pools) |
 
-Controls: WASD move, click to lock the mouse (or arrows) to look, click / Z /
-space to fire, TAB switch renderer, V detail (480x270 / 240x135), H hide stats bar, R restart. 13 grunts, shotgun hitscan,
-health/shell pickups.
+A start menu picks the renderer (up/down + Z, or click; the level spins
+behind it, drawn by the highlighted renderer). Controls: WASD move, click to
+lock the mouse (or arrows) to look, click / Z / space to fire, TAB switch
+renderer, M back to the menu, V detail (480x270 / 240x135), H show/hide the
+renderer stats (hidden by default: only the gameplay HUD shows), G switch
+palette + art set (default 32 colours / custom 64), 1-9 warp to the
+comparison viewpoints, R restart. 22 grunts, shotgun hitscan, health/shell
+pickups.
+
+The level: the original west complex (great hall, arena, courtyard with an
+acid pool, storage) plus an east wing behind **airlocks** - tunnels with a
+sliding door at each end: an **acid works** (two scrolling acid channels,
+bridges, pillars, a pipe gantry) and a **sun atrium** with a sunroof open to
+a scrolling sky. Three airlocks join them, one looping back to the
+courtyard. Doors open when you (or a chasing grunt) come near.
 
 ![raycaster vs true 3D](images/fps-render-lab-compare.png)
 
@@ -41,17 +56,23 @@ tools/fps-lab/map2bsp.py                      -> carts/fps-render-lab.p64/level.
 3. **CSG**: chop every face against every other brush, drop what is buried
 4. **outside fill**: voxelise, flood from `info_player_start`, drop faces
    that look into the void (and stop with `LEAK` if the map isn't sealed)
-5. coplanar faces with the same material are re-merged into big rectangles
-   (2316 -> 372 polygons for this map); each becomes a **surface** whose
-   lightmap is baked from `light` entities (and torches) with voxel shadow
-   rays: one sample every 16u, stored in 1/8ths of a shade level
-6. polygon **BSP** (fewest splits, balanced, axial preferred): 445 polys,
-   246 nodes, depth 12
-7. the raycaster's grid: a cell is a wall if brushes cover the z 30..62 band
-   at its centre; per-side wall textures, per-cell floor/ceiling textures and
-   light; plus collision boxes and entities
+5. **sectors**: `func_door` brushes are doors, not world. The open space is
+   flood-filled again with the doors shut; each connected area is a sector
+   (6 here) and each door records the two sectors it joins
+6. coplanar faces with the same material are re-merged into big rectangles
+   (625 polygons for this map); each becomes a **surface** whose lightmap is
+   baked from `light` entities (and torches) with voxel shadow rays: one
+   sample every 16u, stored in 1/8ths of a shade level. Sky and slime are
+   "turbulent": no lightmap, drawn from their scrolling texture
+7. polygon **BSP**: while a node mixes sectors, planes that separate them win;
+   then fewest splits (heavily weighted), balanced, axial preferred: 656
+   polys, 313 nodes, depth 16. Every node stores the bitmask of sectors in
+   its subtree
+8. the raycaster's grid: a cell is a wall if brushes cover the z 30..62 band
+   at its centre; per-side wall textures, per-cell floor/ceiling textures,
+   light and sector; door cells; plus collision boxes and entities
 
-Run it after editing the map (≈15 s):
+Run it after editing the map (about 2 minutes):
 
 ```sh
 python3 tools/fps-lab/map2bsp.py
@@ -68,12 +89,67 @@ python3 tools/fps-lab/map2bsp.py
    `textures/fpslab/*.png`).
 3. Open `carts/fps-render-lab.map`. Entities: `info_player_start`, `light`,
    `monster_grunt`, `prop_crate`, `prop_barrel`, `prop_torch`,
-   `item_health`, `item_ammo` (see `fpslab.fgd`).
+   `item_health`, `item_ammo`, and the brush entity `func_door` (`angle` =
+   slide direction; it slides its own width into the wall). See
+   `fpslab.fgd`.
+
+Doors that should split the level into sectors must seal their opening (a
+gap around a door makes both sides one sector). Make a door's tunnel one
+grid cell wide with the panel across the middle of a cell so the raycaster
+can treat that cell as a door cell. Sky faces use texture scale 8 (one
+32px tile per 256u).
 
 Keep brushes on the 16u grid where you can: that is what lets the compiler
 merge faces into big rectangles. Collision uses brush **bounding boxes**, so
 keep anything the player can touch axis-aligned (sloped detail up high, like
 the hall's braces, is fine).
+
+## Sectors and doors
+
+Each frame the true-3D renderer floods the **visible sector set** out from
+the player's sector through every door that is open *and* inside the view
+frustum. A BSP node whose sector bitmask misses that set is skipped with
+its whole subtree (its objects too), so a sector behind a closed airlock
+costs one test. Standing in an airlock with both doors shut the view drops
+to ~35k Lua instructions (vs ~110k in the great hall).
+
+Doors are shared by both renderers and both physics models:
+`world.lua` animates them (open when the player or a chasing grunt is
+near, stay open while anyone stands in the doorway), moves a collision box
+for the 3D physics and makes the door cell solid for the grid physics
+until it is 70% open. The raycaster treats a door cell like Wolfenstein:
+the ray is tested against the panel half a cell in and passes the part
+that has slid away; the BSP draws the panel as a box clipped to the
+doorway, so it never overlaps the wall it slides into.
+
+## Palettes: default 32 vs custom 64 (G)
+
+Picotron has 32 colours by default and can define 64. The cart carries two
+art sets and switches between them with **G**: Picotron's default 32-colour
+palette (`sprites/`) and a custom 64-colour palette
+(`sprites/pal64/`, sprite index + 64, palette in `sprites/pal64/palette.hex`).
+
+Shading works for any palette because it no longer uses palette ramps:
+
+* a texel is `colour + 64 * light level` (levels 0..3)
+* the read mask (`0x5508 = 0xff`) makes those top bits select one of
+  Picotron's 4 colour tables; table k maps every colour to the palette
+  colour nearest to it at `SHADE[k]` brightness (`gfx.lua`)
+* distance fog swaps all 4 tables for ones shifted f levels darker (a 16k
+  poke). Polygons keep the current fog level near a boundary and objects
+  draw relative to the current level, so a frame does ~8 swaps, not ~18
+* HUD/menu colours are PICO-8 numbers mapped to the nearest colour of the
+  active palette (`UI[c]`)
+
+`tools/fps-lab/gen_art.py` designs everything once with smooth ramps and
+smooth shading, then quantises it (ordered dither on the in-between
+colours) into both palettes. `tools/picotron/png2gfx.lua` switches the
+display palette to a folder's `palette.hex` while it reads that folder's
+PNGs, so both sets bake to the right indices. To try another palette,
+replace the colours in `palette.hex`, `PALETTES` in `gfx.lua`, `PAL64` in
+`gen_art.py` / `screenshots.py`, and rerun `gen_art.py`.
+
+![both art sets](images/fps-render-lab-art.png)
 
 ## Picotron techniques used (the "maximum optimisation" list)
 
@@ -93,10 +169,14 @@ the hall's braces, is fine).
   added as `16*level`. So the 4 palette ramps fade smoothly instead of
   stepping in 16u squares. Lighting then costs *nothing* per frame and
   doesn't split geometry.
-- **Palette light ramps**: colours 16..63 are 3 darker copies of 0..15, so
-  "darker by k" is just `+16*k`. Distance fog on world polygons swaps a
-  pre-built colour table 0 (one 4 KB `poke`) instead of 48 `pal()` calls;
-  sprites use pre-shaded copies so shading can vary *inside* a batch call.
+- **Colour-table light levels**: "darker by k" is just `+64*k` on a texel
+  (the top bits pick a colour table, see "Palettes"). Distance fog on world
+  polygons swaps the 4 tables (one 16k `poke`) instead of per-colour `pal()`
+  calls; sprites use pre-shaded copies so shading can vary *inside* a batch
+  call.
+- **Scrolling sky/acid**: 4 wrapping `blit`s per shade variant per frame
+  scroll the textures in place; the raycaster's floor/ceiling maps and the
+  BSP's wrapped (`0x5534` loop mask) turbulent polygons both pick it up.
 - **Map-mode `tline3d` for raycaster floors/ceilings**: each screen row is a
   line of constant depth, drawn from an i16 map of pre-shaded tiles, so
   every cell gets its own floor texture and wrapping is free.
@@ -139,10 +219,30 @@ comes from `stat(7)` and `time()` (666 ms = 60 fps, 1333 ms = 30 fps):
 | 480x270, first pass | 20-30 fps | 30 fps (arena ~37) |
 | 240x135, first pass | 60 in 3 of 6 poses, else 30 | 60 in 4 of 6 poses, else 30 |
 | **480x270, second pass** | **30 fps in all 6 poses** | **60 fps in 4 of 6, 30 in hall + corridor** |
-| **240x135, second pass** | **60 fps in all 6 poses** | **60 fps in all 6 poses** |
+| 240x135, second pass | 60 fps in all 6 poses | 60 fps in all 6 poses |
+| **480x270, bigger level** (9 poses) | **30 fps in all 9** | **60 in airlock + atrium, else 30** |
+| **240x135, bigger level** (9 poses) | **60 fps in all 9** | **60 in 5 of 9 (airlock, arena, atrium, courtyard, hall up), hall ~45, 30 in acid works, corridor, storage** |
 
 Those runs lined up with the mock: frames under ~130k mock instructions
 (`_update` + `_draw`, 240x135) held 60 fps, frames above it dropped to 30.
+
+### Third pass: the bigger level
+
+The east wing roughly doubled the level (625 surfaces, 22 grunts, 82
+things). What it cost and what bought it back, in mock instructions per
+frame in the great hall at 240x135:
+
+- grunts: each move scanned every solid prop -> props live in a 128u bucket
+  grid (`_update` 32k -> 12k)
+- colour-table fog: each switch now copies 16k (4 tables) -> hysteresis on
+  polygon fog and fog-relative object shading (18 -> 8 switches a frame;
+  that was the difference between 30 and 60 fps in the courtyard)
+- the BSP: tunnel planes split the hall into more fragments -> splits
+  weighted 14 instead of 6 and sector-separating planes first (draw 125k
+  -> 106k)
+- the raycaster: ~90 things to sort -> only sprites on screen and not
+  behind a wall at their left, centre and right column are sorted
+- sectors: in the new areas, everything behind closed doors is skipped
 
 ### Second pass
 
@@ -188,18 +288,22 @@ mock models the 0xc0 bits.
 ## Verification without Picotron
 
 `tools/fps-lab/mock/picomock.lua` implements (in plain Lua 5.4) the Picotron
-APIs the cart uses - userdata ops with offsets/strides/spans, `matmul3d`,
-`sort`, `peek`/`poke`, `blit`, batched and map-mode `tline3d`, `sspr`,
-colour table 0 - and `mock/run.lua` runs the unmodified cart through it.
+APIs the cart uses - userdata ops with offsets/strides/spans, `lerp`,
+`convert`, `matmul3d`, `sort`, `peek`/`poke`/`poke2`, `blit`, batched and
+map-mode `tline3d`, `sspr`, the 4 colour tables selected by the read mask -
+and `mock/run.lua` runs the unmodified cart through it. `screenshots.py`
+shoots every pose in both renderers (and two poses in the 64-colour set).
 
 ```sh
 sudo apt-get install lua5.4 && pip install pillow numpy
 python3 tools/fps-lab/screenshots.py /tmp/shots   # compare.png + report.tsv
 ```
 
-Things the mock cannot prove and the first real run should confirm:
-`tline3d` edge rules / sub-pixel seams, the colour-table layout assumption
-(the fog tables only remap *values*, so any layout works), and real speed.
+Things the mock cannot prove: `tline3d` edge rules / sub-pixel seams and
+real speed (the headless benchmark and the browser smoke test cover those).
+The colour-table layout was read back from real Picotron 0.3:
+`0x8000 + table * 0x1000 + draw_colour * 64 + target_colour`, colour-0 rows
+pass the target through, opaque entries carry the 0xc0 bits.
 
 ## Files
 
@@ -207,18 +311,21 @@ Things the mock cannot prove and the first real run should confirm:
 carts/fps-render-lab.map            level source (TrenchBroom)
 carts/fps-render-lab.png            gallery thumbnail
 carts/fps-render-lab.p64/
-  main.lua    game: player, monsters, shotgun, pickups, HUD, TAB switch
-  gfx.lua     palette ramps, shaded sprites, surface cache, fog tables, textri
+  main.lua    game: menu, player, monsters, shotgun, pickups, HUD, keys
+  gfx.lua     palettes, light/fog colour tables, shaded sprites, surface
+              cache, scrolling textures, fill_poly
   ray.lua     raycaster
   bsp.lua     BSP renderer + mesh/billboard objects
-  world.lua   collision (grid + boxes), line of sight
+  world.lua   collision (grid + boxes), doors, sectors, line of sight
   props.lua   crate / barrel / torch meshes
   level.lua   GENERATED by map2bsp.py
-  sprites/    GENERATED by gen_art.py (hand-editable, index = filename)
+  sprites/    GENERATED by gen_art.py (hand-editable, index = filename):
+              default-32 set; sprites/pal64/ = custom-64 set (+64)
 tools/fps-lab/
   gen_level.py  seed .map (already run - edit the .map now)
-  map2bsp.py    compiler
-  gen_art.py    textures, monsters, props, weapon (+ --sheet contact sheet)
+  map2bsp.py    compiler (CSG, lightmaps, sectors, doors, BSP, grid)
+  gen_art.py    textures, monsters, props, weapon in both palettes
+                (+ --sheet contact sheet)
   screenshots.py, mock/   headless verification
   trenchbroom/  TrenchBroom game config, FGD, materials
 ```

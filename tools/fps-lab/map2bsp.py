@@ -25,6 +25,11 @@ Pipeline (the same stages as id's qbsp/light, scaled down):
   6. build a polygon BSP (splitter = fewest cuts, balanced, axial preferred)
   7. raycaster grid (solid if brushes cover the eye band), per-side wall
      textures, per-cell light; collision boxes; entities
+  8. sectors: func_door brushes are moving doors, not world. Flood the open
+     space with the doors shut -> connected areas = sectors; every polygon,
+     BSP node (subtree bitmask) and grid cell is tagged, and every door knows
+     the two sectors it joins, so the cart can skip whole sectors that are
+     behind closed doors
 """
 import math
 import os
@@ -42,12 +47,15 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, "..", "..")
 NODRAW = {"skip", "clip", "nodraw", "trigger", "hint"}
 FULLBRIGHT = ("sky", "slime", "lava")
+TURB = ("sky", "slime")    # drawn from the animated (scrolling) texture, not the surface cache
 
 # Texture names -> index into the cart's texture table. Keep in sync with
 # TEXTURES in tools/fps-lab/gen_art.py (the art generator writes the sprites).
+# (list index == sprite index; "_" entries are slots other sprites use)
 TEXTURES = ["stone", "brick", "metal", "wood_wall", "stone_moss", "floor_stone",
             "floor_tile", "floor_metal", "cobble", "floor_wood", "ceil_wood",
-            "ceil_panel", "sky", "slime", "trim", "step", "pillar"]
+            "ceil_panel", "sky", "slime", "trim", "step", "pillar",
+            "_crate_face", "_barrel_side", "_barrel_top", "door", "hazard"]
 
 
 # ------------------------------------------------------------------ parse --
@@ -323,6 +331,43 @@ class Voxels:
                     q.append(n)
         self.reach = reach
 
+    def label_sectors(self, door_brushes):
+        """Connected open space with the doors closed. -> number of sectors;
+        self.sec[x,y,z] = sector id (1-based) or 0 (solid / door / void)."""
+        shut = np.zeros(self.dim, bool)
+        for b in door_brushes:
+            lo = np.clip(((b.mins - self.org) / self.res).astype(int), 0, self.dim - 1)
+            hi = np.clip(np.ceil((b.maxs - self.org) / self.res).astype(int), 0, self.dim)
+            shut[lo[0]:hi[0], lo[1]:hi[1], lo[2]:hi[2]] = True
+        free = self.reach & ~shut
+        sec = np.zeros(self.dim, np.int16)
+        n = 0
+        for s in map(tuple, np.argwhere(free)):
+            if sec[s]:
+                continue
+            n += 1
+            sec[s] = n
+            q = deque([s])
+            while q:
+                x, y, z = q.popleft()
+                for dx, dy, dz in ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)):
+                    m = (x + dx, y + dy, z + dz)
+                    if free[m] and not sec[m]:
+                        sec[m] = n
+                        q.append(m)
+        self.sec = sec
+        return n
+
+    def sector_at(self, p, n=None):
+        """sector at a point; nudged along n (or around) if it lands in solid"""
+        tries = [np.zeros(3)] + ([n * k for k in (4, 10, 18)] if n is not None else []) + \
+            [np.array(v, float) for v in ((8, 0, 0), (-8, 0, 0), (0, 8, 0), (0, -8, 0), (0, 0, 8), (0, 0, -8))]
+        for d in tries:
+            i = self.idx(np.asarray(p) + d)
+            if self.ok(i) and self.sec[i]:
+                return int(self.sec[i])
+        return 0
+
     def is_open(self, p):
         i = self.idx(p)
         return self.ok(i) and bool(self.reach[i])
@@ -457,12 +502,14 @@ class Surface:
         self.w = max(1, int(math.ceil(uv[:, 0].max() - 1e-6)) - self.u0)
         self.h = max(1, int(math.ceil(uv[:, 1].max() - 1e-6)) - self.v0)
         self.name, self.s, self.so, self.t, self.to = name, s, so, t, to
+        self.turb = name in TURB
+        self.sector = 0
         # light samples on a LUXEL grid of texel positions (clamped to the
         # last texel); the cart lerps between them and dithers the fraction
         xs = list(range(0, self.w - 1, LUXEL)) + [self.w - 1]
         ys = list(range(0, self.h - 1, LUXEL)) + [self.h - 1]
         self.lw, self.lh = len(xs), len(ys)
-        if name.startswith(FULLBRIGHT):
+        if name.startswith(FULLBRIGHT) or self.turb:
             self.lights = ""
             return
         LU, LV = np.meshgrid(self.u0 + np.array(xs) + 0.5, self.v0 + np.array(ys) + 0.5)
@@ -478,10 +525,10 @@ class Surface:
 
 # --------------------------------------------------------------------- bsp --
 class Poly:
-    __slots__ = ("pts", "n", "d", "tex", "surf")
+    __slots__ = ("pts", "n", "d", "tex", "surf", "sec")
 
-    def __init__(self, pts, n, d, tex, surf):
-        self.pts, self.n, self.d, self.tex, self.surf = pts, n, d, tex, surf
+    def __init__(self, pts, n, d, tex, surf, sec=0):
+        self.pts, self.n, self.d, self.tex, self.surf, self.sec = pts, n, d, tex, surf, sec
 
 
 def classify(poly, n, d):
@@ -511,16 +558,24 @@ def build_bsp(polys, depth=0):
     if len(planes) > 48:
         step = len(planes) / 48.0
         planes = [planes[int(k * step)] for k in range(48)]
+    # sectors first: while a node still mixes sectors, strongly prefer planes
+    # that put different sectors on different sides, so each sector ends up
+    # in its own subtree (whose node mask then culls it in one test)
+    mixed = len({p.sec for p in polys}) > 1
     best, bestscore = None, None
     for n, d in planes:
         f = b = s = 0
+        fs, bs = set(), set()
         for p in polys:
             c = classify(p, n, d)
-            if c == 1: f += 1
-            elif c == -1: b += 1
-            elif c == 2: s += 1
+            if c == 1: f += 1; fs.add(p.sec)
+            elif c == -1: b += 1; bs.add(p.sec)
+            elif c == 2: s += 1; fs.add(p.sec); bs.add(p.sec)
+            else: fs.add(p.sec)
         axial = 1 if np.max(np.abs(n)) > 0.999 else 0
-        score = s * 6 + abs(f - b) - axial * 2
+        score = s * 14 + abs(f - b) - axial * 2
+        if mixed:
+            score += 60 * len(fs & bs) - (200 if fs and bs and not (fs & bs) else 0)
         if bestscore is None or score < bestscore:
             best, bestscore = (n, d), score
     n, d = best
@@ -537,9 +592,9 @@ def build_bsp(polys, depth=0):
         else:
             f, b = split(p.pts, n, d)
             if f is not None and poly_area(f) > 0.05:
-                fl.append(Poly(f, p.n, p.d, p.tex, p.surf))
+                fl.append(Poly(f, p.n, p.d, p.tex, p.surf, p.sec))
             if b is not None and poly_area(b) > 0.05:
-                bl.append(Poly(b, p.n, p.d, p.tex, p.surf))
+                bl.append(Poly(b, p.n, p.d, p.tex, p.surf, p.sec))
     node.front = build_bsp(fl, depth + 1)
     node.back = build_bsp(bl, depth + 1)
     return node
@@ -556,8 +611,12 @@ def main():
     dst = sys.argv[2] if len(sys.argv) > 2 else os.path.join(ROOT, "carts", "fps-render-lab.p64", "level.lua")
     ents = parse_map(src)
     world = ents[0]
-    brushes = []
+    brushes, door_ents = [], []
     for e in ents:
+        if e["props"].get("classname") == "func_door":
+            for bf in e["brushes"]:
+                door_ents.append((e["props"], Brush(bf, -1)))
+            continue
         for bf in e["brushes"]:
             brushes.append(Brush(bf, len(brushes)))
     ambient = float(world["props"].get("_ambient", 20))
@@ -590,6 +649,10 @@ def main():
     vox.flood(start + np.array([0, 0, 8]))
     faces = [f for f in faces if vox.is_open(centroid(f[0]) + f[1] * 6)]
     print(f"outside fill: {len(faces)} faces face the playable space")
+    nsec = vox.label_sectors([b for _, b in door_ents])
+    if nsec > 62:
+        raise SystemExit(f"{nsec} sectors: the cart's sector bitmasks hold at most 62")
+    print(f"sectors: {nsec} (with {len(door_ents)} doors shut)")
 
     groups = {}
     for f in faces:
@@ -601,8 +664,10 @@ def main():
     for g in groups.values():
         poly, n, d, name, ti = g[0]
         for pc in rect_merge(g):
-            surfs.append(Surface(pc, n, d, name, ti, lights, ambient, vox))
-            polys.append(Poly(pc, n, d, name, len(surfs) - 1))
+            sf = Surface(pc, n, d, name, ti, lights, ambient, vox)
+            sf.sector = vox.sector_at(centroid(pc) + n * 2, n)
+            surfs.append(sf)
+            polys.append(Poly(pc, n, d, name, len(surfs) - 1, sf.sector))
     texels = sum(sf.w * sf.h for sf in surfs)
     print(f"surfaces: {len(polys)} merged polygons, {texels} cached texels, {sum(sf.lw * sf.lh for sf in surfs)} luxels")
 
@@ -629,6 +694,7 @@ def main():
         rec = {"poly": []}
         out_nodes.append(rec)
         mins, maxs = np.full(3, 1e9), np.full(3, -1e9)
+        mask = 0
         for p in node.polys:
             sf = surfs[p.surf]
             if p.tex not in tex_ids:
@@ -639,7 +705,12 @@ def main():
             vs = []
             for q in p.pts:
                 u, v = sf.uv(q)
-                vs.append((vid(q), min(max(u, 0.02), sf.w - 0.02), min(max(v, 0.02), sf.h - 0.02)))
+                if sf.turb:          # absolute texel coords: the cart wraps the 32x32 texture
+                    vs.append((vid(q), u + sf.u0 % TEX_PX, v + sf.v0 % TEX_PX))
+                else:
+                    vs.append((vid(q), min(max(u, 0.02), sf.w - 0.02), min(max(v, 0.02), sf.h - 0.02)))
+            # sector 0 (e.g. a door frame face looking into the door slot): always drawn
+            mask |= (1 << (sf.sector - 1)) if sf.sector else -1
             out_polys.append((p.surf + 1, same, c, vs))
             P = np.array(p.pts)
             mins = np.minimum(mins, P.min(axis=0)); maxs = np.maximum(maxs, P.max(axis=0))
@@ -650,7 +721,8 @@ def main():
             if ch:
                 cm, cx = out_nodes[ch - 1]["mins"], out_nodes[ch - 1]["maxs"]
                 mins = np.minimum(mins, cm); maxs = np.maximum(maxs, cx)
-        rec["mins"], rec["maxs"] = mins, maxs
+                mask |= out_nodes[ch - 1]["mask"]
+        rec["mins"], rec["maxs"], rec["mask"] = mins, maxs, mask
         return me
     emit(root)
     if missing:
@@ -700,12 +772,32 @@ def main():
             z += dz
         return tex_ids["sky"] if dz > 0 else tex_ids["stone"]
 
-    cells, cell_tex, cell_light, floor_tex, ceil_tex = [], [], [], [], []
+    # ---- doors: closed panel box, slide direction/travel, the sectors it joins
+    doors, door_cell = [], {}
+    for props, b in door_ents:
+        ang = math.radians(float(props.get("angle", 0)))
+        sd = np.array([round(math.cos(ang)), round(math.sin(ang)), 0.0])
+        size = b.maxs - b.mins
+        travel = float(abs(np.dot(size, sd)))
+        ax = np.array([abs(sd[1]), abs(sd[0]), 0.0])          # tunnel axis (through the panel)
+        c = (b.mins + b.maxs) / 2
+        mid = np.array([c[0], c[1], b.mins[2] + 40])
+        sa = vox.sector_at(mid - ax * (size @ ax / 2 + 12))
+        sb = vox.sector_at(mid + ax * (size @ ax / 2 + 12))
+        if not sa or not sb or sa == sb:
+            print(f"WARNING: door at {c} joins sectors {sa} and {sb}")
+        gxc, gyc = int(math.floor(c[0] / 64)) - gx0, int(math.floor(c[1] / 64)) - gy0
+        tex = min(b.textures, key=lambda t: t != "door")
+        doors.append((b.mins, b.maxs, sd, travel, tex_ids.get(tex, 0), sa, sb, gyc * GW + gxc + 1))
+        door_cell[(gxc, gyc)] = len(doors)
+
+    cells, cell_tex, cell_light, floor_tex, ceil_tex, cell_sec = [], [], [], [], [], []
     for gy in range(GH):
         for gx in range(GW):
             cx, cy = (gx0 + gx) * 64 + 32, (gy0 + gy) * 64 + 32
             solid = all(solid_at(cx, cy, z) is not None for z in band)
-            cells.append(1 if solid else 0)
+            cells.append(1 if solid else (2 if (gx, gy) in door_cell else 0))
+            cell_sec.append(0 if solid else vox.sector_at(np.array([cx, cy, 48.0])))
             if solid:
                 cell_tex.append([side_tex(cx + 30, cy, np.array([1, 0, 0])), side_tex(cx - 30, cy, np.array([-1, 0, 0])),
                                  side_tex(cx, cy + 30, np.array([0, 1, 0])), side_tex(cx, cy - 30, np.array([0, -1, 0]))])
@@ -744,25 +836,32 @@ def main():
     # surfaces: texture, texel origin (for tiling phase), size, lightmap
     sl = []
     for sf in surfs:
-        sl.append('{%d,%d,%d,%d,%d,%d,%d,"%s"}' % (tex_ids.get(sf.name, 0), sf.u0 % TEX_PX, sf.v0 % TEX_PX,
-                                                   sf.w, sf.h, sf.lw, sf.lh, sf.lights))
+        sl.append('{%d,%d,%d,%d,%d,%d,%d,"%s",%d,%d}' % (tex_ids.get(sf.name, 0), sf.u0 % TEX_PX, sf.v0 % TEX_PX,
+                                                         sf.w, sf.h, sf.lw, sf.lh, sf.lights,
+                                                         1 if sf.turb else 0, sf.sector))
     L.append("luxel=%d,lsub=%d," % (LUXEL, LIGHT_SUB))
     L.append("surfs={\n%s}," % ",\n".join(sl))
     nl = []
     for r in out_nodes:
         n = r["n"]
-        nl.append("{%s,%s,%s,%s,%d,%d,{%s},%s,%s,%s,%s,%s,%s}" % (
+        nl.append("{%s,%s,%s,%s,%d,%d,{%s},%s,%s,%s,%s,%s,%s,%d}" % (
             fmt(round(n[0], 6)) if abs(n[0]) in (0, 1) else "%.6f" % n[0],
             fmt(round(n[1], 6)) if abs(n[1]) in (0, 1) else "%.6f" % n[1],
             fmt(round(n[2], 6)) if abs(n[2]) in (0, 1) else "%.6f" % n[2],
             "%.3f" % r["d"], r["front"], r["back"], ",".join(str(i) for i in r["poly"]),
             fmt(r["mins"][0]), fmt(r["mins"][1]), fmt(r["mins"][2]),
-            fmt(r["maxs"][0]), fmt(r["maxs"][1]), fmt(r["maxs"][2])))
+            fmt(r["maxs"][0]), fmt(r["maxs"][1]), fmt(r["maxs"][2]), r["mask"]))
     L.append("nodes={\n%s}," % ",\n".join(nl))
-    L.append("grid={w=%d,h=%d,x0=%d,y0=%d,cells={%s},tex={%s},light={%s},floor={%s},ceil={%s}}," % (
+    L.append("grid={w=%d,h=%d,x0=%d,y0=%d,cells={%s},tex={%s},light={%s},floor={%s},ceil={%s},sec={%s}}," % (
         GW, GH, gx0 * 64, gy0 * 64, ",".join(map(str, cells)),
         ",".join("{%d,%d,%d,%d}" % tuple(t) if t else "false" for t in cell_tex),
-        ",".join(map(str, cell_light)), ",".join(map(str, floor_tex)), ",".join(map(str, ceil_tex))))
+        ",".join(map(str, cell_light)), ",".join(map(str, floor_tex)), ",".join(map(str, ceil_tex)),
+        ",".join(map(str, cell_sec))))
+    # doors: closed box, slide dir x/y, travel, texture, sectors a/b, grid cell index
+    L.append("sectors=%d," % nsec)
+    L.append("doors={%s}," % ",".join("{%s,%s,%s,%s,%s,%s,%d,%d,%s,%d,%d,%d,%d}" % (
+        fmt(lo[0]), fmt(lo[1]), fmt(lo[2]), fmt(hi[0]), fmt(hi[1]), fmt(hi[2]), int(sd[0]), int(sd[1]),
+        fmt(tr), tx, sa, sb, ci) for lo, hi, sd, tr, tx, sa, sb, ci in doors))
     L.append("boxes={%s}," % ",".join("%s,%s,%s,%s,%s,%s" % (fmt(lo[0]), fmt(lo[1]), fmt(lo[2]), fmt(hi[0]), fmt(hi[1]), fmt(hi[2])) for lo, hi in boxes))
     tl = []
     for cls, o, ang in things:

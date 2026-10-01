@@ -15,7 +15,8 @@
 	A menu picks the renderer at start (up/down + Z, or click); M returns to it.
 	Controls: WASD move, mouse (click to lock) or arrows look, click / Z /
 	space to fire, TAB switch renderer, V detail (480x270 / 240x135),
-	H show/hide the renderer stats, R restart.
+	H show/hide the renderer stats, G switch palette + art set (default 32
+	colours / custom 64), 1-9 warp to the comparison viewpoints, R restart.
 ]]
 
 include("level.lua")
@@ -45,6 +46,7 @@ local SND = {
 	hurt   = {{0, 8, 40, 2, 56}},
 	pickup = {{0, 4, 72, 6, 40}, {4, 6, 79, 6, 40}},
 	die    = {{0, 14, 34, 5, 56}},
+	door   = {{0, 22, 26, 3, 40}, {8, 10, 31, 3, 28}},
 }
 local snd_ch = 8
 function snd(name)
@@ -83,6 +85,7 @@ local function spawn(cls, x, y, z, ang)
 	local t = {cls = cls, x = x, y = y, z = 0, yaw = ang / 360, hp = k.hp, st = "idle", tm = 0, slot = #things}
 	for key, v in pairs(k) do t[key] = v end
 	t.base_spr = k.spr
+	if not k.hp then t.sec = grid_sector(x, y) end     -- static: sector never changes
 	t.mesh_def = k.mesh and MESHES[k.mesh]
 	t.z3 = floor_at(x, y, 4, z + 64)
 	if t.z3 < -1000 then t.z3 = 0 end
@@ -103,8 +106,10 @@ function reset_game()
 			spawn(cls, x, y, z, ang)
 		end
 	end
+	solids_index()
 	msg, msg_t = "", 0
 	won = false
+	for d in all(DOORS) do d.open, d.hold, d.mon = 0, 0, false end
 end
 
 -- renderer/debug notices: only shown with the stats bar on (H)
@@ -116,7 +121,9 @@ end
 -- FULL renders at 480x270; HALF uses vid(3) (240x135, doubled by the
 -- display) which quarters the fill and halves raycaster columns / BSP
 -- scanlines. AUTO starts FULL and drops to HALF if Picotron has to run
--- _draw below 60fps for ~2 seconds; V toggles by hand (and ends AUTO).
+-- _draw below 60fps for ~2 seconds on the menu (which renders the level
+-- live); never mid-game, because vid() drops the key being pressed. V
+-- toggles by hand (and ends AUTO).
 detail_half, detail_auto = false, true
 show_stats = false       -- H shows the renderer stats bar (off: gameplay HUD only)
 in_menu, menu_sel = true, MODE_BSP
@@ -136,7 +143,7 @@ local function update_detail()
 		info(detail_half and "detail: 240x135" or "detail: 480x270", 90)
 		return
 	end
-	if detail_auto and not detail_half and stat then
+	if detail_auto and in_menu and not detail_half and stat then
 		if (stat(7) or 60) < 60 then slow_frames = slow_frames + 1 else slow_frames = 0 end
 		if slow_frames > 120 then
 			set_detail(true)
@@ -155,13 +162,31 @@ function _init()
 end
 
 -- ------------------------------------------------------------- physics ---
--- solid props never move, so they live in their own short list (solids)
-local function prop_block(x, y, r, self)
+-- solid props never move, so they live in a 128u bucket grid (solid_bk)
+local SBK = 128
+local solid_bk = {}
+function solids_index()
+	solid_bk = {}
 	for t in all(solids) do
-		if t.solid and t ~= self then
-			local dx, dy = x - t.x, y - t.y
-			local rr = r + t.r
-			if dx * dx + dy * dy < rr * rr then return true end
+		local k = flr(t.y / SBK) * 4096 + flr(t.x / SBK)
+		solid_bk[k] = solid_bk[k] or {}
+		add(solid_bk[k], t)
+	end
+end
+local function prop_block(x, y, r, self)
+	local rr0 = r + 18                         -- 18 = largest prop radius
+	for by = flr((y - rr0) / SBK), flr((y + rr0) / SBK) do
+		for bx = flr((x - rr0) / SBK), flr((x + rr0) / SBK) do
+			local l = solid_bk[by * 4096 + bx]
+			if l then
+				for t in all(l) do
+					if t.solid and t ~= self then
+						local dx, dy = x - t.x, y - t.y
+						local rr = r + t.r
+						if dx * dx + dy * dy < rr * rr then return true end
+					end
+				end
+			end
 		end
 	end
 	return false
@@ -319,6 +344,41 @@ local function update_fireball(t)
 	end
 end
 
+-- 1-9: warp to the viewpoints tools/fps-lab (screenshots, bench) compare
+local WARPS = {  -- grid col, row (row 0 = north), yaw, pitch
+	{6, 9.4, 0.25, 0}, {18.6, 11.4, 0.13, 0.02}, {12.5, 5.5, 0, 0},
+	{6.5, 15.2, 0.75, 0.03}, {18.8, 20.5, 0.04, 0}, {26.5, 20, 0, 0},
+	{37.2, 21.6, 0.07, -0.03}, {43, 6.4, 0.25, 0.05}, {31.6, 4, 0.5, 0},
+}
+local function warp_keys()
+	for i, w in ipairs(WARPS) do
+		if keyp(tostring(i)) then
+			player.x, player.y = w[1] * CELL + CELL / 2, (LEVEL.grid.h - 1 - w[2]) * CELL + CELL / 2 + LEVEL.grid.y0
+			player.x = player.x + LEVEL.grid.x0
+			player.yaw, player.pitch = w[3], w[4]
+			settle_player()
+		end
+	end
+end
+
+-- G: swap palette + art set, then rebuild everything that bakes colours.
+-- The rebuild (surface cache) takes a few seconds, so the request shows a
+-- notice for a frame first and the work happens on the next update.
+local pal_pending = false              -- false / "asked" / "shown"
+function switch_palette()
+	pal_pending = "asked"
+end
+local function do_switch_palette()
+	gfx_set_palette(3 - pal_set)
+	surf_texels = build_surfaces()
+	msg, msg_t = "palette: " .. PALETTES[pal_set].name, 120
+end
+
+local function door_moved(d)
+	local dx, dy = player.x - d.cx, player.y - d.cy
+	if dx * dx + dy * dy < 500 * 500 then snd("door") end
+end
+
 -- ---------------------------------------------------------------- menu ---
 -- pick the renderer; the level spins slowly behind, drawn by the one selected
 local MENU_ITEMS = {
@@ -336,6 +396,7 @@ function update_menu()
 	if keyp("up") or keyp("w") or btnp(2) then menu_sel = MODE_RAY end
 	if keyp("down") or keyp("s") or btnp(3) then menu_sel = MODE_BSP end
 	if keyp("h") then show_stats = not show_stats end
+	if keyp("g") then switch_palette() end
 	local start = keyp("z") or keyp("space") or keyp("enter") or btnp(4) or btnp(5)
 	local mx, my, mb = mouse()
 	for i, it in ipairs(MENU_ITEMS) do
@@ -359,19 +420,24 @@ local function draw_menu()
 	for i, it in ipairs(MENU_ITEMS) do
 		local x, y, w, h = menu_box(i)
 		local on = menu_sel == it[1]
-		rectfill(x, y, x + w - 1, y + h - 1, on and 1 or 0)
-		rect(x, y, x + w - 1, y + h - 1, on and 10 or 5)
-		print(it[2], x + 8, y + 5, on and 7 or 6)
-		print(it[3], x + 8, y + h - 12, on and 12 or 5)
+		rectfill(x, y, x + w - 1, y + h - 1, UI[on and 1 or 0])
+		rect(x, y, x + w - 1, y + h - 1, UI[on and 10 or 5])
+		print(it[2], x + 8, y + 5, UI[on and 7 or 6])
+		print(it[3], x + 8, y + h - 12, UI[on and 12 or 5])
 	end
 	local _, y, _, h = menu_box(2)
-	print("up/down + Z or click", CX - 50, y + h + 8, 6)
+	print("up/down + Z or click", CX - 50, y + h + 8, UI[6])
 end
 
 -- -------------------------------------------------------------- update ---
 function _update()
 	frame = frame + 1
+	if pal_pending then
+		if pal_pending == "shown" then pal_pending = false; do_switch_palette() end
+		return
+	end
 	snd_update()
+	anim_update(frame)
 	if msg_t > 0 then msg_t = msg_t - 1 end
 	update_detail()
 	if in_menu then update_menu() return end
@@ -387,6 +453,8 @@ function _update()
 	end
 	if keyp("r") then reset_game() end
 	if keyp("h") then show_stats = not show_stats end
+	if keyp("g") then switch_palette() end
+	warp_keys()
 	if player.hp <= 0 then
 		if btnp(4) or btnp(5) then reset_game() end
 		return
@@ -420,6 +488,7 @@ function _update()
 	move_body(player, (fx * f + rx * s) * sp, (fy * f + ry * s) * sp, RADIUS)
 	if f ~= 0 or s ~= 0 then bob = bob + 0.035 end
 
+	doors_update(player, things, frame, door_moved)
 	if (mb & 1 == 1 and locked) or key("z") or key("space") or btn(4) then fire() end
 	if fire_cd > 0 then fire_cd = fire_cd - 1 end
 	if flash > 0 then flash = flash - 1 end
@@ -486,11 +555,19 @@ local function draw_list()
 		if mode == MODE_BSP and t.mesh_def then
 			local torch = t.cls == "prop_torch"
 			local anim = flr(frame / 8 + t.x) % 2
-			add(l, {x = t.x, y = t.y, z = t.z, yaw = t.yaw, mesh = t.mesh_def, h = torch and 24 or t.h,
-				spr = torch and (44 + anim) or nil,
-				w = 16, sw = 16, sh = 24, bb_z = 44, fullbright = t.fullbright,
-				-- far away the mesh is swapped for the raycaster's billboard (LOD)
-				lod_spr = torch and (42 + anim) or t.base_spr, lod_w = t.w, lod_h = t.h, lod_sw = t.sw, lod_sh = t.sh})
+			local o = t._dl
+			if not o then
+				o = {mesh = t.mesh_def, yaw = t.yaw, h = torch and 24 or t.h,
+					w = 16, sw = 16, sh = 24, bb_z = 44, fullbright = t.fullbright,
+					-- far away the mesh is swapped for the raycaster's billboard (LOD)
+					lod_w = t.w, lod_h = t.h, lod_sw = t.sw, lod_sh = t.sh}
+				o.sec = grid_sector(t.x, t.y)            -- props never move
+				t._dl = o
+			end
+			o.x, o.y, o.z = t.x, t.y, t.z
+			o.spr = torch and (44 + anim) or nil
+			o.lod_spr = torch and (42 + anim) or t.base_spr
+			add(l, o)
 		else
 			if t.cls == "prop_torch" then t.spr = 42 + flr(frame / 8 + t.x) % 2 end
 			add(l, t)
@@ -503,6 +580,13 @@ local function draw_list()
 end
 
 function _draw()
+	if pal_pending then
+		local t = "switching palette..."
+		rectfill(CX - 50, CY - 8, CX + 50, CY + 8, UI[1])
+		print(t, CX - #t * 2.5, CY - 3, UI[7])
+		pal_pending = "shown"
+		return
+	end
 	cls(0)
 	local cam = camera_state()
 	local list = draw_list()
@@ -521,40 +605,40 @@ function _draw()
 	-- weapon + crosshair
 	local wb = flr(sin(bob * 0.5) * 3 + abs(cos(bob * 0.5)) * 2) + (fire_cd > 18 and 4 or 0)
 	if detail_half then
-		sspr(flash > 0 and 49 or 48, 0, 0, 96, 64, CX - 24, SH - 32 + flr(wb / 2), 48, 32)
+		sspr(VAR_BASE + (flash > 0 and 49 or 48) * 4, 0, 0, 96, 64, CX - 24, SH - 32 + flr(wb / 2), 48, 32)
 	else
-		spr(flash > 0 and 49 or 48, CX - 48, SH - 64 + wb)
+		spr(VAR_BASE + (flash > 0 and 49 or 48) * 4, CX - 48, SH - 64 + wb)
 	end
-	pset(CX, CY, 7); pset(CX - 3, CY, 6); pset(CX + 3, CY, 6); pset(CX, CY - 3, 6); pset(CX, CY + 3, 6)
-	if player.hp <= 0 then rectfill(0, 0, SW, SH, 8) end
+	pset(CX, CY, UI[7]); pset(CX - 3, CY, UI[6]); pset(CX + 3, CY, UI[6]); pset(CX, CY - 3, UI[6]); pset(CX, CY + 3, UI[6])
+	if player.hp <= 0 then rectfill(0, 0, SW, SH, UI[8]) end
 
 	-- HUD: game numbers + the renderer comparison readout
-	rectfill(0, SH - 12, 64, SH, 1)
-	print("hp " .. max(0, player.hp), 4, SH - 10, player.hp > 30 and 7 or 8)
-	rectfill(SW - 72, SH - 12, SW, SH, 1)
-	print("shells " .. player.ammo, SW - 68, SH - 10, 9)
+	rectfill(0, SH - 12, 64, SH, UI[1])
+	print("hp " .. max(0, player.hp), 4, SH - 10, UI[player.hp > 30 and 7 or 8])
+	rectfill(SW - 72, SH - 12, SW, SH, UI[1])
+	print("shells " .. player.ammo, SW - 68, SH - 10, UI[9])
 	local cpu = stat and stat(1) or 0
 	cpu_hist[1] = cpu_hist[1] * 0.9 + cpu * 0.1
 	if show_stats then
-		rectfill(0, 0, detail_half and SW or 170, detail_half and 36 or 30, 1)
+		rectfill(0, 0, detail_half and SW or 170, detail_half and 36 or 30, UI[1])
 		if mode == MODE_BSP then
-			print("TRUE 3D  bsp+surface cache", 3, 2, 11)
-			print("nodes " .. bsp_stats.nodes .. "  polys " .. bsp_stats.polys .. "  tris " .. bsp_stats.tris, 3, 11, 6)
-			print("objs " .. bsp_stats.objs .. "  culled " .. bsp_stats.culled, 3, 20, 6)
+			print("TRUE 3D  bsp+surface cache", 3, 2, UI[11])
+			print("nodes " .. bsp_stats.nodes .. "  polys " .. bsp_stats.polys .. "  tris " .. bsp_stats.tris, 3, 11, UI[6])
+			print("objs " .. bsp_stats.objs .. "  culled " .. bsp_stats.culled .. "  sectors " .. bsp_stats.sectors .. "/" .. bsp_stats.nsec, 3, 20, UI[6])
 		else
-			print("RAYCASTER  grid slice", 3, 2, 12)
-			print("cols " .. ray_stats.cols .. "  rows " .. ray_stats.rows, 3, 11, 6)
-			print("sprites " .. ray_stats.sprites .. "  tline3d rows " .. ray_stats.lines, 3, 20, 6)
+			print("RAYCASTER  grid slice", 3, 2, UI[12])
+			print("cols " .. ray_stats.cols .. "  rows " .. ray_stats.rows, 3, 11, UI[6])
+			print("sprites " .. ray_stats.sprites .. "  tline3d rows " .. ray_stats.lines, 3, 20, UI[6])
 		end
 		local fps = flr(stat and stat(7) or 60)
 		print("cpu " .. flr(cpu_hist[1] * 100) .. "% " .. fps .. "fps " .. (detail_half and "240" or "480"),
-			detail_half and 3 or 128, detail_half and 29 or 20, fps >= 60 and 11 or fps >= 30 and 10 or 8)
+			detail_half and 3 or 128, detail_half and 29 or 20, UI[fps >= 60 and 11 or fps >= 30 and 10 or 8])
 	else
-		rectfill(SW - 64, 0, SW, 11, 1)   -- keep the kill count readable
+		rectfill(SW - 64, 0, SW, 11, UI[1])   -- keep the kill count readable
 	end
-	print("kills " .. player.kills .. "/" .. count_monsters(), SW - 60, 2, 7)
+	print("kills " .. player.kills .. "/" .. count_monsters(), SW - 60, 2, UI[7])
 	if msg_t > 0 then
 		local w = #msg * 5
-		print(msg, CX - w / 2, 44, 10)
+		print(msg, CX - w / 2, 44, UI[10])
 	end
 end

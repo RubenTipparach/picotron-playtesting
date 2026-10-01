@@ -1,23 +1,33 @@
 #!/usr/bin/env python3
 """
-gen_art.py - procedural art for the FPS Render Lab cart.
+gen_art.py - procedural art for the FPS Render Lab cart, in TWO palettes.
 
     python3 tools/fps-lab/gen_art.py [--sheet out.png]
 
-Writes indexed-colour PNGs (PICO-8 palette, colours 0..15; black = transparent
-for sprites) into carts/fps-render-lab.p64/sprites/<category>/NNN_name.png.
+Every texture/sprite is designed once in a "virtual palette": the 16 PICO-8
+colours plus any in-between colour a smooth ramp or shading needs (colour
+ramps interpolate instead of snapping, ellipses/cylinders shade smoothly).
+The design is then quantised (ordered dither on the in-between colours) into
+two art sets for palette experiments (G in game switches):
+
+  sprites/<category>/NNN_name.png           Picotron's default 32 colours
+  sprites/pal64/<category>/NNN+64_name.png  the custom 64-colour palette
+                                            (sprites/pal64/palette.hex)
+
 The leading NNN is the sprite index (tools/picotron/png2gfx.lua bakes them
-into gfx/0.gfx at build time). World textures are also copied to
-tools/fps-lab/trenchbroom/textures/fpslab/ so TrenchBroom shows the same
-materials.
+into gfx/0.gfx at build time, fitting each folder to its palette.hex). World
+textures of the default set are also copied to
+tools/fps-lab/trenchbroom/textures/fpslab/ so TrenchBroom shows them.
 
 Seeded, deterministic. Once a PNG has been hand-edited treat the PNG as the
 source of truth and don't re-run this over it.
 
-Shading is NOT baked into these: at runtime the cart redefines colours
-16..63 as 3 darker ramps of 0..15 and builds shaded copies (index + 16*k).
-Textures never use colour 0 (it is transparent to tline3d).
+Shading is NOT baked into these: at runtime the cart builds shaded copies
+(index + 64*k) and colour tables mapping each colour to its nearest darker
+palette colour. Black (colour 0) is transparent for sprites; textures never
+use it.
 """
+from bisect import bisect_right
 import math
 import os
 import sys
@@ -33,12 +43,69 @@ TB_TEX = os.path.join(HERE, "trenchbroom", "textures", "fpslab")
 PAL = [(0, 0, 0), (29, 43, 83), (126, 37, 83), (0, 135, 81), (171, 82, 54), (95, 87, 79),
        (194, 195, 199), (255, 241, 232), (255, 0, 77), (255, 163, 0), (255, 236, 39),
        (0, 228, 54), (41, 173, 255), (131, 118, 156), (255, 119, 168), (255, 204, 170)]
-RAMP = [1.0, 0.66, 0.42, 0.22]          # must match SHADE in main.lua
+RAMP = [1.0, 0.66, 0.42, 0.22]          # must match SHADE in gfx.lua
+
+
+def _hexpal(v):
+    return [((c >> 16) & 255, (c >> 8) & 255, c & 255) for c in v]
+
+
+# Picotron's default display palette (colours 0..31)
+PAL32 = _hexpal([0x000000, 0x1d2b53, 0x7e2553, 0x008751, 0xab5236, 0x5f574f, 0xc2c3c7, 0xfff1e8,
+                 0xff004d, 0xffa300, 0xffec27, 0x00e436, 0x29adff, 0x83769c, 0xff77a8, 0xffccaa,
+                 0x2463b0, 0x00a5a1, 0x654688, 0x125359, 0x703233, 0x432932, 0xa28879, 0xffacc5,
+                 0xb9003e, 0xe26b13, 0x95f04b, 0x00b251, 0x64dff6, 0xbd9adf, 0xe40dab, 0xf49671])
+# the custom 64-colour palette (keep in sync with PALETTES in gfx.lua)
+PAL64 = _hexpal([0x000000, 0x12173d, 0x293268, 0x464b8c, 0x6b74b2, 0x909edd, 0xc1d9f2, 0xffffff,
+                 0xa293c4, 0x7b6aa5, 0x53427f, 0x3c2c68, 0x431e66, 0x5d2f8c, 0x854cbf, 0xb483ef,
+                 0x8cff9b, 0x42bc7f, 0x22896e, 0x14665b, 0x0f4a4c, 0x0a2a33, 0x1d1a59, 0x322d89,
+                 0x354ab2, 0x3e83d1, 0x50b9eb, 0x8cdaff, 0x53a1ad, 0x3b768f, 0x21526b, 0x163755,
+                 0x008782, 0x00aaa5, 0x27d3cb, 0x78fae6, 0xcdc599, 0x988f64, 0x5c5d41, 0x353f23,
+                 0x919b45, 0xafd370, 0xffe091, 0xffaa6e, 0xff695a, 0xb23c40, 0xff6675, 0xdd3745,
+                 0xa52639, 0x721c2f, 0xb22e69, 0xe54286, 0xff6eaf, 0xffa5d5, 0xffd3ad, 0xcc817a,
+                 0x895654, 0x61393b, 0x3f1f3c, 0x723352, 0x994c69, 0xc37289, 0xf29faa, 0xffccd0])
+SETS = [("", 0, PAL32), ("pal64", 64, PAL64)]   # (sub folder, sprite index offset, palette)
+
+# ------------------------------------------------------- virtual palette ----
+# design images hold indices into VP: 0..15 are the PICO-8 colours (flat
+# design colours), everything after is an in-between colour made by ramps
+# and shading. 0 stays "transparent black".
+VP = [tuple(c) for c in PAL]
+VP_IDX = {c: i for i, c in enumerate(VP)}
+
+
+def vp(rgb):
+    rgb = tuple(int(round(min(255, max(0, v)))) for v in rgb)
+    if rgb == (0, 0, 0):
+        rgb = (1, 1, 1)                   # never alias transparent black
+    i = VP_IDX.get(rgb)
+    if i is None:
+        i = VP_IDX[rgb] = len(VP)
+        VP.append(rgb)
+    return i
+
+
+def vp_mix(a, b, t):
+    if t <= 0 or a == b:
+        return a
+    if t >= 1:
+        return b
+    ca, cb = VP[a], VP[b]
+    return vp([ca[k] + (cb[k] - ca[k]) * t for k in range(3)])
+
+
+def vp_scale(a, f):
+    return a if a == 0 else vp([v * f for v in VP[a]])
+
+
+IMG = np.uint16                           # design image dtype (VP indices)
 
 # keep this order in sync with TEXTURES in map2bsp.py
+# (list index == sprite index; "_" entries are slots other sprites use)
 TEXTURES = ["stone", "brick", "metal", "wood_wall", "stone_moss", "floor_stone",
             "floor_tile", "floor_metal", "cobble", "floor_wood", "ceil_wood",
-            "ceil_panel", "sky", "slime", "trim", "step", "pillar"]
+            "ceil_panel", "sky", "slime", "trim", "step", "pillar",
+            "_crate_face", "_barrel_side", "_barrel_top", "door", "hazard"]
 
 rng = np.random.default_rng(1337)
 
@@ -64,10 +131,24 @@ def noise(w, h, scale=4, octaves=3, seed=0):
 
 
 def ramp(values, cols, cuts):
-    """values 0..1 -> palette index via thresholds (len(cuts) == len(cols)-1)."""
-    out = np.full(values.shape, cols[-1], dtype=np.uint8)
-    for i in range(len(cuts) - 1, -1, -1):
-        out[values < cuts[i]] = cols[i]
+    """values 0..1 -> colour along the ramp cols (len(cuts) == len(cols)-1).
+    Each colour owns the band between its cuts; values between two band
+    centres blend smoothly (8 steps), so the quantiser can use every palette
+    colour in between."""
+    e = [cuts[0] - 0.12] + list(cuts) + [cuts[-1] + 0.12]
+    cen = [(e[i] + e[i + 1]) / 2 for i in range(len(cols))]
+    v = np.asarray(values, float)
+    out = np.empty(v.shape, IMG)
+    o, flat = out.reshape(-1), v.reshape(-1)
+    for k, x in enumerate(flat):
+        if x <= cen[0]:
+            o[k] = cols[0]
+        elif x >= cen[-1]:
+            o[k] = cols[-1]
+        else:
+            i = bisect_right(cen, x) - 1
+            t = round((x - cen[i]) / (cen[i + 1] - cen[i]) * 8) / 8
+            o[k] = vp_mix(cols[i], cols[i + 1], t)
     return out
 
 
@@ -80,7 +161,7 @@ def dither(v, levels):
 
 # ------------------------------------------------------------ textures ----
 def blocks(w, h, rows, offset, mortar, face_cols, cuts, seed, bevel=True):
-    img = np.zeros((h, w), np.uint8)
+    img = np.zeros((h, w), IMG)
     n = noise(w, h, 4, 3, seed)
     rh = h // rows
     for r in range(rows):
@@ -112,7 +193,7 @@ def tex_stone():
 
 
 def tex_brick():
-    img = np.zeros((32, 32), np.uint8)
+    img = np.zeros((32, 32), IMG)
     n = dither(noise(32, 32, 8, 2, 2), 3)
     for y in range(32):
         row = y // 8
@@ -138,7 +219,7 @@ def tex_metal():
 
 
 def tex_wood_wall():
-    img = np.zeros((32, 32), np.uint8)
+    img = np.zeros((32, 32), IMG)
     grain = noise(32, 32, 2, 3, 4)
     for x in range(32):
         plank = x // 8
@@ -169,7 +250,7 @@ def tex_floor_stone():
 
 
 def tex_floor_tile():
-    img = np.zeros((32, 32), np.uint8)
+    img = np.zeros((32, 32), IMG)
     n = dither(noise(32, 32, 4, 2, 7), 4)
     for y in range(32):
         for x in range(32):
@@ -184,7 +265,7 @@ def tex_floor_tile():
 
 
 def tex_floor_metal():
-    img = np.full((32, 32), 5, np.uint8)
+    img = np.full((32, 32), 5, IMG)
     for y in range(32):
         for x in range(32):
             a = (x + y) % 8; b = (x - y) % 8
@@ -197,7 +278,7 @@ def tex_floor_metal():
 
 
 def tex_cobble():
-    img = np.full((32, 32), 1, np.uint8)
+    img = np.full((32, 32), 1, IMG)
     pts = [(4, 4), (13, 3), (23, 5), (29, 13), (8, 12), (18, 13), (4, 21), (13, 22), (23, 21), (29, 28), (8, 29), (19, 29)]
     for y in range(32):
         for x in range(32):
@@ -215,7 +296,7 @@ def tex_cobble():
 
 
 def tex_floor_wood():
-    img = np.zeros((32, 32), np.uint8)
+    img = np.zeros((32, 32), IMG)
     grain = noise(32, 32, 2, 3, 9)
     for y in range(32):
         plank = y // 8
@@ -232,7 +313,7 @@ def tex_floor_wood():
 
 def tex_ceil_wood():
     """Dark planks with a heavy cross beam every 32 texels."""
-    img = np.zeros((32, 32), np.uint8)
+    img = np.zeros((32, 32), IMG)
     grain = noise(32, 32, 2, 3, 10)
     for y in range(32):
         for x in range(32):
@@ -257,9 +338,10 @@ def tex_ceil_panel():
 
 
 def tex_sky():
+    """tileable clouds: it scrolls, so no gradient that would show a seam"""
     n = noise(32, 32, 2, 4, 12)
-    v = np.clip(n * 0.9 + np.linspace(0.25, -0.05, 32)[:, None], 0, 1)
-    return ramp(dither(v, 5), [1, 2, 13, 14, 15], [0.35, 0.5, 0.62, 0.72])
+    v = np.clip((n - 0.5) * 1.6 + 0.5, 0, 1)
+    return ramp(dither(v, 6), [1, 12, 12, 6, 7], [0.3, 0.5, 0.66, 0.8])
 
 
 def tex_slime():
@@ -269,7 +351,7 @@ def tex_slime():
 
 
 def tex_trim():
-    img = np.zeros((32, 32), np.uint8)
+    img = np.zeros((32, 32), IMG)
     n = noise(32, 32, 2, 3, 14)
     for y in range(32):
         for x in range(32):
@@ -289,7 +371,7 @@ def tex_step():
 
 
 def tex_pillar():
-    img = np.zeros((32, 32), np.uint8)
+    img = np.zeros((32, 32), IMG)
     n = noise(32, 32, 4, 2, 15)
     for x in range(32):
         f = math.cos((x % 8) / 8 * 2 * math.pi)
@@ -299,8 +381,38 @@ def tex_pillar():
     return img
 
 
+def tex_door():
+    """Sliding airlock panel: riveted plates, a lit window strip, hazard foot."""
+    n = noise(32, 32, 4, 2, 21)
+    img = ramp(n * 0.5 + 0.35, [5, 13, 6], [0.45, 0.72])
+    img[:, 0] = 1; img[:, 31] = 5; img[:, 15] = 1; img[:, 16] = 6
+    for y in (0, 10, 21):
+        img[y, :] = 1
+        img[y + 1, :] = 6
+    for y in (3, 13, 24):
+        for x in (3, 12, 19, 28):
+            img[y, x] = 7
+            img[y + 1, x] = 1
+    img[5:9, 5:27] = 1
+    img[6:8, 6:26] = 12
+    img[6, 6:26] = 7
+    img[28:32, :] = np.where((np.arange(32)[None, :] + np.arange(4)[:, None]) // 4 % 2 == 0, 10, 1)
+    return img
+
+
+def tex_hazard():
+    """Door frame / airlock trim: diagonal yellow-black stripes, bevelled."""
+    img = np.zeros((32, 32), IMG)
+    for y in range(32):
+        for x in range(32):
+            img[y, x] = 10 if ((x + y) // 8) % 2 == 0 else 5
+    img[0, :] = 6; img[1, :] = 9
+    img[31, :] = 1; img[30, :] = 4
+    return img
+
+
 def tex_crate():
-    img = np.zeros((32, 32), np.uint8)
+    img = np.zeros((32, 32), IMG)
     n = noise(32, 32, 2, 3, 16)
     for y in range(32):
         for x in range(32):
@@ -319,7 +431,7 @@ def tex_crate():
 
 
 def tex_barrel_side():
-    img = np.zeros((32, 32), np.uint8)
+    img = np.zeros((32, 32), IMG)
     n = noise(32, 32, 2, 2, 17)
     for y in range(32):
         for x in range(32):
@@ -335,7 +447,7 @@ def tex_barrel_side():
 
 
 def tex_barrel_top():
-    img = np.full((32, 32), 5, np.uint8)
+    img = np.full((32, 32), 5, IMG)
     for y in range(32):
         for x in range(32):
             r = math.hypot(x - 15.5, y - 15.5)
@@ -350,13 +462,14 @@ def tex_barrel_top():
 
 TEXGEN = [tex_stone, tex_brick, tex_metal, tex_wood_wall, tex_stone_moss, tex_floor_stone,
           tex_floor_tile, tex_floor_metal, tex_cobble, tex_floor_wood, tex_ceil_wood,
-          tex_ceil_panel, tex_sky, tex_slime, tex_trim, tex_step, tex_pillar]
+          tex_ceil_panel, tex_sky, tex_slime, tex_trim, tex_step, tex_pillar,
+          None, None, None, tex_door, tex_hazard]
 
 
 # ----------------------------------------------------------- billboards ----
 class Canvas:
     def __init__(self, w, h):
-        self.a = np.zeros((h, w), np.uint8)
+        self.a = np.zeros((h, w), IMG)
         self.w, self.h = w, h
 
     def px(self, x, y, c):
@@ -372,8 +485,12 @@ class Canvas:
                 if d <= 1:
                     col = c
                     if shade:
-                        lit = -dx * 0.6 - dy * 0.8        # light from upper-left
-                        col = shade[0] if lit > 0.35 else shade[2] if lit < -0.45 else c
+                        # light from upper-left, blended dark -> base -> light
+                        lit = -dx * 0.6 - dy * 0.8
+                        if lit >= 0:
+                            col = vp_mix(c, shade[0], round(min(1, lit / 0.7) * 6) / 6)
+                        else:
+                            col = vp_mix(c, shade[2], round(min(1, -lit / 0.8) * 6) / 6)
                     self.a[y, x] = col
 
     def rect(self, x0, y0, x1, y1, c):
@@ -463,7 +580,9 @@ def bb_crate():
     t = tex_crate()
     cv = Canvas(32, 32)
     cv.a[:, :] = t
-    cv.a[:, 24:] = np.where(cv.a[:, 24:] == 9, 4, np.where(cv.a[:, 24:] == 4, 2, cv.a[:, 24:]))
+    for y in range(32):                       # the right quarter is the crate's shaded side
+        for x in range(24, 32):
+            cv.a[y, x] = vp_scale(cv.a[y, x], 0.62)
     return cv.a
 
 
@@ -473,13 +592,10 @@ def bb_barrel():
     for x in range(24):
         f = math.cos((x - 11.5) / 12 * math.pi / 2)
         sx = int(np.clip(16 + math.asin(np.clip((x - 11.5) / 12, -1, 1)) / (math.pi / 2) * 14, 0, 31))
+        # cylinder shading: brighter on the lit (left) side, dark at the rims
+        lit = 0.45 + 0.55 * f + (0.18 if x < 9 else 0)
         for y in range(3, 32):
-            c = side[y, sx]
-            if f < 0.55:
-                c = {11: 3, 3: 1, 10: 9, 9: 4, 6: 5, 5: 1}.get(c, c)
-            elif x < 8 and f > 0.8:
-                c = {3: 11, 5: 6}.get(c, c)
-            cv.a[y, x] = c
+            cv.a[y, x] = vp_scale(side[y, sx], round(min(1.25, lit) * 8) / 8)
     cv.ellipse(12, 3, 11.5, 3, 5)
     cv.ellipse(12, 3, 9, 2, 13)
     return cv.a
@@ -596,61 +712,92 @@ SPRITES = {  # index: (category, name, generator)
 }
 
 
-def to_rgb(a):
-    return np.array(PAL, np.uint8)[a]
+BAYER = np.array([[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]) / 16.0 - 15 / 32
 
 
-def save(a, path):
+def quantise(a, pal, amp=22.0):
+    """design image (VP indices) -> palette indices. The 16 flat design
+    colours map to their nearest palette colour; in-between colours get a
+    4x4 ordered dither first so gradients use every colour on the way.
+    Colour 0 stays transparent and nothing else may become it."""
+    h, w = a.shape
+    rgb = np.array(VP, float)[a]
+    t = np.tile(BAYER, (h // 4 + 1, w // 4 + 1))[:h, :w, None] * amp
+    rgb = np.where((a >= 16)[..., None], rgb + t, rgb)
+    P = np.array(pal[1:], float)
+    rm = (rgb[..., None, 0] + P[None, None, :, 0]) / 2
+    d = rgb[..., None, :] - P[None, None, :, :]
+    dist = (2 + rm / 256) * d[..., 0] ** 2 + 4 * d[..., 1] ** 2 + (2 + (255 - rm) / 256) * d[..., 2] ** 2
+    out = (np.argmin(dist, axis=2) + 1).astype(np.uint8)
+    out[a == 0] = 0
+    return out
+
+
+def to_rgb(q, pal):
+    return np.array(pal, np.uint8)[q]
+
+
+def save(q, pal, path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    Image.fromarray(to_rgb(a), "RGB").save(path)
+    Image.fromarray(to_rgb(q, pal), "RGB").save(path)
 
 
 def main():
-    out = {}
+    design = {}
     for i, (name, gen) in enumerate(zip(TEXTURES, TEXGEN)):
+        if gen is None:
+            continue
         a = gen()
         assert a.shape == (32, 32) and a.min() > 0, f"texture {name} must be 32x32 without colour 0"
-        out[i] = ("textures", name, a)
+        design[i] = ("textures", name, a)
     for i, (cat, name, gen) in SPRITES.items():
-        out[i] = (cat, name, gen())
-    for i, (cat, name, a) in out.items():
-        save(a, os.path.join(CART, "sprites", cat, f"{i:03d}_{name}.png"))
-        if cat == "textures":
-            # same material for TrenchBroom (the .map uses face scale 2)
-            save(a, os.path.join(TB_TEX, f"{name}.png"))
-    print(f"wrote {len(out)} sprites")
+        design[i] = (cat, name, gen())
+    sets = {}
+    for sub, off, pal in SETS:
+        base = os.path.join(CART, "sprites", sub) if sub else os.path.join(CART, "sprites")
+        if sub:
+            os.makedirs(base, exist_ok=True)
+            with open(os.path.join(base, "palette.hex"), "w") as f:
+                f.write("\n".join("%02x%02x%02x" % c for c in pal) + "\n")
+        sets[sub] = {}
+        for i, (cat, name, a) in design.items():
+            q = quantise(a, pal)
+            if cat == "textures":
+                assert q.min() > 0, f"{name}: a texture pixel quantised to transparent"
+            sets[sub][i] = (cat, name, q, pal)
+            save(q, pal, os.path.join(base, cat, f"{i + off:03d}_{name}.png"))
+            if cat == "textures" and not sub:
+                # same material for TrenchBroom (the .map uses face scale 2)
+                save(q, pal, os.path.join(TB_TEX, f"{name}.png"))
+    print(f"wrote {len(design)} sprites x {len(SETS)} palettes ({len(VP)} design colours)")
     if "--sheet" in sys.argv:
-        sheet(out, sys.argv[sys.argv.index("--sheet") + 1])
+        sheet(sets, sys.argv[sys.argv.index("--sheet") + 1])
 
 
-def sheet(out, path, z=4):
-    """Contact sheet: textures (with their 4 runtime light levels) + sprites."""
+def sheet(sets, path, z=3):
+    """Contact sheet: every sprite in both art sets, side by side per set."""
     from PIL import ImageDraw
-    cells = sorted(out.items())
-    W = 8 * (32 * z + 12) + 12
-    rows = []
-    y = 12
-    img = Image.new("RGB", (W, 2400), (24, 22, 28))
-    dr = ImageDraw.Draw(img)
-    x = 12
-    rowh = 0
-    for i, (cat, name, a) in cells:
-        rgb = to_rgb(a).astype(float)
-        if cat == "textures":
-            # show all 4 shade levels as a strip
-            strip = np.concatenate([rgb * RAMP[k] for k in range(4)], axis=1).astype(np.uint8)
-            im = Image.fromarray(strip).resize((a.shape[1] * z, a.shape[0] * z // 4 * 1), Image.NEAREST)
-            im = Image.fromarray(rgb.astype(np.uint8)).resize((a.shape[1] * z, a.shape[0] * z), Image.NEAREST)
-        else:
-            im = Image.fromarray(rgb.astype(np.uint8)).resize((a.shape[1] * z, a.shape[0] * z), Image.NEAREST)
-        if x + im.width > W - 12:
-            x = 12; y += rowh + 26; rowh = 0
-        img.paste(im, (x, y))
-        dr.text((x, y + im.height + 4), f"{i} {name}", fill=(220, 220, 220))
-        x += im.width + 12
-        rowh = max(rowh, im.height)
-    img = img.crop((0, 0, W, y + rowh + 30))
-    img.save(path)
+    W = 10 * (32 * z + 10) + 20
+    parts = []
+    for sub, _, _ in SETS:
+        img = Image.new("RGB", (W, 2000), (24, 22, 28))
+        dr = ImageDraw.Draw(img)
+        dr.text((10, 6), "default 32" if not sub else "custom 64 (" + sub + ")", fill=(255, 255, 255))
+        x, y, rowh = 10, 24, 0
+        for i, (cat, name, q, pal) in sorted(sets[sub].items()):
+            im = Image.fromarray(to_rgb(q, pal)).resize((q.shape[1] * z, q.shape[0] * z), Image.NEAREST)
+            if x + im.width > W - 10:
+                x = 10; y += rowh + 22; rowh = 0
+            img.paste(im, (x, y))
+            dr.text((x, y + im.height + 3), f"{i} {name}", fill=(210, 210, 210))
+            x += im.width + 10
+            rowh = max(rowh, im.height)
+        parts.append(img.crop((0, 0, W, y + rowh + 26)))
+    out = Image.new("RGB", (W, sum(p.height for p in parts)), (24, 22, 28))
+    yy = 0
+    for p_ in parts:
+        out.paste(p_, (0, yy)); yy += p_.height
+    out.save(path)
     print(f"contact sheet -> {path}")
 
 
