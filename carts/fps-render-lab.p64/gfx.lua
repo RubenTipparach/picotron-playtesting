@@ -174,6 +174,7 @@ local function build_variants()
 end
 
 function gfx_init()
+	set_spr(SKY_HOLE, userdata("u8", 32, 32))
 	if not base_ct then
 		base_ct = userdata("u8", 64, 64)
 		base_ct:peek(0x8000)
@@ -211,23 +212,35 @@ end
 -- raycaster's floor/ceiling maps and the BSP's wrapped liquid polygons both
 -- pick the motion up for free
 local anims = {}
-local ANIM = {{tex = 12, sx = 1 / 3, sy = 1 / 7}, {tex = 13, sx = 1 / 4, sy = -1 / 11}}   -- sky, slime
+-- Sky: not a texture on the ceiling but a cloud layer far overhead, fixed to
+-- the eye (only turning moves it, like real distant sky). Both renderers map
+-- the sky onto a virtual plane SKY_H above the eye, SKY_TEXEL units/texel.
+SKY_H, SKY_TEXEL = 1200, 24
+SKY_SPR = 51                                 -- 128x128 cloud layer
+SKY_HOLE = 255                               -- fully transparent sprite (raycaster ceiling map)
+
+-- sky: the 128x128 cloud layer (sprite 51, unlit: only variant 0), slow drift
+-- slime: the 32x32 acid texture, all 4 shade variants
+local ANIM = {{spr = SKY_SPR, size = 128, nvar = 1, sx = 1 / 12, sy = 1 / 29},
+              {spr = 13, size = 32, nvar = 4, sx = 1 / 4, sy = -1 / 11}}
+
 function anim_init()
 	anims = {}
 	for a in all(ANIM) do
-		for k = 0, 3 do
-			local dst = get_spr(VAR_BASE + a.tex * 4 + k)
-			if dst then
-				local src = userdata("u8", 32, 32)
-				blit(dst, src, 0, 0, 0, 0, 32, 32)
-				add(anims, {idx = VAR_BASE + a.tex * 4 + k, src = src, dst = dst, sx = a.sx, sy = a.sy, ox = -1, oy = -1})
+		for k = 0, a.nvar - 1 do
+			local dst = get_spr(VAR_BASE + a.spr * 4 + k)
+			if dst and dst:width() == a.size then
+				local src = userdata("u8", a.size, a.size)
+				blit(dst, src, 0, 0, 0, 0, a.size, a.size)
+				add(anims, {idx = VAR_BASE + a.spr * 4 + k, src = src, dst = dst, size = a.size,
+					sx = a.sx, sy = a.sy, ox = -1, oy = -1})
 			end
 		end
 	end
 end
 
-local function wrap_blit(src, dst, ox, oy)
-	local w1, h1 = 32 - ox, 32 - oy
+local function wrap_blit(src, dst, ox, oy, n)
+	local w1, h1 = n - ox, n - oy
 	blit(src, dst, 0, 0, ox, oy, w1, h1)
 	if ox > 0 then blit(src, dst, w1, 0, 0, oy, ox, h1) end
 	if oy > 0 then blit(src, dst, 0, h1, ox, 0, w1, oy) end
@@ -236,9 +249,9 @@ end
 
 function anim_update(frame)
 	for a in all(anims) do
-		local ox, oy = flr(frame * a.sx) % 32, flr(frame * a.sy) % 32
+		local ox, oy = flr(frame * a.sx) % a.size, flr(frame * a.sy) % a.size
 		if ox ~= a.ox or oy ~= a.oy then
-			wrap_blit(a.src, a.dst, ox, oy)
+			wrap_blit(a.src, a.dst, ox, oy, a.size)
 			set_spr(a.idx, a.dst)
 			a.ox, a.oy = ox, oy
 		end

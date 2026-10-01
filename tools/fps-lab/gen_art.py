@@ -344,6 +344,14 @@ def tex_sky():
     return ramp(dither(v, 6), [1, 12, 12, 6, 7], [0.3, 0.5, 0.66, 0.8])
 
 
+def sky_clouds():
+    """128x128 tileable cloud layer for the far sky plane (both renderers)"""
+    n = noise(128, 128, 4, 5, 31)
+    d = noise(128, 128, 2, 2, 32)
+    v = np.clip((n - 0.5) * 1.9 + 0.5 + (d - 0.5) * 0.4, 0, 1)
+    return ramp(dither(v, 8), [1, 12, 12, 6, 7], [0.32, 0.55, 0.7, 0.82])
+
+
 def tex_slime():
     n = noise(32, 32, 4, 3, 13)
     v = np.abs(np.sin(n * 9.0))
@@ -709,6 +717,7 @@ SPRITES = {  # index: (category, name, generator)
     48: ("weapon", "shotgun_idle", lambda: shotgun(False)),
     49: ("weapon", "shotgun_fire", lambda: shotgun(True)),
     50: ("fx", "puff", puff),
+    51: ("sky", "sky_clouds", sky_clouds),
 }
 
 

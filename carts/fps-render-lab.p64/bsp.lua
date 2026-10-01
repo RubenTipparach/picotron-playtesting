@@ -241,10 +241,38 @@ local function batch_frame()
 	NPL:matmul(EYE4, NSIDE)
 end
 
+-- sky quad: push each vertex out along its view ray onto a plane SKY_H above
+-- the eye. The screen shape is unchanged (same rays), but the texture now
+-- lies on that far plane, centred on the eye: the clouds never slide when
+-- you walk under them, only when you turn
+local function draw_sky_poly(p, spr)
+	for k = 1, 4 do
+		local vi = p[3 + k * 3] - 1
+		local wx, wy, wz = Vud:get(0, vi, 3)
+		local dz = wz - ez
+		if dz < 8 then dz = 8 end
+		local t = SKY_H / dz
+		local cx, cy, cz = Cud:get(0, vi, 3)
+		qx[k], qy[k], qz[k] = cx * t, cy * t, cz * t
+		qu[k], qv[k] = (wx - ex) * t / SKY_TEXEL, (ey - wy) * t / SKY_TEXEL
+	end
+	set_fog(0)
+	return draw_q(spr, 4)
+end
+
 -- draw level quad pi (1-based), everything precomputed by batch_frame
 local function draw_level_poly(pi)
 	local q = pi - 1
 	local p = polys[pi]
+	if turb_spr[p[1]] == VAR_BASE + SKY_TEX * 4 then
+		local minx, maxx, miny, maxy = BB:get(0, q, 4)
+		if maxx < 0 or minx >= SW or maxy < 0 or miny >= SH then return end
+		poke2(0x5534, 128, 128)
+		local t = draw_sky_poly(p, VAR_BASE + SKY_SPR * 4)
+		poke2(0x5534, 0, 0)
+		if t > 0 then bsp_stats.polys = bsp_stats.polys + 1; bsp_stats.tris = bsp_stats.tris + t end
+		return
+	end
 	local minx, maxx, miny, maxy, minw, maxw, fd = BB:get(0, q, 7)
 	local fog = flr(fd)
 	if fog > 3 then fog = 3 end
