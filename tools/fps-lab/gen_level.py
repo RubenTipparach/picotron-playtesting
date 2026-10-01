@@ -19,7 +19,7 @@ faces hidden between touching brushes.
 """
 import os
 
-CELL, BOTTOM, TOP = 64, -64, 288
+CELL, BOTTOM, TOP = 64, -64, 384
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "..", "..", "carts", "fps-render-lab.map")
 
@@ -27,13 +27,19 @@ OUT = os.path.join(HERE, "..", "..", "carts", "fps-render-lab.map")
 REGIONS = {
     "H":  dict(floor=0,   ceil=192, f="floor_stone", c="ceil_wood",  w="stone"),       # great hall
     "A":  dict(floor=0,   ceil=224, f="floor_tile",  c="ceil_panel", w="brick"),       # arena
-    "Y":  dict(floor=0,   ceil=TOP - 32, f="cobble", c="sky",        w="stone_moss"),  # open courtyard
-    "P":  dict(floor=-16, ceil=TOP - 32, f="slime",  c="sky",        w="stone_moss"),  # sunken pool
+    "Y":  dict(floor=0,   ceil=256, f="cobble",      c="sky",        w="stone_moss"),  # open courtyard
+    "P":  dict(floor=-16, ceil=256, f="slime",       c="sky",        w="stone_moss"),  # sunken pool
     "S":  dict(floor=0,   ceil=160, f="floor_wood",  c="ceil_panel", w="wood_wall"),   # storage
     "C":  dict(floor=0,   ceil=128, f="floor_metal", c="ceil_panel", w="metal"),       # corridors
+    "L":  dict(floor=0,   ceil=128, f="floor_metal", c="ceil_panel", w="metal"),       # airlock tunnels
+    "D":  dict(floor=0,   ceil=128, f="step",        c="trim",       w="metal"),       # airlock door cells
+    "W":  dict(floor=0,   ceil=256, f="floor_tile",  c="ceil_panel", w="brick"),       # acid works
+    "Q":  dict(floor=-16, ceil=256, f="slime",       c="ceil_panel", w="brick"),       # acid channels
+    "U":  dict(floor=0,   ceil=224, f="floor_stone", c="ceil_wood",  w="stone"),       # sun atrium
+    "R":  dict(floor=0,   ceil=352, f="floor_stone", c="sky",        w="stone"),       # atrium sunroof
 }
 
-GW, GH = 30, 26
+GW, GH = 53, 33
 grid = [[None] * GW for _ in range(GH)]      # [row][col], row 0 = north
 
 
@@ -52,6 +58,26 @@ room("P", 21, 4, 25, 8)      # pool inside courtyard
 room("C", 22, 13, 23, 15)    # courtyard -> storage
 room("S", 18, 16, 28, 24)    # storage
 room("C", 13, 19, 17, 20)    # arena -> storage
+
+# east wing: three sectors joined by airlocks (a tunnel with a sliding door
+# at each end). With both doors shut the renderer skips the sector behind.
+room("W", 36, 14, 50, 30)    # acid works
+room("Q", 36, 17, 50, 18)    # acid channel (north)
+room("Q", 36, 23, 50, 24)    # acid channel (south)
+room("U", 36, 1, 50, 6)      # sun atrium
+room("R", 40, 2, 46, 5)      # ... its sunroof (open to the sky)
+AIRLOCKS = [                 # (cells of the tunnel, door cells, door slide angle)
+    ([(c, 20) for c in range(29, 36)], [(30, 20), (34, 20)], 90),   # storage -> acid works
+    ([(43, r) for r in range(7, 14)], [(43, 8), (43, 12)], 0),      # acid works -> atrium
+    ([(c, 4) for c in range(29, 36)], [(30, 4), (34, 4)], 90),      # courtyard -> atrium
+]
+DOOR_CELLS = {}
+for cells, doors, ang in AIRLOCKS:
+    for (c, r) in cells:
+        grid[r][c] = "L"
+    for (c, r) in doors:
+        grid[r][c] = "D"
+        DOOR_CELLS[(c, r)] = ang
 
 
 def wx(col):   # cell column -> world x of its west edge
@@ -150,6 +176,8 @@ for r in range(GH):
             continue
 
         def face_tex(cc, rr):
+            if (cc, rr) in DOOR_CELLS:
+                return "hazard"              # door frame
             return REGIONS[grid[rr][cc]]["w"] if is_room(cc, rr) else "stone"
         side = {"e": face_tex(c + 1, r), "w": face_tex(c - 1, r),
                 "n": face_tex(c, r - 1), "s": face_tex(c, r + 1)}
@@ -195,8 +223,23 @@ box(wx(1), wy(15), 112, wx(13), wy(15) + 48, 128, "trim", top="floor_metal")
 # courtyard: a statue on a plinth in the middle of the pool
 box(wx(23) + 8, wy(6) + 8, -16, wx(23) + 56, wy(6) + 56, 24, "stone_moss", top="trim")
 box(wx(23) + 20, wy(6) + 20, 24, wx(23) + 44, wy(6) + 44, 120, "pillar")
-# storage: a mezzanine shelf along the east wall
-box(wx(26), wy(24), 64, wx(29), wy(16) + CELL, 80, "trim", top="floor_wood")
+# storage: a mezzanine shelf along the east wall (clear of the airlock)
+box(wx(26), wy(24), 64, wx(29), wy(21) + CELL, 80, "trim", top="floor_wood")
+box(wx(26), wy(19), 64, wx(29), wy(16) + CELL, 80, "trim", top="floor_wood")
+# acid works: bridges over both channels, support pillars, a pipe gantry
+for rows in ((17, 18), (23, 24)):
+    box(wx(42), wy(rows[1]), -16, wx(44), wy(rows[0]) + CELL, 0, "trim", top="floor_metal")
+for (c, r) in [(38, 20), (48, 20), (38, 27), (48, 27)]:
+    x, y = wx(c) + 16, wy(r) + 16
+    box(x, y, 0, x + 32, y + 32, 256, "pillar")
+    box(x - 8, y - 8, 0, x + 40, y + 40, 16, "hazard")
+for r in (17, 24):
+    y = wy(r) + 24
+    box(wx(36), y, 200, wx(51), y + 16, 216, "metal")
+# atrium: a sunlit planter under the sunroof, benches along the walls
+box(wx(42), wy(4), 0, wx(45), wy(3) + CELL, 16, "trim", top="cobble")
+for c in (37, 48):
+    box(wx(c), wy(3) + 8, 0, wx(c) + CELL, wy(3) + 56, 24, "trim", top="floor_wood")
 
 # ---------------------------------------------------------------- entities --
 ents = []
@@ -232,6 +275,39 @@ for (c, r) in [(1, 10), (28, 9), (18, 24), (1, 24), (15, 20)]:
     ent("item_health", c, r)
 for (c, r) in [(12, 10), (18, 6), (28, 24), (12, 24), (22, 14)]:
     ent("item_ammo", c, r)
+# east wing
+for (c, r) in [(38, 15), (48, 16), (40, 21), (47, 22), (39, 28), (49, 29),
+               (37, 2), (49, 2), (44, 5)]:
+    ent("monster_grunt", c, r, 0, angle=180)
+for (c, r) in [(37, 29), (38, 29), (37, 28), (50, 29), (36, 14)]:
+    ent("prop_crate", c, r)
+for (c, r) in [(50, 14), (50, 21), (36, 26), (49, 30), (36, 6), (50, 6)]:
+    ent("prop_barrel", c, r)
+for (c, r) in [(36, 1), (50, 1), (39, 6), (47, 6)]:
+    ent("prop_torch", c, r)
+for (c, r) in [(49, 19), (37, 5), (43, 29)]:
+    ent("item_health", c, r)
+for (c, r) in [(36, 22), (50, 25), (43, 1), (32, 20)]:
+    ent("item_ammo", c, r)
+for (c, r, z, l) in [(32, 20, 100, 150), (43, 10, 100, 150), (32, 4, 100, 150),
+                     (39, 16, 220, 260), (46, 16, 220, 260), (39, 21, 220, 260), (46, 21, 220, 260),
+                     (39, 27, 220, 260), (46, 27, 220, 260), (43, 30, 120, 200), (37, 21, 60, 150)]:
+    ent("light", c, r, z, light=l)
+for (c, r) in [(41, 3), (45, 3), (41, 5), (45, 5), (43, 4)]:            # sun through the sunroof
+    ent("light", c, r, 330, light=380)
+
+# airlock doors: func_door brushes (a 16u panel across the tunnel), sliding
+# sideways by "angle" into the wall
+door_ents = []
+for cells, doors, ang in AIRLOCKS:
+    for (c, r) in doors:
+        x0, y0 = wx(c), wy(r)
+        if ang == 90:                    # tunnel runs east-west: panel spans y, slides north
+            b = (x0 + 24, y0, 0, x0 + 40, y0 + CELL, 128)
+        else:                            # tunnel runs north-south: panel spans x, slides east
+            b = (x0, y0 + 24, 0, x0 + CELL, y0 + 40, 128)
+        door_ents.append(({"classname": "func_door", "angle": str(ang)}, b))
+
 # lights (torches add their own light in map2bsp)
 for (c, r, z, l) in [(6, 5, 150, 260), (6, 9, 120, 200), (3, 1, 120, 160), (10, 1, 120, 160),
                      (6, 12, 100, 170), (15, 5, 100, 170), (22, 14, 100, 170), (15, 19, 100, 170),
@@ -251,7 +327,8 @@ for i, b in enumerate(brushes):
     lines.append("{")
     for (p0, p1, p2, tex) in b:
         pts = " ".join("( %s )" % " ".join(str(int(v)) for v in p) for p in (p0, p1, p2))
-        lines.append(f"{pts} fpslab/{tex} 0 0 0 2 2")
+        sc = 8 if tex == "sky" else 2          # sky: one 32px tile per 256u
+        lines.append(f"{pts} fpslab/{tex} 0 0 0 {sc} {sc}")
     lines.append("}")
 lines.append("}")
 for i, e in enumerate(ents, start=1):
@@ -260,6 +337,21 @@ for i, e in enumerate(ents, start=1):
     for k, v in e.items():
         lines.append(f'"{k}" "{v}"')
     lines.append("}")
+n_world = len(brushes)
+for i, (props, (x0, y0, z0, x1, y1, z1)) in enumerate(door_ents, start=len(ents) + 1):
+    lines.append(f"// entity {i}")
+    lines.append("{")
+    for k, v in props.items():
+        lines.append(f'"{k}" "{v}"')
+    brushes.clear()
+    box(x0, y0, z0, x1, y1, z1, "door")
+    lines.append("// brush 0")
+    lines.append("{")
+    for (p0, p1, p2, tex) in brushes[0]:
+        pts = " ".join("( %s )" % " ".join(str(int(v)) for v in p) for p in (p0, p1, p2))
+        lines.append(f"{pts} fpslab/{tex} 0 0 0 2 2")
+    lines.append("}")
+    lines.append("}")
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 with open(OUT, "w") as f:
     f.write("\n".join(lines) + "\n")
@@ -267,4 +359,4 @@ with open(OUT, "w") as f:
 # ascii preview
 for r in range(GH):
     print("".join((grid[r][c] or ("#" if any(is_room(c + dc, r + dr) for dc in (-1, 0, 1) for dr in (-1, 0, 1)) else " ")) for c in range(GW)))
-print(f"wrote {os.path.relpath(OUT)}: {len(brushes)} brushes, {len(ents)} entities")
+print(f"wrote {os.path.relpath(OUT)}: {n_world} brushes, {len(ents)} entities, {len(door_ents)} doors")

@@ -18,7 +18,10 @@ On every push/PR, `.github/workflows/static.yml`:
 2. `scripts/picotron/build-all-carts.sh` runs, for each `carts/*.p64`,
    `scripts/picotron/build-cart.sh`, which:
    - makes an isolated Picotron home and mounts the cart at `/game.p64`
-   - runs `tools/picotron/png2gfx.lua` (sprites/ PNGs -> `gfx/0.gfx`)
+   - runs `tools/picotron/png2gfx.lua` (sprites/ PNGs -> `gfx/0.gfx`;
+     a folder holding a `palette.hex` - one `rrggbb` per line - is read with
+     the display palette switched to it, so art drawn in a custom palette
+     lands on that palette's indices)
    - runs `tools/picotron/build.lua`, which drives Picotron's own
      `export foo.html` exporter under `xvfb`
    - writes `carts-dist/<name>/index.html` (+ `preview.png`)

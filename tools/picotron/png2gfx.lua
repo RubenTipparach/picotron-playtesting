@@ -26,6 +26,11 @@
 	buildings_*/, vehicles/, aircraft/, fx/, ui/) so the art is hand-editable;
 	this script recurses into them. Files without a leading integer get the
 	next free index. If two files claim the same index, the later one wins.
+
+	Palettes: fetch() fits PNG colours to the current display palette. A
+	folder holding a palette.hex (one rrggbb per line, up to 64) was drawn in
+	THAT palette: while its PNGs (and its subfolders') are fetched, the
+	display palette is switched to it so each colour lands on its own index.
 ]]
 
 local IN_DIR  = (env().argv and env().argv[1]) or "/game.p64/sprites"
@@ -45,13 +50,24 @@ pcall(mkdir, MARK)
 mark("png2gfx_ran")
 mark("indir." .. tostring(ftype(IN_DIR)))
 
+local function read_palette(dir)
+	if ftype(dir .. "/palette.hex") ~= "file" then return nil end
+	local ok, txt = pcall(fetch, dir .. "/palette.hex")
+	if not ok or type(txt) ~= "string" then mark("FAIL.palette_unreadable") return nil end
+	local p = {}
+	for hex in txt:gmatch("%x%x%x%x%x%x") do add(p, tonumber(hex, 16)) end
+	mark("palette." .. #p .. "_colours")
+	return #p > 0 and p or nil
+end
+
 -- collect PNG paths, recursing into the named category folders
-local pngs = {}
-local function scan(dir)
+local pngs, pal_of = {}, {}
+local function scan(dir, pal)
+	pal = read_palette(dir) or pal
 	for _, f in ipairs(sls(dir)) do
 		local p = dir .. "/" .. f
-		if ftype(p) == "folder" then scan(p)
-		elseif f:sub(-4):lower() == ".png" then add(pngs, p) end
+		if ftype(p) == "folder" then scan(p, pal)
+		elseif f:sub(-4):lower() == ".png" then add(pngs, p); pal_of[p] = pal end
 	end
 end
 scan(IN_DIR)
@@ -74,9 +90,17 @@ for i = 2, #pngs do
 	pngs[j+1] = v
 end
 
+local rgb0 = {}
+for i = 0, 63 do rgb0[i] = peek4(0x5000 + i * 4) end
+local function set_rgb(p)
+	for i = 0, 63 do poke4(0x5000 + i * 4, p and (p[i + 1] or 0) or rgb0[i]) end
+end
+
 local gfx, next_free, count = {}, 0, 0
 for _, path in ipairs(pngs) do
+	if pal_of[path] then set_rgb(pal_of[path]) end
 	local img = fetch(path)
+	if pal_of[path] then set_rgb(nil) end
 	if type(img) == "userdata" then
 		local idx = idx_of(path) or next_free
 		gfx[idx] = { bmp = img, flags = 0, pan_x = 0, pan_y = 0, zoom = 8 }

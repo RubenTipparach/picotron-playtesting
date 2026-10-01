@@ -68,6 +68,7 @@ local OPS = {
 	mul = function(a, b) return a * b end, div = function(a, b) return a / b end,
 	min = function(a, b) return math.min(a, b) end, max = function(a, b) return math.max(a, b) end,
 	copy = function(a, b) return b end,
+	pow = function(a, b) return a ^ b end,
 }
 for name, f in pairs(OPS) do
 	UD[name] = function(self, src, dest, soff, doff, len, sstride, dstride, spans)
@@ -116,6 +117,44 @@ mt.__sub = function(a, b) return binop(a, b, OPS.sub) end
 mt.__mul = function(a, b) return binop(a, b, OPS.mul) end
 mt.__div = function(a, b) return binop(a, b, OPS.div) end
 
+function UD.lerp(u, off, len, es, n, ls)
+	off, es, n, ls = off or 0, es or 1, n or 1, ls or 0
+	len = len or (u.w * u.h - 1 - off) // es
+	for k = 0, n - 1 do
+		local o = off + k * ls
+		local a, b = u.d[o], u.d[o + len * es]
+		for i = 1, len - 1 do u.d[o + i * es] = conv(u.typ, a + (b - a) * i / len) end
+	end
+	return u
+end
+function UD.convert(u, typ)
+	local c = userdata(typ, u.w, u.dims == 2 and u.h or nil)
+	for i = 0, u.w * u.h - 1 do c.d[i] = conv(typ, math.floor(u.d[i])) end
+	return c
+end
+function UD.take(src, idx, dest, ioff, doff, span, istride, dstride, spans)
+	ioff, doff, span, istride = ioff or 0, doff or 0, span or 1, istride or 1
+	dstride = dstride or span
+	spans = spans or (idx.w * idx.h - ioff) // istride
+	for s = 0, spans - 1 do
+		local st = idx.d[ioff + s * istride]
+		for k = 0, span - 1 do dest.d[doff + s * dstride + k] = conv(dest.typ, src.d[st + k]) end
+	end
+	return dest
+end
+function UD.matmul(a, b, out)
+	-- a: h x w (rows x cols), b: w x bw  ->  out: h x bw
+	local h, w, bw = a.h, a.w, b.w
+	out = out or userdata("f64", bw, h)
+	for r = 0, h - 1 do
+		for c = 0, bw - 1 do
+			local acc = 0
+			for k = 0, w - 1 do acc = acc + a.d[r * w + k] * b.d[k * bw + c] end
+			out.d[r * bw + c] = acc
+		end
+	end
+	return out
+end
 function UD.width(u) return u.w end
 function UD.height(u) return u.h end
 function UD.get(u, x, y, n)
@@ -175,6 +214,12 @@ end
 RAM = {}
 function peek(a) return RAM[a] or 0 end
 function poke(a, ...) for i, v in ipairs({...}) do RAM[a + i - 1] = v & 0xff end end
+-- memmap: the cart only maps read-only tables (colour tables), so a copy
+-- behaves the same here
+function memmap(ud, addr) ud:poke(addr) end
+function unmap() end
+function poke2(a, ...) for i, v in ipairs({...}) do RAM[a + 2 * i - 2] = v & 0xff; RAM[a + 2 * i - 1] = (v >> 8) & 0xff end end
+function peek2(a) return (RAM[a] or 0) | ((RAM[a + 1] or 0) << 8) end
 function UD.peek(u, addr, off, n)
 	off = off or 0; n = n or (u.w * u.h - off)
 	for i = 0, n - 1 do u.d[off + i] = RAM[addr + i] or 0 end
@@ -196,6 +241,7 @@ function vid(m)
 	clip()
 end
 function mock_display_size() return SW, SH end
+function mock_fb_copy() local c = {} for i = 0, SW * SH - 1 do c[i] = FB[i] end return c end
 RGB = {}
 local P16 = {0x000000, 0x1d2b53, 0x7e2553, 0x008751, 0xab5236, 0x5f574f, 0xc2c3c7, 0xfff1e8,
 	0xff004d, 0xffa300, 0xffec27, 0x00e436, 0x29adff, 0x83769c, 0xff77a8, 0xffccaa}
@@ -206,8 +252,12 @@ local function reset_ct()
 	for c = 0, 63 do
 		transp[c] = (c == 0); drawpal[c] = c
 		-- like Picotron 0.3: opaque entries carry the table-select bits 0xc0
-		for d = 0, 63 do RAM[0x8000 + c * 64 + d] = transp[c] and d or (c | 0xc0) end
+		for d = 0, 63 do
+			local v = transp[c] and d or (c | 0xc0)
+			for t = 0, 3 do RAM[0x8000 + t * 4096 + c * 64 + d] = v end
+		end
 	end
+	RAM[0x5508], RAM[0x5509], RAM[0x550a], RAM[0x550b] = 0x3f, 0x3f, 0x3f, 0
 end
 reset_ct()
 local function ct_row(c)
@@ -237,15 +287,20 @@ function cursor() end
 
 STATS = {tl_calls = 0, tl_lines = 0, tl_px = 0, spr_px = 0, shape_px = 0}
 
+-- read mask 0x5508: the draw colour's bits 0xc0 pick one of 4 colour tables
+local function ct_addr(c)
+	c = c & RAM[0x5508]
+	return 0x8000 + ((c >> 6) & 3) * 4096 + (c & 63) * 64
+end
 local function put_shape(x, y, c)
 	if x >= clipx0 and x < clipx1 and y >= clipy0 and y < clipy1 then
-		FB[y * SW + x] = RAM[0x8000 + (c & 63) * 64] & 0x3f     -- write mask
+		FB[y * SW + x] = RAM[ct_addr(c)] & 0x3f     -- write mask
 		STATS.shape_px = STATS.shape_px + 1
 	end
 end
 local function put_spr(x, y, c)
 	local i = y * SW + x
-	FB[i] = RAM[0x8000 + (c & 63) * 64 + FB[i]] & 0x3f
+	FB[i] = RAM[ct_addr(c) + FB[i]] & 0x3f
 end
 
 function cls(c)

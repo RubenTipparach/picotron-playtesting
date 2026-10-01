@@ -30,3 +30,14 @@ committed; Picotron carts in `carts/<name>.p64/` are exported in CI.
   only the low 6 bits, keep `v & 0xc0`); tline3d loops/garbles
   non-power-of-two sprites (pad billboards to 2^n); sprite wrapping is an
   explicit mask at 0x5534/0x5536.
+- FPS lab shading is palette-agnostic: texel = colour + 64*light level, read
+  mask 0x5508=0xff picks one of 4 colour tables (layout
+  0x8000 + t*0x1000 + draw*64 + target). Art comes in two sets (default 32
+  in `sprites/`, custom 64 in `sprites/pal64/` at index +64); regenerate both
+  with `python3 tools/fps-lab/gen_art.py`. png2gfx fits a folder's PNGs to
+  its `palette.hex`. Fog switches memmap() a 16k table set at 0x8000 (free).
+- FPS lab true-3D hot path is batched: per-frame userdata ops over ALL quads
+  and nodes (`batch_frame` in bsp.lua: take/strided min-max/matmul), then a
+  lean walk filtered by the per-cell PVS map2bsp.py bakes into level.lua.
+  Every level polygon must stay a quad (map2bsp emits rectangles). Check
+  PVS changes with PVS_ON=false vs true frame diffs in the mock.
