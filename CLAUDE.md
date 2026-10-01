@@ -35,4 +35,9 @@ committed; Picotron carts in `carts/<name>.p64/` are exported in CI.
   0x8000 + t*0x1000 + draw*64 + target). Art comes in two sets (default 32
   in `sprites/`, custom 64 in `sprites/pal64/` at index +64); regenerate both
   with `python3 tools/fps-lab/gen_art.py`. png2gfx fits a folder's PNGs to
-  its `palette.hex`. A fog-table switch copies 16k: avoid per-object switches.
+  its `palette.hex`. Fog switches memmap() a 16k table set at 0x8000 (free).
+- FPS lab true-3D hot path is batched: per-frame userdata ops over ALL quads
+  and nodes (`batch_frame` in bsp.lua: take/strided min-max/matmul), then a
+  lean walk filtered by the per-cell PVS map2bsp.py bakes into level.lua.
+  Every level polygon must stay a quad (map2bsp emits rectangles). Check
+  PVS changes with PVS_ON=false vs true frame diffs in the mock.

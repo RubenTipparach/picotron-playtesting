@@ -91,6 +91,13 @@ function doors_update(player, things, frame, on_move)
 	end
 end
 
+-- 1-based grid cell index (0 = outside the grid)
+function grid_cell_index(x, y)
+	local gx, gy = flr((x - G.x0) / CELL), flr((y - G.y0) / CELL)
+	if gx < 0 or gy < 0 or gx >= G.w or gy >= G.h then return 0 end
+	return gy * G.w + gx + 1
+end
+
 function grid_sector(x, y)
 	local gx, gy = flr((x - G.x0) / CELL), flr((y - G.y0) / CELL)
 	if gx < 0 or gy < 0 or gx >= G.w or gy >= G.h then return 0 end

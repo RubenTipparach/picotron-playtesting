@@ -85,7 +85,7 @@ local function spawn(cls, x, y, z, ang)
 	local t = {cls = cls, x = x, y = y, z = 0, yaw = ang / 360, hp = k.hp, st = "idle", tm = 0, slot = #things}
 	for key, v in pairs(k) do t[key] = v end
 	t.base_spr = k.spr
-	if not k.hp then t.sec = grid_sector(x, y) end     -- static: sector never changes
+	if not k.hp then t.sec, t.cell = grid_sector(x, y), grid_cell_index(x, y) end   -- static
 	t.mesh_def = k.mesh and MESHES[k.mesh]
 	t.z3 = floor_at(x, y, 4, z + 64)
 	if t.z3 < -1000 then t.z3 = 0 end
@@ -121,9 +121,9 @@ end
 -- FULL renders at 480x270; HALF uses vid(3) (240x135, doubled by the
 -- display) which quarters the fill and halves raycaster columns / BSP
 -- scanlines. AUTO starts FULL and drops to HALF if Picotron has to run
--- _draw below 60fps for ~2 seconds on the menu (which renders the level
--- live); never mid-game, because vid() drops the key being pressed. V
--- toggles by hand (and ends AUTO).
+-- _draw below 60fps for ~2 seconds. vid() drops any key held at that
+-- moment, so the switch waits for a calm moment (menu, or no movement /
+-- fire / look key held). V toggles by hand (and ends AUTO).
 detail_half, detail_auto = false, true
 show_stats = false       -- H shows the renderer stats bar (off: gameplay HUD only)
 in_menu, menu_sel = true, MODE_BSP
@@ -136,6 +136,13 @@ function set_detail(half)
 	gfx_palette()            -- in case the video mode reset the rgb palette
 end
 
+local CALM_KEYS = {"w", "a", "s", "d", "up", "down", "left", "right", "z", "space"}
+function input_idle()
+	for k in all(CALM_KEYS) do if key(k) then return false end end
+	local _, _, mb = mouse()
+	return (mb or 0) == 0
+end
+
 local function update_detail()
 	if keyp("v") then
 		detail_auto = false
@@ -143,9 +150,9 @@ local function update_detail()
 		info(detail_half and "detail: 240x135" or "detail: 480x270", 90)
 		return
 	end
-	if detail_auto and in_menu and not detail_half and stat then
-		if (stat(7) or 60) < 60 then slow_frames = slow_frames + 1 else slow_frames = 0 end
-		if slow_frames > 120 then
+	if detail_auto and not detail_half and stat then
+		if (stat(7) or 60) < 60 then slow_frames = slow_frames + 1 elseif slow_frames < 120 then slow_frames = 0 end
+		if slow_frames > 120 and (in_menu or input_idle()) then
 			set_detail(true)
 			info("auto detail: 240x135 (V to change)", 150)
 		end
@@ -562,6 +569,7 @@ local function draw_list()
 					-- far away the mesh is swapped for the raycaster's billboard (LOD)
 					lod_w = t.w, lod_h = t.h, lod_sw = t.sw, lod_sh = t.sh}
 				o.sec = grid_sector(t.x, t.y)            -- props never move
+				o.cell = grid_cell_index(t.x, t.y)
 				t._dl = o
 			end
 			o.x, o.y, o.z = t.x, t.y, t.z

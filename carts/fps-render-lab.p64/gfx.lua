@@ -77,8 +77,8 @@ function art_off() return PALETTES[pal_set].off end
 -- nothing per pixel:
 --   * sprites/textures are pre-shaded once (VAR_BASE + i*4 + k = s + 64k)
 --   * lightmaps are baked into cached surfaces with userdata:add(64*level)
---   * distance fog swaps all 4 tables for ones shifted f levels darker (one
---     16k poke) instead of touching any texel
+--   * distance fog swaps all 4 tables for ones shifted f levels darker by
+--     memmap()ing a prebuilt 16k userdata at 0x8000: a remap, not a copy
 shade_map = {}                       -- [k][c] -> palette colour
 local base_ct                        -- Picotron's own colour table 0 (4k)
 
@@ -133,6 +133,9 @@ end
 -- Colour-0 rows (transparency) pass through; every other entry keeps the
 -- 0xc0 bits Picotron 0.3 stores in it and only its colour moves.
 local function build_fog_tables()
+	for f = 0, 3 do
+		if fog_tables[f] and unmap then unmap(fog_tables[f]) end   -- release the old mapping
+	end
 	for f = 0, 3 do
 		local t = userdata("u8", 64, 256)
 		for k = 0, 3 do
@@ -193,23 +196,13 @@ function gfx_set_palette(n)
 	anim_init()
 end
 
--- each switch copies 16k (4 tables), so callers avoid switching: world
--- polygons keep the current level near a fog boundary (fog_for) and objects
--- draw under whatever level is current (see bsp.lua's draw_object)
-fog_cur = 0
+-- a switch maps the level's 4 tables (one 16k userdata) over 0x8000..0xbfff:
+-- no copy, so polygons and objects can each use their exact fog level
 function set_fog(k)
 	if k ~= cur_fog then
-		fog_tables[k]:poke(0x8000)
-		cur_fog, fog_cur = k, k
+		memmap(fog_tables[k], 0x8000)
+		cur_fog = k
 	end
-end
-
--- fog level for a distance in fog units (dist / BSP_FOG), with hysteresis:
--- stay on the current level while within 0.4 of its band
-function fog_for(f)
-	if f > cur_fog - 0.4 and f < cur_fog + 1.4 then return cur_fog end
-	f = flr(f)
-	return f > 3 and 3 or f
 end
 
 -- ----------------------------------------------------- scrolling textures ---
@@ -325,6 +318,8 @@ local scan = userdata("f64", 11, 270)
 -- Replaces a triangle fan through textri: a quad is 2-3 spans and one
 -- tline3d instead of 4 half-triangles, 2 sorts and 4 tline3d calls.
 local slope = userdata("f64", 11)
+-- pu, pv are premultiplied by w (u*w, v*w): the BSP's batch prepass does
+-- that for every level quad in C
 function fill_poly(spr, n, px, py, pw, pu, pv)
 	local top, bot = 1, 1
 	for i = 2, n do
@@ -346,8 +341,8 @@ function fill_poly(spr, n, px, py, pw, pu, pv)
 			local ia, ib = 1 / (yA1 - yA0), 1 / (yB1 - yB0)
 			local ta, tb = (r0 - yA0) * ia, (r0 - yB0) * ib
 			local wa0, wa1, wb0, wb1 = pw[a0], pw[a1], pw[b0], pw[b1]
-			local ua0, ua1, va0, va1 = pu[a0] * wa0, pu[a1] * wa1, pv[a0] * wa0, pv[a1] * wa1
-			local ub0, ub1, vb0, vb1 = pu[b0] * wb0, pu[b1] * wb1, pv[b0] * wb0, pv[b1] * wb1
+			local ua0, ua1, va0, va1 = pu[a0], pu[a1], pv[a0], pv[a1]
+			local ub0, ub1, vb0, vb1 = pu[b0], pu[b1], pv[b0], pv[b1]
 			local dxa, dxb = (px[a1] - px[a0]) * ia, (px[b1] - px[b0]) * ib
 			local dua, dva, dwa = (ua1 - ua0) * ia, (va1 - va0) * ia, (wa1 - wa0) * ia
 			local dub, dvb, dwb = (ub1 - ub0) * ib, (vb1 - vb0) * ib, (wb1 - wb0) * ib

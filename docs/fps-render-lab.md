@@ -16,7 +16,7 @@ level**. Press **TAB** in game to flip between them live:
 | cost scales with | screen width (480 DDA rays) | visible polygons |
 | collision | grid cells, z = 0 | brush boxes, step-up 20u, gravity |
 | doors | Wolfenstein door cells: ray tested against the panel mid-cell | sliding boxes clipped to the doorway |
-| hidden areas | free: the DDA stops at the first wall/door | sectors behind closed doors skipped by one bitmask test per BSP node |
+| hidden areas | free: the DDA stops at the first wall/door | precomputed PVS per 64u cell + sectors behind closed doors, one bit test per BSP node |
 | sky / acid | scrolling textures on per-cell ceiling/floor tiles | scrolling, unlit, wrapped textures on any polygon (the sunroof, the pools) |
 
 A start menu picks the renderer (up/down + Z, or click; the level spins
@@ -71,8 +71,18 @@ tools/fps-lab/map2bsp.py                      -> carts/fps-render-lab.p64/level.
 8. the raycaster's grid: a cell is a wall if brushes cover the z 30..62 band
    at its centre; per-side wall textures, per-cell floor/ceiling textures,
    light and sector; door cells; plus collision boxes and entities
+9. **PVS** (Quake's potentially visible set): for every 64u cell, which BSP
+   nodes, polygons and cells can be seen from anywhere inside it. A 2D map
+   of 16u columns that are solid from z 8 to 184 (walls, full-height
+   pillars) is the occluder; 2048-ray fans from 9 sample points per cell
+   mark the columns they reach; a polygon is visible if a reached column is
+   within 16u of it. Each cell's set is unioned with its 8 neighbours' so an
+   eye anywhere in the cell never loses a sliver. Doors count as open (the
+   runtime sector flood handles closed ones). ~218 of 656 polygons per cell,
+   stored as hex bit strings in level.lua (~600 KB, decoded per cell on
+   entry)
 
-Run it after editing the map (about 2 minutes):
+Run it after editing the map (about 3.5 minutes, 1.5 of them the PVS):
 
 ```sh
 python3 tools/fps-lab/map2bsp.py
@@ -103,6 +113,40 @@ Keep brushes on the 16u grid where you can: that is what lets the compiler
 merge faces into big rectangles. Collision uses brush **bounding boxes**, so
 keep anything the player can touch axis-aligned (sloped detail up high, like
 the hall's braces, is fine).
+
+## PVS, batch prepass and memmap: the 60 fps pass
+
+Measured in the mock, most polygons the BSP walk drew were painted over:
+corridor 122 drawn / 24 with a final pixel, arena 67 / 21, storage 85 / 31.
+Three changes took the true-3D renderer to 60 fps in every benchmark pose
+at 240x135 (and 7 of 9 at 480x270):
+
+1. **PVS** (see the pipeline): the walk skips any node or polygon the
+   player's cell can't see, and objects in cells it can't see. Corridor
+   122 -> 71 polygons processed, arena 67 -> 37.
+2. **Batch prepass** (`bsp.lua` `batch_frame`). Every level polygon is a
+   quad, so all per-polygon and per-node setup runs as a few dozen userdata
+   ops over all 656 quads / 313 nodes (Picotron charges ~1 cycle per 24
+   elements, against ~2 cycles per Lua instruction):
+   * `Sud:take(VIDX, Q, ...)` gathers every quad's 4 projected verts in one
+     call; two strided `mul`s premultiply u, v by w
+   * 24 strided `min`/`max` ops give each quad its screen bbox and w range
+     (near-plane test); `sub`/`mul`/`add`/`pow` give its fog distance
+   * node frustum culling is ONE `matmul`: node boxes (NN x 6) times a 6x4
+     matrix whose column k puts plane k's normal on the box corner furthest
+     along it; minus normal.eye, min over the 4 planes (4 strided ops) <
+     0 means outside
+   * one more `matmul` gives the eye side of every splitting plane
+   The walk then does one `get` of 7 values per quad and a couple of
+   userdata reads per node. Great hall, mock instructions per frame:
+   114k -> 82k.
+3. **`memmap` for fog**: a fog level is a 16k userdata holding all 4 light
+   tables; switching maps it over 0x8000 instead of copying it, so
+   polygons and objects use their exact fog level (no hysteresis needed).
+
+Correctness check: `PVS_ON = false` renders as if every cell saw
+everything; at 1434 random standing poses the PVS frame matches that
+pixel for pixel in all but one, which differs by a single seam pixel.
 
 ## Sectors and doors
 
@@ -135,9 +179,8 @@ Shading works for any palette because it no longer uses palette ramps:
 * the read mask (`0x5508 = 0xff`) makes those top bits select one of
   Picotron's 4 colour tables; table k maps every colour to the palette
   colour nearest to it at `SHADE[k]` brightness (`gfx.lua`)
-* distance fog swaps all 4 tables for ones shifted f levels darker (a 16k
-  poke). Polygons keep the current fog level near a boundary and objects
-  draw relative to the current level, so a frame does ~8 swaps, not ~18
+* distance fog swaps all 4 tables for ones shifted f levels darker:
+  `memmap()` of a prebuilt 16k userdata at 0x8000, so swaps are free
 * HUD/menu colours are PICO-8 numbers mapped to the nearest colour of the
   active palette (`UI[c]`)
 
@@ -170,10 +213,10 @@ replace the colours in `palette.hex`, `PALETTES` in `gfx.lua`, `PAL64` in
   stepping in 16u squares. Lighting then costs *nothing* per frame and
   doesn't split geometry.
 - **Colour-table light levels**: "darker by k" is just `+64*k` on a texel
-  (the top bits pick a colour table, see "Palettes"). Distance fog on world
-  polygons swaps the 4 tables (one 16k `poke`) instead of per-colour `pal()`
-  calls; sprites use pre-shaded copies so shading can vary *inside* a batch
-  call.
+  (the top bits pick a colour table, see "Palettes"). Distance fog maps a
+  prebuilt set of 4 tables over 0x8000 with `memmap` (no copy); sprites use
+  pre-shaded copies so shading can vary *inside* a batch call.
+- **PVS + batch prepass**: see "PVS, batch prepass and memmap" above.
 - **Scrolling sky/acid**: 4 wrapping `blit`s per shade variant per frame
   scroll the textures in place; the raycaster's floor/ceiling maps and the
   BSP's wrapped (`0x5534` loop mask) turbulent polygons both pick it up.
@@ -221,7 +264,9 @@ comes from `stat(7)` and `time()` (666 ms = 60 fps, 1333 ms = 30 fps):
 | **480x270, second pass** | **30 fps in all 6 poses** | **60 fps in 4 of 6, 30 in hall + corridor** |
 | 240x135, second pass | 60 fps in all 6 poses | 60 fps in all 6 poses |
 | **480x270, bigger level** (9 poses) | **30 fps in all 9** | **60 in airlock + atrium, else 30** |
-| **240x135, bigger level** (9 poses) | **60 fps in all 9** | **60 in 5 of 9 (airlock, arena, atrium, courtyard, hall up), hall ~45, 30 in acid works, corridor, storage** |
+| 240x135, bigger level (9 poses) | 60 fps in all 9 | 60 in 5 of 9 (airlock, arena, atrium, courtyard, hall up), hall ~45, 30 in acid works, corridor, storage |
+| **480x270, PVS + batch prepass** | **30 fps in all 9** | **60 in 7 of 9, hall ~48, acid works 30** |
+| **240x135, PVS + batch prepass** | **60 fps in all 9** | **60 fps in all 9** |
 
 Those runs lined up with the mock: frames under ~130k mock instructions
 (`_update` + `_draw`, 240x135) held 60 fps, frames above it dropped to 30.

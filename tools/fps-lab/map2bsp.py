@@ -25,6 +25,10 @@ Pipeline (the same stages as id's qbsp/light, scaled down):
   6. build a polygon BSP (splitter = fewest cuts, balanced, axial preferred)
   7. raycaster grid (solid if brushes cover the eye band), per-side wall
      textures, per-cell light; collision boxes; entities
+  9. PVS (Quake's potentially visible set): for every 64u grid cell, the
+     BSP nodes, polygons and cells that can be seen from anywhere inside it
+     (2D ray fans over a 16u map of floor-to-ceiling occluders; doors count
+     as open). The cart's BSP walk only touches what the PVS allows.
   8. sectors: func_door brushes are moving doors, not world. Flood the open
      space with the doors shut -> connected areas = sectors; every polygon,
      BSP node (subtree bitmask) and grid cell is tagged, and every door knows
@@ -600,6 +604,98 @@ def build_bsp(polys, depth=0):
     return node
 
 
+# --------------------------------------------------------------------- pvs --
+def compute_pvs(vox, out_pbox, out_nodes, gx0, gy0, GW, GH, rays=2048, step=5.0, margin=16):
+    """-> {grid cell index (1-based): (node bits, poly bits, cell bits)} as
+    little-endian bit strings. A cell sees a polygon if a 2D ray from one of
+    its sample points reaches a 16u column next to the polygon; occluders
+    are columns solid from z 8 to 184 (walls, full-height pillars)."""
+    res, org = vox.res, vox.org
+    iz0 = int((8 - org[2]) // res)
+    iz1 = int((184 - org[2]) // res)
+    occ = vox.solid[:, :, iz0:iz1 + 1].all(axis=2)
+    opn = vox.reach[:, :, iz0:iz1 + 1].any(axis=2) & ~occ
+    W, H = occ.shape
+    blocked = occ | ~(opn | occ)            # void counts as blocking too
+    # polygon footprints: columns within `margin` of the polygon's xy bbox
+    f_idx, f_start = [], []
+    for lo, hi in out_pbox:
+        x0 = max(0, int((lo[0] - margin - org[0]) // res)); x1 = min(W - 1, int((hi[0] + margin - org[0]) // res))
+        y0 = max(0, int((lo[1] - margin - org[1]) // res)); y1 = min(H - 1, int((hi[1] + margin - org[1]) // res))
+        f_start.append(len(f_idx))
+        xs, ys = np.meshgrid(np.arange(x0, x1 + 1), np.arange(y0, y1 + 1), indexing="ij")
+        f_idx.extend((xs * H + ys).ravel().tolist())
+    f_idx = np.array(f_idx, np.int64); f_start = np.array(f_start, np.int64)
+    p0 = np.array([r["p0"] for r in out_nodes]); p1 = np.array([r["p1"] for r in out_nodes])
+    # grid cell of every column
+    cx = ((org[0] + (np.arange(W) + 0.5) * res) // 64).astype(int) - gx0
+    cy = ((org[1] + (np.arange(H) + 0.5) * res) // 64).astype(int) - gy0
+    CX, CY = np.meshgrid(cx, cy, indexing="ij")
+    col_cell = np.where((CX >= 0) & (CX < GW) & (CY >= 0) & (CY < GH), CY * GW + CX, -1)
+    ang = np.arange(rays) * (2 * math.pi / rays)
+    dxs, dys = np.cos(ang) * step, np.sin(ang) * step
+    nsteps = int(max(W, H) * res * 1.5 / step)
+
+    def fan(px, py, reached):
+        x = np.full(rays, px); y = np.full(rays, py)
+        dx, dy = dxs.copy(), dys.copy()
+        for _ in range(nsteps):
+            x += dx; y += dy
+            ix = ((x - org[0]) // res).astype(int); iy = ((y - org[1]) // res).astype(int)
+            inb = (ix >= 0) & (ix < W) & (iy >= 0) & (iy < H)
+            ix, iy = np.where(inb, ix, 0), np.where(inb, iy, 0)
+            keep = inb & ~blocked[ix, iy]
+            reached[ix[keep], iy[keep]] = True
+            if not keep.all():
+                if not keep.any():
+                    return
+                x, y, dx, dy = x[keep], y[keep], dx[keep], dy[keep]
+
+    pvs = {}
+    for gy in range(GH):
+        for gx in range(GW):
+            ci = gy * GW + gx
+            cols = np.argwhere(opn & (col_cell == ci))
+            if len(cols) == 0:
+                continue
+            # sample points: the open columns nearest the cell's corners, edge
+            # midpoints and centre
+            wx = org[0] + (cols[:, 0] + 0.5) * res; wy = org[1] + (cols[:, 1] + 0.5) * res
+            bx, by = (gx0 + gx) * 64, (gy0 + gy) * 64
+            pts = set()
+            for tx, ty in ((bx, by), (bx + 64, by), (bx, by + 64), (bx + 64, by + 64), (bx + 32, by + 32),
+                           (bx + 32, by), (bx + 32, by + 64), (bx, by + 32), (bx + 64, by + 32)):
+                k = int(np.argmin((wx - tx) ** 2 + (wy - ty) ** 2))
+                pts.add((float(wx[k]), float(wy[k])))
+            reached = np.zeros((W, H), bool)
+            reached[cols[:, 0], cols[:, 1]] = True
+            for px_, py_ in pts:
+                fan(px_, py_, reached)
+            flat = reached.ravel()
+            pvis = np.logical_or.reduceat(flat[f_idx], f_start)
+            cs = np.concatenate([[0], np.cumsum(pvis)])
+            nvis = (cs[p1] - cs[p0]) > 0
+            cvis = np.zeros(GW * GH, bool)
+            cc = col_cell[reached]
+            cvis[cc[cc >= 0]] = True
+            pvs[ci + 1] = (nvis, pvis, cvis)
+    # conservative: a cell's set also holds its 8 neighbours' sets, so an eye
+    # anywhere in the cell (between sample points, grazing past a corner)
+    # never loses a sliver
+    out = {}
+    for c1, v in pvs.items():
+        gx, gy = (c1 - 1) % GW, (c1 - 1) // GW
+        acc = [a.copy() for a in v]
+        for oy in (-1, 0, 1):
+            for ox in (-1, 0, 1):
+                nb = pvs.get((gy + oy) * GW + gx + ox + 1) if 0 <= gx + ox < GW and 0 <= gy + oy < GH else None
+                if nb and (ox or oy):
+                    for k in range(3):
+                        acc[k] |= nb[k]
+        out[c1] = tuple(np.packbits(b.astype(np.uint8), bitorder="little").tobytes() for b in acc)
+    return out
+
+
 # ------------------------------------------------------------------ output --
 def fmt(v):
     r = round(v * 8) / 8
@@ -683,7 +779,7 @@ def main():
             verts.append(p)
         return vmap[key] + 1
 
-    out_polys, out_nodes = [], []
+    out_polys, out_nodes, out_pbox = [], [], []
     tex_ids = {t: i for i, t in enumerate(TEXTURES)}
     missing = set()
 
@@ -691,19 +787,32 @@ def main():
         if node is None:
             return 0
         me = len(out_nodes) + 1
-        rec = {"poly": []}
+        rec = {"poly": [], "p0": len(out_polys)}
         out_nodes.append(rec)
         mins, maxs = np.full(3, 1e9), np.full(3, -1e9)
         mask = 0
+        # the cart's batch prepass assumes quads: pad triangles (repeat the
+        # last vertex), fan bigger convex polygons into quads
+        pieces = []
         for p in node.polys:
+            n = len(p.pts)
+            if n <= 4:
+                pieces.append((p, p.pts + [p.pts[-1]] * (4 - n)))
+            else:
+                k = 1
+                while k < n - 1:
+                    q = [p.pts[0]] + p.pts[k:k + 3]
+                    pieces.append((p, q + [q[-1]] * (4 - len(q))))
+                    k += 2
+        for p, pts in pieces:
             sf = surfs[p.surf]
             if p.tex not in tex_ids:
                 missing.add(p.tex)
-            c = centroid(p.pts)
+            c = centroid(pts)
             same = 1 if np.dot(p.n, node.n) > 0 else 0
             rec["poly"].append(len(out_polys) + 1)
             vs = []
-            for q in p.pts:
+            for q in pts:
                 u, v = sf.uv(q)
                 if sf.turb:          # absolute texel coords: the cart wraps the 32x32 texture
                     vs.append((vid(q), u + sf.u0 % TEX_PX, v + sf.v0 % TEX_PX))
@@ -712,7 +821,8 @@ def main():
             # sector 0 (e.g. a door frame face looking into the door slot): always drawn
             mask |= (1 << (sf.sector - 1)) if sf.sector else -1
             out_polys.append((p.surf + 1, same, c, vs))
-            P = np.array(p.pts)
+            P = np.array(pts)
+            out_pbox.append((P.min(axis=0), P.max(axis=0)))
             mins = np.minimum(mins, P.min(axis=0)); maxs = np.maximum(maxs, P.max(axis=0))
         rec["n"], rec["d"] = node.n, node.d
         rec["front"] = emit(node.front)
@@ -723,6 +833,7 @@ def main():
                 mins = np.minimum(mins, cm); maxs = np.maximum(maxs, cx)
                 mask |= out_nodes[ch - 1]["mask"]
         rec["mins"], rec["maxs"], rec["mask"] = mins, maxs, mask
+        rec["p1"] = len(out_polys)          # subtree polys = out_polys[p0:p1] (pre-order)
         return me
     emit(root)
     if missing:
@@ -820,6 +931,14 @@ def main():
             lo, hi = np.maximum(b.mins, rmin - 64), np.minimum(b.maxs, rmax + 64)
             boxes.append((lo, hi))
 
+    # ---- potentially visible sets
+    import time
+    t0 = time.time()
+    pvs = compute_pvs(vox, out_pbox, out_nodes, gx0, gy0, GW, GH)
+    npv = [sum(bin(b).count("1") for b in v[1]) for v in pvs.values()]
+    print(f"pvs: {len(pvs)} cells, avg {sum(npv) / max(1, len(npv)):.0f} / {len(out_polys)} polys visible per cell "
+          f"({time.time() - t0:.0f}s)")
+
     # ---- write lua
     L = []
     L.append("--[[pod_format=\"raw\"]]")
@@ -867,6 +986,9 @@ def main():
     for cls, o, ang in things:
         tl.append('{"%s",%s,%s,%s,%s}' % (cls, fmt(o[0]), fmt(o[1]), fmt(o[2]), fmt(ang)))
     L.append("things={%s}," % ",".join(tl))
+    # pvs[cell] = {node bits, poly bits, cell bits} as hex (little-endian bits)
+    L.append("pvs={\n%s}," % ",\n".join('[%d]={"%s","%s","%s"}' % (ci, a.hex(), b.hex(), c.hex())
+                                          for ci, (a, b, c) in sorted(pvs.items())))
     L.append("}")
     with open(dst, "w") as f:
         f.write("\n".join(L) + "\n")
