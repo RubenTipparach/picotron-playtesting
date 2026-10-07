@@ -31,6 +31,7 @@ local spr_rows = userdata("f64", 11, 4096)
 local zbuf = {}
 local floor_maps, ceil_maps = {}, {}
 local rcells                -- grid cells with a forced solid border (DDA needs no bounds checks)
+sky_cells = {}              -- centres of open-sky ceiling cells
 ray_stats = {cols = 0, rows = 0, sprites = 0, lines = 0}
 
 function ray_init()
@@ -44,7 +45,9 @@ function ray_init()
 				local my = G.h - 1 - gy           -- map rows run south, like Quake's v
 				local ft, ct = G.floor[i], G.ceil[i]
 				if ft >= 0 then fm:set(gx, my, VAR_BASE + ft * 4 + k) end
-				if ct >= 0 then cm:set(gx, my, VAR_BASE + ct * 4 + (ct == 12 and 0 or k)) end
+				-- sky cells are holes in the ceiling: the far sky pass shows through
+				if ct >= 0 then cm:set(gx, my, ct == 12 and SKY_HOLE or (VAR_BASE + ct * 4 + k)) end
+				if ct == 12 and k == 0 then add(sky_cells, {(gx + 0.5) * CELL + G.x0, (gy + 0.5) * CELL + G.y0}) end
 			end
 		end
 		floor_maps[k], ceil_maps[k] = fm, cm
@@ -77,9 +80,24 @@ function ray_draw(cam, things)
 	local kl, kr = (0.5 - CX) / FOCAL, (SW - 0.5 - CX) / FOCAL
 	local lx, ly = fx + rx * kl, fy + ry * kl
 	local rxx, ryy = fx + rx * kr, fy + ry * kr
+	-- the sky pass (rows above the horizon, a cloud plane SKY_H above the eye,
+	-- centred on it) only runs when an open-sky cell is near enough to show
+	local sky = false
+	for c in all(sky_cells) do
+		local dx, dy = c[1] - px, c[2] - py
+		if dx * dx + dy * dy < 1800 * 1800 then sky = true break end
+	end
+	local sky_spr = VAR_BASE + SKY_SPR * 4
 	for y = 0, SH - 1 do
 		local dyp = y + 0.5 - hy
 		local d, maps
+		if sky and dyp < 0 then
+			-- the loop mask wraps the 32px sky; map mode must not see it
+			local ds = SKY_H * FOCAL / -dyp / SKY_TEXEL
+			poke2(0x5534, 128, 128)
+			tline3d(sky_spr, 0, y, SW - 1, y, lx * ds, -ly * ds, rxx * ds, -ryy * ds)
+			poke2(0x5534, 0, 0)
+		end
 		if dyp > 0 then
 			d = eye * FOCAL / dyp
 			maps = floor_maps

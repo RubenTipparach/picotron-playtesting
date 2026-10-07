@@ -17,7 +17,8 @@ level**. Press **TAB** in game to flip between them live:
 | collision | grid cells, z = 0 | brush boxes, step-up 20u, gravity |
 | doors | Wolfenstein door cells: ray tested against the panel mid-cell | sliding boxes clipped to the doorway |
 | hidden areas | free: the DDA stops at the first wall/door | precomputed PVS per 64u cell + sectors behind closed doors, one bit test per BSP node |
-| sky / acid | scrolling textures on per-cell ceiling/floor tiles | scrolling, unlit, wrapped textures on any polygon (the sunroof, the pools) |
+| sky | a far cloud plane drawn behind the ceiling rows; sky cells are holes in the ceiling map | sky polygons re-projected onto the same far plane (see "Sky") |
+| acid | scrolling texture on per-cell floor tiles | scrolling, unlit, wrapped texture on any polygon |
 
 A start menu picks the renderer (up/down + Z, or click; the level spins
 behind it, drawn by the highlighted renderer). Controls: WASD move, click to
@@ -147,6 +148,24 @@ at 240x135 (and 7 of 9 at 480x270):
 Correctness check: `PVS_ON = false` renders as if every cell saw
 everything; at 1434 random standing poses the PVS frame matches that
 pixel for pixel in all but one, which differs by a single seam pixel.
+
+## Sky
+
+The sky is not a texture on the ceiling. Both renderers map it onto a cloud
+layer `SKY_H` (1200u) above the eye and centred on it, so walking under it
+never slides the clouds - only turning does, like real distant sky - and
+perspective squeezes it towards the horizon. The layer is a 128x128
+tileable cloud sprite (51 / 115 in the 64-colour set, `gen_art.py`), one
+texel per `SKY_TEXEL` (24u), drifting slowly.
+
+* true 3D: each sky polygon's vertices are pushed out along their view rays
+  (camera-space vertex x `SKY_H / (z - eye z)`) onto that plane, then drawn
+  as usual with u, v = the pushed point's offset from the eye. Same screen
+  shape, far-away texture
+* raycaster: when an open-sky cell is within 1800u, each ceiling row first
+  draws the cloud plane (the row's ray directions x `SKY_H * FOCAL / dy`);
+  sky cells in the ceiling map point at a fully transparent sprite, so the
+  clouds show through them
 
 ## Sectors and doors
 
