@@ -92,6 +92,26 @@ data). Two runtime effects are new:
 * **blinking**: `glow_alert` (53) is a turbulent surface whose pixels are
   swapped with `_alert_off` (54) every 36 frames (`BLINK` in `gfx.lua`)
 
+Railings are **see-through to shots** as well: `map2bsp` lists the
+collision boxes of `deck_rail` brushes in `LEVEL.see`; bodies still collide
+with them, but `point_solid` (hitscan line of sight, fireballs) ignores
+them, so you can fight across the pit.
+
+### Playtest (mock autopilot)
+
+```sh
+python3 tools/fps-lab/screenshots.py /tmp/shots          # writes /tmp/shots/sprites.lua
+lua5.4 tools/fps-lab/mock/playtest_deck.lua carts/fps-render-lab.p64 /tmp/shots/sprites.lua /tmp/play 2
+```
+
+Picks the deck from the menu, fights from the south walkway, then walks a
+route through every room (round the walkway, into the pit and out, through
+both doors, up into the lounge) in the given renderer (1 raycaster, 2 true
+3D); exits non-zero if the player gets stuck or never lands a kill. It found
+the stale collision buckets (`world_init` now resets them on a level switch:
+the deck was colliding with the fortress's walls) and the railings eating
+shots.
+
 ### Round rooms in the compiler
 
 Angled brushes needed four changes in `map2bsp.py` (none alters the
@@ -475,7 +495,8 @@ tools/fps-lab/
   map2bsp.py    compiler (CSG, lightmaps, sectors, doors, BSP, grid)
   gen_art.py    textures, monsters, props, weapon in both palettes
                 (+ --sheet contact sheet)
-  screenshots.py, mock/   headless verification
+  screenshots.py, mock/   headless verification (mock/playtest_deck.lua:
+                autopilot route + combat through the deck)
   trenchbroom/  TrenchBroom game config, FGD, materials
 ```
 

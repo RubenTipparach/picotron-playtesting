@@ -58,7 +58,8 @@ NOFOG = ("glow", "stars", "plasma")
 # rooms): faces kept whole, outlines never staircased, closed voxel seams,
 # rasterised collision. Off by default so the fortress compiles as before
 # (its sloped braces were built for the old rules).
-ANGLED = False         # light sources: stay vivid at any distance    # drawn from the animated (scrolling) texture, not the surface cache
+ANGLED = False
+SEE_THROUGH = {"deck_rail"}     # brushes with these block bodies, not shots / line of sight         # light sources: stay vivid at any distance    # drawn from the animated (scrolling) texture, not the surface cache
 
 # Texture names -> index into the cart's texture table. Keep in sync with
 # TEXTURES in tools/fps-lab/gen_art.py (the art generator writes the sprites).
@@ -1002,16 +1003,19 @@ def main():
 
     # ---- collision boxes: brushes that touch the playable space
     rmin, rmax = wmin - 64, wmax + 64
-    boxes = []
+    boxes, see = [], []
     for b in brushes:
         if b.textures <= {"trigger", "hint"}:
             continue
         if np.all(b.mins <= rmax) and np.all(b.maxs >= rmin):
             lo, hi = np.maximum(b.mins, rmin - 64), np.minimum(b.maxs, rmax + 64)
+            n0 = len(boxes)
             if b.axial or not ANGLED:
                 boxes.append((lo, hi))
             else:
                 boxes += angled_boxes(b, lo, hi)
+            if b.textures & SEE_THROUGH:
+                see += range(n0 + 1, len(boxes) + 1)
 
     # ---- potentially visible sets
     import time
@@ -1066,6 +1070,8 @@ def main():
         fmt(lo[0]), fmt(lo[1]), fmt(lo[2]), fmt(hi[0]), fmt(hi[1]), fmt(hi[2]), int(sd[0]), int(sd[1]),
         fmt(tr), tx, sa, sb, ci) for lo, hi, sd, tr, tx, sa, sb, ci in doors))
     L.append("boxes={%s}," % ",".join("%s,%s,%s,%s,%s,%s" % (fmt(lo[0]), fmt(lo[1]), fmt(lo[2]), fmt(hi[0]), fmt(hi[1]), fmt(hi[2])) for lo, hi in boxes))
+    if see:     # 1-based indices into boxes (railings: block bodies, not shots)
+        L.append("see={%s}," % ",".join(map(str, see)))
     tl = []
     for cls, o, ang in things:
         tl.append('{"%s",%s,%s,%s,%s}' % (cls, fmt(o[0]), fmt(o[1]), fmt(o[2]), fmt(ang)))

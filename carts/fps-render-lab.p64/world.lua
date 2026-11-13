@@ -35,12 +35,15 @@ end
 function world_init()
 	G = LEVEL.grid
 	BX = {}
+	bucket = {}              -- per level: world_init runs again on every level switch
 	local b = LEVEL.boxes
 	for i = 1, #b, 6 do
 		local box = {b[i], b[i + 1], b[i + 2], b[i + 3], b[i + 4], b[i + 5]}
 		add(BX, box)
 		bucket_add(box, box[1], box[2], box[4], box[5])
 	end
+	-- see-through brushes (railings): bodies collide, shots and sight pass
+	for i in all(LEVEL.see or {}) do BX[i].see = true end
 	DOORS, DOOR_AT = {}, {}
 	for r in all(LEVEL.doors or {}) do
 		local d = {x0 = r[1], y0 = r[2], z0 = r[3], x1 = r[4], y1 = r[5], z1 = r[6],
@@ -189,10 +192,10 @@ function box_blocked(x, y, z, r, h)
 	end)
 end
 
--- a point inside solid? (fireballs, 3D hitscan)
+-- a point inside solid? (fireballs, 3D hitscan; see-through railings don't count)
 function point_solid(x, y, z)
 	return near_boxes(x - 0.5, y - 0.5, x + 0.5, y + 0.5, function(b)
-		return z > b[3] and z < b[6]
+		return z > b[3] and z < b[6] and not b.see
 	end)
 end
 
