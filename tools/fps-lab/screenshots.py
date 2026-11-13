@@ -43,7 +43,9 @@ def cell(col, row):
 
 
 # name, (x,y), yaw (turns, 0=east .25=north), pitch, options:
-#   half = 240x135 detail, frames = updates before the shot, pal = art set
+#   half = 240x135 detail, frames = updates before the shot, pal = art set,
+#   level = 2 for the starship deck (its poses are in world units, see
+#   DECK_WARPS in main.lua)
 POSES = [
     ("hall", cell(6, 9.4), 0.25, 0.0, {}),
     ("hall_up", cell(6, 9.4), 0.25, 0.1, {}),
@@ -58,7 +60,20 @@ POSES = [
     ("hall_240x135", cell(6, 9.4), 0.25, 0.0, {"half": True}),     # HALF detail (vid(3))
     ("acid_pal64", cell(37.2, 21.6), 0.07, -0.03, {"pal": 2}),
     ("hall_pal64", cell(6, 9.4), 0.25, 0.0, {"pal": 2}),
+    ("deck_core", (1056, 144), 0.25, 0.0, {"level": 2}),
+    ("deck_corner", (800, 780), 0.875, 0.02, {"level": 2}),
+    ("deck_pit", (1056, 820), 0.75, -0.1, {"level": 2}),
+    ("deck_lounge", (900, 1260), 0.25, 0.03, {"level": 2}),
+    ("deck_engineering", (360, 300), 0.4, 0.0, {"level": 2}),
+    ("deck_cargo", (1740, 200), 0.2, 0.0, {"level": 2}),
+    ("deck_ceiling", (1300, 300), 0.6, 0.12, {"level": 2}),
+    ("deck_core_pal64", (1056, 144), 0.25, 0.0, {"level": 2, "pal": 2}),
+    ("deck_core_240x135", (1056, 144), 0.25, 0.0, {"level": 2, "half": True}),
+    ("deck_corner_240x135", (800, 780), 0.875, 0.02, {"level": 2, "half": True}),
 ]
+ONLY = os.environ.get("POSES")         # e.g. POSES=deck_ to shoot a subset
+if ONLY:
+    POSES = [p for p in POSES if p[0].startswith(tuple(ONLY.split(",")))]
 
 
 def dump_sprites(path):
@@ -86,12 +101,14 @@ def main():
     for name, (x, y), yaw, pitch, opt in POSES:
         for m, tag in ((1, "ray"), (2, "bsp")):
             shots.append("""{name="%s_%s", frames=%d, setup=function()
+  if level_cur ~= %d then load_level(%d) end
   in_menu=false; show_stats=true; reset_game()
   if pal_set ~= %d then gfx_set_palette(%d); build_surfaces() end
   set_detail(%s)
   mode=%d; player.x=%g; player.y=%g; player.yaw=%g; player.pitch=%g
   player.z = (mode==2) and math.max(0, floor_at(player.x, player.y, 12, 72)) or 0
-end},""" % (name, tag, opt.get("frames", 1), opt.get("pal", 1), opt.get("pal", 1),
+end},""" % (name, tag, opt.get("frames", 1), opt.get("level", 1), opt.get("level", 1),
+            opt.get("pal", 1), opt.get("pal", 1),
             "true" if opt.get("half") else "false", m, x, y, yaw, pitch))
     shots.append("}")
     sh = os.path.join(OUT, "shots.lua")

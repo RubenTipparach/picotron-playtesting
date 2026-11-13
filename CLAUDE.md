@@ -13,6 +13,10 @@ committed; Picotron carts in `carts/<name>.p64/` are exported in CI.
   `carts/fps-render-lab.map` (TrenchBroom); after editing it run
   `python3 tools/fps-lab/map2bsp.py` to regenerate `level.lua`. Never
   hand-edit `level.lua`. `gen_level.py` only seeds the .map (overwrites it).
+  Second level (starship deck): `carts/fps-render-lab-deck.map` ->
+  `python3 tools/fps-lab/map2bsp.py carts/fps-render-lab-deck.map
+  carts/fps-render-lab.p64/deck.lua LEVEL_DECK`; seed: `gen_deck.py`.
+  Round-room brushes: keep ring apothems on multiples of 16 (voxel seams).
 - No Picotron in the cloud container: verify cart changes with
   `python3 tools/fps-lab/screenshots.py <dir>` (runs the real cart Lua
   under `tools/fps-lab/mock/picomock.lua`, needs lua5.4 + Pillow). Keep cart

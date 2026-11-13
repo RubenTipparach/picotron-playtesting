@@ -105,7 +105,13 @@ IMG = np.uint16                           # design image dtype (VP indices)
 TEXTURES = ["stone", "brick", "metal", "wood_wall", "stone_moss", "floor_stone",
             "floor_tile", "floor_metal", "cobble", "floor_wood", "ceil_wood",
             "ceil_panel", "sky", "slime", "trim", "step", "pillar",
-            "_crate_face", "_barrel_side", "_barrel_top", "door", "hazard"]
+            "_crate_face", "_barrel_side", "_barrel_top", "door", "hazard",
+            # starship deck set (carts/fps-render-lab-deck.map)
+            "deck_bulkhead", "deck_panel", "deck_floor", "deck_ceil", "glow_console",
+            "glow_strip", "deck_trim", "glow_lamp", "stars", "plasma"] + \
+           ["_"] * 20 + \
+           ["deck_rail", "glow_alert", "_alert_off", "deck_coffer"]     # 52..55 (32..51: SPRITES)
+TRANSPARENT = {"deck_rail"}             # textures allowed to hold colour 0 (see-through)
 
 rng = np.random.default_rng(1337)
 
@@ -468,10 +474,226 @@ def tex_barrel_top():
     return img
 
 
+
+# ------------------------------------------------------ starship deck set ----
+# Original materials for the deck level: warm padded bulkheads under dark
+# slate panelling, a ribbed ceiling, glowing consoles and light strips,
+# a slowly drifting starfield (window) and a churning plasma core. glow_*,
+# stars and plasma are fullbright in map2bsp; stars + plasma also scroll.
+def _amber(v):
+    return ramp(v, [vp((58, 36, 22)), vp((122, 82, 44)), vp((184, 134, 72)), vp((228, 184, 116))],
+                [0.3, 0.55, 0.8])
+
+
+def tex_deck_bulkhead():
+    """Padded wall: two quilted cushions per tile, dark seams between."""
+    n = noise(32, 32, 8, 2, 41)
+    img = np.zeros((32, 32), IMG)
+    for y in range(32):
+        py = (y % 16) / 15.0                      # 0 top .. 1 bottom of a cushion
+        prof = 0.78 - 0.55 * (py - 0.35) ** 2 * 2.2   # bright upper middle, rounded off
+        for x in range(32):
+            px_ = abs((x % 32) - 15.5) / 15.5
+            v = prof - 0.12 * px_ ** 4 + (n[y, x] - 0.5) * 0.18
+            img[y, x] = _amber(np.array([v]))[0]
+    for y in (0, 16):
+        img[y, :] = vp((34, 22, 14))
+        img[y + 1, :] = vp((150, 104, 58))
+    img[:, 0] = vp((40, 26, 16))
+    img[15, :] = vp((70, 46, 26)); img[31, :] = vp((70, 46, 26))
+    return img
+
+
+def tex_deck_panel():
+    """Dark slate wall plate: seams, a vent grille, four rivets."""
+    n = dither(noise(32, 32, 4, 2, 42), 5)
+    img = ramp(n * 0.6 + 0.2, [1, vp_mix(1, 5, 0.5), 5], [0.42, 0.66])
+    img[0, :] = 1; img[:, 0] = 1
+    img[1, 1:] = 13; img[1:, 1] = vp_mix(5, 13, 0.5)
+    for y in range(22, 29, 2):
+        img[y, 8:24] = 1
+        img[y + 1, 8:24] = 5
+    for (x, y) in ((4, 4), (27, 4), (4, 27), (27, 27)):
+        img[y, x] = 6; img[y + 1, x] = 1
+    return img
+
+
+def tex_deck_floor():
+    """Deck carpet: fine dark weave, a faint seam every tile."""
+    n = noise(32, 32, 16, 2, 43)
+    w = np.array([[((x + y) % 4 == 0) * 0.12 for x in range(32)] for y in range(32)])
+    # mid slate, not the darkest navy: the 4 light levels need room below it
+    # for the lamps' pools of light to read
+    img = ramp(n * 0.5 + w * 0.5 + 0.2, [vp_mix(1, 13, 0.35), vp_mix(1, 13, 0.5), vp_mix(1, 13, 0.62)], [0.55, 0.7])
+    img[0, :] = vp_mix(5, 13, 0.6); img[:, 0] = vp_mix(5, 13, 0.6)
+    img[16, :] = vp_mix(1, 13, 0.7); img[:, 16] = vp_mix(1, 13, 0.7)
+    return img
+
+
+def tex_deck_ceil():
+    """Ribbed ceiling: a rib every 8 texels, deep grooves, one cross seam."""
+    n = noise(32, 32, 4, 2, 44)
+    img = np.zeros((32, 32), IMG)
+    prof = [0.15, 0.55, 0.8, 0.7, 0.6, 0.5, 0.4, 0.25]
+    for y in range(32):
+        for x in range(32):
+            v = prof[y % 8] + (n[y, x] - 0.5) * 0.15
+            img[y, x] = ramp(np.array([v]), [1, vp_mix(1, 5, 0.5), 5, 13],
+                             [0.3, 0.55, 0.75])[0]
+    img[:, 0] = 1
+    return img
+
+
+def tex_glow_console():
+    """A lit console: bezel, header bar, readout blocks and a trace."""
+    img = np.full((32, 32), 1, IMG)
+    img[0, :] = 13; img[31, :] = 5
+    img[:, 0] = 13; img[:, 31] = 5
+    img[1, 1:31] = 5; img[30, 1:31] = 5
+    img[3:6, 3:19] = 9; img[3:6, 21:29] = vp((200, 90, 40))
+    cols = [12, 11, 10, 8, 12, 11]
+    r = np.random.default_rng(45)
+    for row in range(3):
+        y = 8 + row * 4
+        x = 3
+        while x < 26:
+            w = int(r.integers(2, 6))
+            img[y:y + 2, x:x + w] = cols[int(r.integers(0, len(cols)))]
+            x += w + 1
+    for x in range(3, 29):
+        y = int(round(24 + 3 * math.sin(x * 0.55) * math.cos(x * 0.17)))
+        img[y, x] = 11
+        img[min(28, y + 1), x] = vp((0, 90, 40))
+    img[27, 3:29] = 5
+    return img
+
+
+def tex_glow_strip():
+    """Warm light strip: an amber glow in 8-texel segments."""
+    img = np.zeros((32, 32), IMG)
+    for y in range(32):
+        for x in range(32):
+            v = 0.5 + 0.12 * math.cos((y % 8) / 8 * 2 * math.pi) + 0.1 * math.cos((x % 16) / 16 * 2 * math.pi)
+            img[y, x] = ramp(np.array([v]), [vp((190, 96, 30)), 9, vp((255, 196, 96))], [0.45, 0.62])[0]
+    img[:, 0] = vp((120, 62, 22)); img[:, 16] = vp((120, 62, 22))
+    return img
+
+
+def tex_deck_trim():
+    """Brushed brass trim for rails, frames and the core's rings."""
+    n = noise(32, 32, 2, 3, 46)
+    img = np.zeros((32, 32), IMG)
+    for y in range(32):
+        for x in range(32):
+            v = 0.55 * n[y, (x * 3) % 32] + 0.45 * ((y % 16) / 15.0 < 0.5) * 0.6 + 0.1
+            img[y, x] = ramp(np.array([v]), [vp((88, 56, 28)), vp((150, 104, 52)), vp((206, 160, 86)), 15],
+                             [0.32, 0.5, 0.7])[0]
+    img[0, :] = 15; img[15, :] = vp((60, 38, 20)); img[16, :] = vp((230, 190, 120)); img[31, :] = vp((60, 38, 20))
+    return img
+
+
+def tex_glow_lamp():
+    """Ceiling light panel: bright diffuser in a slate frame."""
+    img = np.full((32, 32), 7, IMG)
+    for y in range(32):
+        for x in range(32):
+            e = min(x, y, 31 - x, 31 - y)
+            if e < 2:
+                img[y, x] = 5 if e == 0 else 13
+            elif e < 5:
+                img[y, x] = 15 if e == 2 else vp((255, 236, 200))
+            elif (x % 8 == 4) or (y % 8 == 4):
+                img[y, x] = vp((255, 226, 190))
+    return img
+
+
+def tex_stars():
+    """Tileable starfield with a faint violet nebula (scrolls slowly)."""
+    n = noise(32, 32, 2, 3, 47)
+    img = ramp(dither(n, 6), [1, 1, vp_mix(1, 2, 0.6)], [0.6, 0.82])
+    r = np.random.default_rng(48)
+    for _ in range(14):
+        x, y = int(r.integers(0, 32)), int(r.integers(0, 32))
+        img[y, x] = [7, 6, 12, 15][int(r.integers(0, 4))]
+    for (x, y) in ((9, 7), (24, 21)):        # two brighter stars with a glint
+        img[y, x] = 7
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            img[(y + dy) % 32, (x + dx) % 32] = vp((120, 140, 200))
+    return img
+
+
+def tex_plasma():
+    """Churning energy: violet to hot orange bands (scrolls fast)."""
+    a = noise(32, 32, 2, 3, 49)
+    b = noise(32, 32, 4, 2, 50)
+    v = 1 - np.abs(np.sin((a * 1.2 + b * 0.5) * 5.0))        # thin hot veins in violet
+    return ramp(v, [vp((101, 70, 136)), vp((150, 90, 210)), 14, vp((255, 140, 90)), 9, 10],
+                [0.3, 0.5, 0.68, 0.84, 0.94])
+
+
+
+def tex_deck_rail():
+    """Railing with see-through gaps (colour 0): brass top rail, a thin mid
+    rail and posts every 16 texels. Row 0 is the top (the deck map anchors
+    rail faces there); rows below the posts' feet stay empty."""
+    img = np.zeros((32, 32), IMG)
+    for y in range(0, 4):
+        for x in range(32):
+            img[y, x] = [15, vp((206, 160, 86)), vp((150, 104, 52)), vp((88, 56, 28))][y]
+    img[11, :] = vp((180, 132, 70)); img[12, :] = vp((96, 62, 30))
+    for x0 in (0, 16):
+        for y in range(4, 20):
+            img[y, x0] = vp((206, 160, 86)); img[y, x0 + 1] = vp((150, 104, 52)); img[y, x0 + 2] = vp((88, 56, 28))
+    img[18:20, :] = 0
+    return img
+
+
+def _alert(on):
+    """Emergency blip, an 8x8 cell repeated (the deck's blips are 16u = 8 texels)."""
+    cell = np.full((8, 8), 1, IMG)
+    cell[0, :] = 5; cell[:, 0] = 5
+    lamp = [vp((255, 60, 60)), 8, vp((200, 20, 50))] if on else [vp((110, 24, 40)), vp((80, 18, 34)), vp((60, 14, 30))]
+    cell[2:6, 2:6] = lamp[1]
+    cell[2, 2:6] = lamp[2]; cell[5, 2:6] = lamp[2]; cell[2:6, 2] = lamp[2]
+    cell[3, 3] = 7 if on else lamp[0]
+    cell[3, 4] = lamp[0]; cell[4, 3] = lamp[0]
+    return np.tile(cell, (4, 4))
+
+
+def tex_glow_alert():
+    return _alert(True)
+
+
+def tex_alert_off():
+    return _alert(False)
+
+
+def tex_deck_coffer():
+    """Coffered ceiling: deep recessed squares with a pin light in each."""
+    img = np.zeros((32, 32), IMG)
+    for y in range(32):
+        for x in range(32):
+            e = min(x % 16, y % 16, 15 - x % 16, 15 - y % 16)
+            if e == 0:
+                img[y, x] = vp_mix(1, 5, 0.6)
+            elif e == 1:
+                img[y, x] = 5 if (x % 16 < 8) == (y % 16 < 8) else vp_mix(1, 5, 0.3)
+            elif e == 2:
+                img[y, x] = vp_mix(1, 5, 0.45)
+            else:
+                img[y, x] = 1
+    for (x, y) in ((7, 7), (23, 7), (7, 23), (23, 23)):
+        img[y, x] = 15; img[y, x + 1] = vp((255, 210, 150))
+    return img
+
 TEXGEN = [tex_stone, tex_brick, tex_metal, tex_wood_wall, tex_stone_moss, tex_floor_stone,
           tex_floor_tile, tex_floor_metal, tex_cobble, tex_floor_wood, tex_ceil_wood,
           tex_ceil_panel, tex_sky, tex_slime, tex_trim, tex_step, tex_pillar,
-          None, None, None, tex_door, tex_hazard]
+          None, None, None, tex_door, tex_hazard,
+          tex_deck_bulkhead, tex_deck_panel, tex_deck_floor, tex_deck_ceil, tex_glow_console,
+          tex_glow_strip, tex_deck_trim, tex_glow_lamp, tex_stars, tex_plasma] + \
+         [None] * 20 + \
+         [tex_deck_rail, tex_glow_alert, tex_alert_off, tex_deck_coffer]
 
 
 # ----------------------------------------------------------- billboards ----
@@ -757,7 +979,8 @@ def main():
         if gen is None:
             continue
         a = gen()
-        assert a.shape == (32, 32) and a.min() > 0, f"texture {name} must be 32x32 without colour 0"
+        assert a.shape == (32, 32) and (a.min() > 0 or name in TRANSPARENT), \
+            f"texture {name} must be 32x32 without colour 0"
         design[i] = ("textures", name, a)
     for i, (cat, name, gen) in SPRITES.items():
         design[i] = (cat, name, gen())
@@ -771,7 +994,7 @@ def main():
         sets[sub] = {}
         for i, (cat, name, a) in design.items():
             q = quantise(a, pal)
-            if cat == "textures":
+            if cat == "textures" and name not in TRANSPARENT:
                 assert q.min() > 0, f"{name}: a texture pixel quantised to transparent"
             sets[sub][i] = (cat, name, q, pal)
             save(q, pal, os.path.join(base, cat, f"{i + off:03d}_{name}.png"))

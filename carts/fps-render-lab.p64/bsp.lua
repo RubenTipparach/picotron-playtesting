@@ -66,6 +66,7 @@ local function pvs_enter(x, y)
 	bsp_stats.cell = ci
 end
 local surf_bit, turb_spr = {}, {}      -- per surface: sector bit; scrolling texture sprite
+local nofog = {}                       -- per surface: a light source, drawn without distance fog
 local SKY_TEX = 12
 
 -- scratch polygon buffers
@@ -75,6 +76,7 @@ local px, py, pw, pu, pv = {}, {}, {}, {}, {}
 
 function bsp_init()
 	nodes, polys = LEVEL.nodes, LEVEL.polys
+	pv_cache, surf_bit, turb_spr, nofog = {}, {}, {}, {}    -- per level: bsp_init runs on every level load
 	local vs = LEVEL.verts
 	local nv = #vs / 3
 	Vud = userdata("f64", 3, nv)
@@ -89,6 +91,7 @@ function bsp_init()
 		local sec = sf[10] or 0
 		surf_bit[id] = sec > 0 and (1 << (sec - 1)) or -1
 		if sf[9] == 1 then turb_spr[id] = VAR_BASE + sf[1] * 4 end
+		if sf[11] == 1 then nofog[id] = true end
 	end
 	bsp_stats.nsec = LEVEL.sectors or 0
 	-- until the player is in a cell with a PVS entry, everything is visible
@@ -276,6 +279,7 @@ local function draw_level_poly(pi)
 	local minx, maxx, miny, maxy, minw, maxw, fd = BB:get(0, q, 7)
 	local fog = flr(fd)
 	if fog > 3 then fog = 3 end
+	if nofog[p[1]] then fog = 0 end
 	-- sky / slime: the scrolling 32x32 texture, wrapped (tline3d loop mask),
 	-- uvs are absolute texels; the sky ignores fog
 	local spr = turb_spr[p[1]]
@@ -288,7 +292,10 @@ local function draw_level_poly(pi)
 	local t
 	-- w = 1/z doubles as the near-plane test (z < NEAR <=> w outside (0, 1/NEAR])
 	if minw > 0 and maxw <= INV_NEAR then
-		if maxx < 0 or minx >= SW or maxy < 0 or miny >= SH then
+		-- off screen, or a sliver under a pixel thick (edge-on faces, BSP
+		-- split remnants): it would cost a whole polygon setup for at most
+		-- one row of pixels. Round rooms make lots of these.
+		if maxx < 0 or minx >= SW or maxy < 0 or miny >= SH or maxx - minx < 1 or maxy - miny < 1 then
 			t = 0
 		else
 			set_fog(fog)

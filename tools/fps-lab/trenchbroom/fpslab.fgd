@@ -5,6 +5,11 @@
 [
 	_ambient(integer) : "Ambient light added everywhere (0-255)" : 24
 	_fog(integer) : "Fog distance hint" : 420
+	_angled(choices) : "Exact angled brushes (round rooms): whole faces, no staircasing, rasterised collision" : 0 =
+	[
+		0 : "Off (fortress rules)"
+		1 : "On"
+	]
 ]
 
 @BaseClass = Angle [ angle(integer) : "Facing (degrees, 0 = east, 90 = north)" : 0 ]

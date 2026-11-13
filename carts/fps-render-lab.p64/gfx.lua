@@ -207,7 +207,7 @@ function set_fog(k)
 end
 
 -- ----------------------------------------------------- scrolling textures ---
--- sky and acid (slime) are unlit "turbulent" textures: their pixels are
+-- sky, acid (slime), stars and plasma are unlit "turbulent" textures: their pixels are
 -- scrolled in place every frame (4 blits per shade variant), so the
 -- raycaster's floor/ceiling maps and the BSP's wrapped liquid polygons both
 -- pick the motion up for free
@@ -221,11 +221,30 @@ SKY_HOLE = 255                               -- fully transparent sprite (raycas
 
 -- sky: the 128x128 cloud layer (sprite 51, unlit: only variant 0), slow drift
 -- slime: the 32x32 acid texture, all 4 shade variants
+-- stars (deck window): slow drift; plasma (deck reactor): fast churn
 local ANIM = {{spr = SKY_SPR, size = 128, nvar = 1, sx = 1 / 12, sy = 1 / 29},
-              {spr = 13, size = 32, nvar = 4, sx = 1 / 4, sy = -1 / 11}}
+              {spr = 13, size = 32, nvar = 4, sx = 1 / 4, sy = -1 / 11},
+              {spr = 30, size = 32, nvar = 4, sx = 1 / 20, sy = 0},
+              {spr = 31, size = 32, nvar = 4, sx = 1 / 3, sy = 1 / 2}}
+-- blinking: the sprite's own pixels alternate with sprite `off` every `period`
+-- frames (the deck's emergency blips: glow_alert 53 <-> _alert_off 54)
+local BLINK = {{spr = 53, off = 54, nvar = 4, period = 36}}
 
+local blinks = {}
 function anim_init()
-	anims = {}
+	anims, blinks = {}, {}
+	for b in all(BLINK) do
+		for k = 0, b.nvar - 1 do
+			local on, off = get_spr(VAR_BASE + b.spr * 4 + k), get_spr(VAR_BASE + b.off * 4 + k)
+			if on and off and on:width() == off:width() then
+				local w = on:width()
+				local a, z = userdata("u8", w, w), userdata("u8", w, w)
+				blit(on, a, 0, 0, 0, 0, w, w)
+				blit(off, z, 0, 0, 0, 0, w, w)
+				add(blinks, {idx = VAR_BASE + b.spr * 4 + k, dst = on, src = {a, z}, w = w, period = b.period, ph = -1})
+			end
+		end
+	end
 	for a in all(ANIM) do
 		for k = 0, a.nvar - 1 do
 			local dst = get_spr(VAR_BASE + a.spr * 4 + k)
@@ -248,6 +267,14 @@ local function wrap_blit(src, dst, ox, oy, n)
 end
 
 function anim_update(frame)
+	for b in all(blinks) do
+		local ph = flr(frame / b.period) % 2
+		if ph ~= b.ph then
+			blit(b.src[ph + 1], b.dst, 0, 0, 0, 0, b.w, b.w)
+			set_spr(b.idx, b.dst)
+			b.ph = ph
+		end
+	end
 	for a in all(anims) do
 		local ox, oy = flr(frame * a.sx) % a.size, flr(frame * a.sy) % a.size
 		if ox ~= a.ox or oy ~= a.oy then
