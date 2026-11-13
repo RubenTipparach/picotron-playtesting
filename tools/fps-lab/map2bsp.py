@@ -2,7 +2,8 @@
 """
 map2bsp.py - a tiny Quake-style map compiler for Picotron.
 
-    python3 tools/fps-lab/map2bsp.py [carts/fps-render-lab.map] [carts/fps-render-lab.p64/level.lua]
+    python3 tools/fps-lab/map2bsp.py [carts/fps-render-lab.map] [carts/fps-render-lab.p64/level.lua] [LEVEL]
+    python3 tools/fps-lab/map2bsp.py carts/fps-render-lab-deck.map carts/fps-render-lab.p64/deck.lua LEVEL_DECK
 
 Reads a TrenchBroom .map (Standard or Valve220 format) and writes a Lua data
 file both of the cart's renderers consume, so the SAME level feeds:
@@ -50,8 +51,15 @@ EYE_BAND = (30, 62)        # raycaster: cell is a wall if brushes cover this z b
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, "..", "..")
 NODRAW = {"skip", "clip", "nodraw", "trigger", "hint"}
-FULLBRIGHT = ("sky", "slime", "lava")
-TURB = ("sky", "slime")    # drawn from the animated (scrolling) texture, not the surface cache
+FULLBRIGHT = ("sky", "slime", "lava", "glow", "stars", "plasma")
+TURB = ("sky", "slime", "stars", "plasma", "glow_alert")   # glow_alert blinks (the cart swaps its frames)
+NOFOG = ("glow", "stars", "plasma")
+# worldspawn "_angled" "1" (the deck): exact handling for angled brushes (round
+# rooms): faces kept whole, outlines never staircased, closed voxel seams,
+# rasterised collision. Off by default so the fortress compiles as before
+# (its sloped braces were built for the old rules).
+ANGLED = False
+SEE_THROUGH = {"deck_rail"}     # brushes with these block bodies, not shots / line of sight         # light sources: stay vivid at any distance    # drawn from the animated (scrolling) texture, not the surface cache
 
 # Texture names -> index into the cart's texture table. Keep in sync with
 # TEXTURES in tools/fps-lab/gen_art.py (the art generator writes the sprites).
@@ -59,7 +67,10 @@ TURB = ("sky", "slime")    # drawn from the animated (scrolling) texture, not th
 TEXTURES = ["stone", "brick", "metal", "wood_wall", "stone_moss", "floor_stone",
             "floor_tile", "floor_metal", "cobble", "floor_wood", "ceil_wood",
             "ceil_panel", "sky", "slime", "trim", "step", "pillar",
-            "_crate_face", "_barrel_side", "_barrel_top", "door", "hazard"]
+            "_crate_face", "_barrel_side", "_barrel_top", "door", "hazard",
+            "deck_bulkhead", "deck_panel", "deck_floor", "deck_ceil", "glow_console",
+            "glow_strip", "deck_trim", "glow_lamp", "stars", "plasma"] + ["_"] * 20 + \
+           ["deck_rail", "glow_alert", "_alert_off", "deck_coffer"]
 
 
 # ------------------------------------------------------------------ parse --
@@ -236,12 +247,60 @@ class Brush:
         self.mins = np.min(pts, axis=0); self.maxs = np.max(pts, axis=0)
         self.textures = {name for _, _, name, _ in self.planes}
 
+    @property
+    def axial(self):
+        return all(np.count_nonzero(np.abs(n) > 1e-6) == 1 for n, _, _, _ in self.planes)
+
     def contains(self, p, eps=EPS):
         return all(np.dot(n, p) - d < -eps for n, d, _, _ in self.planes)
 
 
+def angled_boxes(b, lo, hi, res=16):
+    """Collision for a brush with non-axial sides (round walls, wedges): the
+    cart collides with boxes, and a wedge's bounding box would block the
+    whole square around it. Rasterise its footprint on a 16u grid (a cell
+    counts if any of 9 sample points is inside at mid height), then merge
+    runs into rectangles. Only vertical-sided prisms are expected here."""
+    x0, y0 = math.floor(lo[0] / res) * res, math.floor(lo[1] / res) * res
+    nx, ny = int(math.ceil((hi[0] - x0) / res)), int(math.ceil((hi[1] - y0) / res))
+    zm = (lo[2] + hi[2]) / 2
+    occ = np.zeros((nx, ny), bool)
+    samp = [(0.5, 0.5), (0.1, 0.1), (0.9, 0.1), (0.1, 0.9), (0.9, 0.9), (0.5, 0.1), (0.5, 0.9), (0.1, 0.5), (0.9, 0.5)]
+    for i in range(nx):
+        for j in range(ny):     # conservative: any of 9 samples inside (thin rails can't slip through)
+            occ[i, j] = any(b.contains(np.array([x0 + (i + fx) * res, y0 + (j + fy) * res, zm]), eps=0)
+                            for fx, fy in samp)
+    out = []
+    for i in range(nx):
+        for j in range(ny):
+            if not occ[i, j]:
+                continue
+            h = 1
+            while j + h < ny and occ[i, j + h]:
+                h += 1
+            w = 1
+            while i + w < nx and occ[i + w, j:j + h].all():
+                w += 1
+            occ[i:i + w, j:j + h] = False
+            out.append((np.array([x0 + i * res, y0 + j * res, lo[2]]),
+                        np.array([x0 + (i + w) * res, y0 + (j + h) * res, hi[2]])))
+    return out
+
+
 def overlap(a, b, pad=EPS):
     return np.all(a.mins <= b.maxs + pad) and np.all(b.mins <= a.maxs + pad)
+
+
+def angled(poly, n):
+    """True if rect_merge can't rebuild this face from rectangles: its plane
+    or any of its edges is off the axes (round rooms, wedges, braces)."""
+    if np.count_nonzero(np.abs(n) > 1e-6) > 1:
+        return True
+    for k in range(len(poly)):
+        e = np.asarray(poly[(k + 1) % len(poly)]) - np.asarray(poly[k])
+        if np.count_nonzero(np.abs(e) > 1e-4) > 1:
+            return True
+    return False
 
 
 def csg(brushes):
@@ -260,6 +319,14 @@ def csg(brushes):
                 pieces = nxt
                 if not pieces:
                     break
+            # an angled face or outline (round rooms) with nothing buried: keep it whole.
+            # Clipping against a neighbour's planes fragments a face even where
+            # it stays visible; axial fragments get re-merged into rectangles
+            # by rect_merge (after the outside fill drops the ones facing the
+            # void), angled ones never would
+            if ANGLED and len(pieces) > 1 and angled(poly, n) \
+                    and abs(sum(poly_area(pc) for pc in pieces) - poly_area(poly)) < 0.5:
+                pieces = [poly]
             for pc in pieces:
                 if poly_area(pc) > 0.5:
                     faces.append((pc, n, d, name, ti))
@@ -306,8 +373,13 @@ class Voxels:
             zs = self.org[2] + (np.arange(lo[2], hi[2]) + 0.5) * res
             X, Y, Z = np.meshgrid(xs, ys, zs, indexing="ij")
             inside = np.ones(X.shape, bool)
+            # angled brushes are closed (<= a hair): a voxel centre exactly on
+            # the seam between two of them (rounded vertices) must not read as
+            # a leak. Axial ones stay open: closing them would also fill voxels
+            # that merely touch a face (planes at 8 mod 16) and drop faces.
+            tol = 1e-3 if ANGLED and not b.axial else 0
             for n, d, _, _ in b.planes:
-                inside &= (n[0] * X + n[1] * Y + n[2] * Z - d) < 0
+                inside &= (n[0] * X + n[1] * Y + n[2] * Z - d) < tol
             self.solid[lo[0]:hi[0], lo[1]:hi[1], lo[2]:hi[2]] |= inside
         self.reach = None
 
@@ -449,6 +521,11 @@ def rect_merge(group, maxlen=512):
     pieces = [f[0] for f in group]
     if abs(n[ax]) < 0.999:
         return pieces
+    for pc in (pieces if ANGLED else ()):     # an angled outline (round rooms) would be staircased
+        for k in range(len(pc)):
+            e = np.asarray(pc[(k + 1) % len(pc)]) - np.asarray(pc[k])
+            if abs(e[a1]) > 1e-4 and abs(e[a2]) > 1e-4:
+                return pieces
     P = np.array([p for pc in pieces for p in pc])
     coords = P[:, [a1, a2]]
     for grid in (16, 8, 4, 2):          # coarsest grid every outline sits on
@@ -705,6 +782,7 @@ def fmt(v):
 def main():
     src = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "carts", "fps-render-lab.map")
     dst = sys.argv[2] if len(sys.argv) > 2 else os.path.join(ROOT, "carts", "fps-render-lab.p64", "level.lua")
+    var = sys.argv[3] if len(sys.argv) > 3 else "LEVEL"     # global the cart reads it from
     ents = parse_map(src)
     world = ents[0]
     brushes, door_ents = [], []
@@ -715,6 +793,8 @@ def main():
             continue
         for bf in e["brushes"]:
             brushes.append(Brush(bf, len(brushes)))
+    global ANGLED
+    ANGLED = world["props"].get("_angled", "0") == "1"
     ambient = float(world["props"].get("_ambient", 20))
     fog = float(world["props"].get("_fog", 400))
     print(f"parsed {len(brushes)} brushes, {len(ents) - 1} entities")
@@ -754,7 +834,7 @@ def main():
     for f in faces:
         poly, n, d, name, ti = f
         key = (tuple(np.round(n, 4)), round(d, 2), name,
-               tuple(np.round(np.asarray(x, float), 4).tolist() if isinstance(x, np.ndarray) else x for x in ti))
+               tuple(tuple(np.round(np.asarray(x, float), 4).tolist()) if isinstance(x, np.ndarray) else x for x in ti))
         groups.setdefault(key, []).append(f)
     polys, surfs = [], []
     for g in groups.values():
@@ -923,13 +1003,19 @@ def main():
 
     # ---- collision boxes: brushes that touch the playable space
     rmin, rmax = wmin - 64, wmax + 64
-    boxes = []
+    boxes, see = [], []
     for b in brushes:
         if b.textures <= {"trigger", "hint"}:
             continue
         if np.all(b.mins <= rmax) and np.all(b.maxs >= rmin):
             lo, hi = np.maximum(b.mins, rmin - 64), np.minimum(b.maxs, rmax + 64)
-            boxes.append((lo, hi))
+            n0 = len(boxes)
+            if b.axial or not ANGLED:
+                boxes.append((lo, hi))
+            else:
+                boxes += angled_boxes(b, lo, hi)
+            if b.textures & SEE_THROUGH:
+                see += range(n0 + 1, len(boxes) + 1)
 
     # ---- potentially visible sets
     import time
@@ -942,8 +1028,8 @@ def main():
     # ---- write lua
     L = []
     L.append("--[[pod_format=\"raw\"]]")
-    L.append("-- GENERATED by tools/fps-lab/map2bsp.py from carts/fps-render-lab.map - do not edit.")
-    L.append("LEVEL={")
+    L.append("-- GENERATED by tools/fps-lab/map2bsp.py from %s - do not edit." % os.path.relpath(src, ROOT))
+    L.append("%s={" % var)
     L.append("textures={%s}," % ",".join('"%s"' % t for t in TEXTURES))
     L.append("fog=%s," % fmt(fog))
     L.append("verts={%s}," % ",".join("%s,%s,%s" % (fmt(v[0]), fmt(v[1]), fmt(v[2])) for v in verts))
@@ -955,9 +1041,11 @@ def main():
     # surfaces: texture, texel origin (for tiling phase), size, lightmap
     sl = []
     for sf in surfs:
-        sl.append('{%d,%d,%d,%d,%d,%d,%d,"%s",%d,%d}' % (tex_ids.get(sf.name, 0), sf.u0 % TEX_PX, sf.v0 % TEX_PX,
-                                                         sf.w, sf.h, sf.lw, sf.lh, sf.lights,
-                                                         1 if sf.turb else 0, sf.sector))
+        # [11] = 1: a light source (glow_*, stars, plasma) the cart draws without distance fog
+        sl.append('{%d,%d,%d,%d,%d,%d,%d,"%s",%d,%d,%d}' % (tex_ids.get(sf.name, 0), sf.u0 % TEX_PX, sf.v0 % TEX_PX,
+                                                            sf.w, sf.h, sf.lw, sf.lh, sf.lights,
+                                                            1 if sf.turb else 0, sf.sector,
+                                                            1 if sf.name.startswith(NOFOG) else 0))
     L.append("luxel=%d,lsub=%d," % (LUXEL, LIGHT_SUB))
     L.append("surfs={\n%s}," % ",\n".join(sl))
     nl = []
@@ -982,6 +1070,8 @@ def main():
         fmt(lo[0]), fmt(lo[1]), fmt(lo[2]), fmt(hi[0]), fmt(hi[1]), fmt(hi[2]), int(sd[0]), int(sd[1]),
         fmt(tr), tx, sa, sb, ci) for lo, hi, sd, tr, tx, sa, sb, ci in doors))
     L.append("boxes={%s}," % ",".join("%s,%s,%s,%s,%s,%s" % (fmt(lo[0]), fmt(lo[1]), fmt(lo[2]), fmt(hi[0]), fmt(hi[1]), fmt(hi[2])) for lo, hi in boxes))
+    if see:     # 1-based indices into boxes (railings: block bodies, not shots)
+        L.append("see={%s}," % ",".join(map(str, see)))
     tl = []
     for cls, o, ang in things:
         tl.append('{"%s",%s,%s,%s,%s}' % (cls, fmt(o[0]), fmt(o[1]), fmt(o[2]), fmt(ang)))

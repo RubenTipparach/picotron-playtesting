@@ -20,8 +20,10 @@ level**. Press **TAB** in game to flip between them live:
 | sky | a far cloud plane drawn behind the ceiling rows; sky cells are holes in the ceiling map | sky polygons re-projected onto the same far plane (see "Sky") |
 | acid | scrolling texture on per-cell floor tiles | scrolling, unlit, wrapped texture on any polygon |
 
-A start menu picks the renderer (up/down + Z, or click; the level spins
-behind it, drawn by the highlighted renderer). Controls: WASD move, click to
+A start menu picks the level (left/right, or click the arrows: the
+**fortress** or the **starship deck**, see below) and the renderer
+(up/down + Z, or click; the level spins behind it, drawn by the
+highlighted renderer). Controls: WASD move, click to
 lock the mouse (or arrows) to look, click / Z / space to fire, TAB switch
 renderer, M back to the menu, V detail (480x270 / 240x135), H show/hide the
 renderer stats (hidden by default: only the gameplay HUD shows), G switch
@@ -41,6 +43,106 @@ courtyard. Doors open when you (or a chasing grunt) come near.
 *Frames rendered by `tools/fps-lab/screenshots.py`, i.e. the real cart Lua
 running in the software mock (see "Verification" below), not captured from
 Picotron itself.*
+
+## Second level: the starship deck
+
+`carts/fps-render-lab-deck.map` (seeded by `tools/fps-lab/gen_deck.py`,
+compiled to `deck.lua`, which defines `LEVEL_DECK`) is an original deck
+built for mood rather than for the comparison: low ambient light, pools of
+light baked under ceiling lamps, sconces washing padded amber walls and
+fading down them, light sources that ignore distance fog.
+
+![starship deck](images/fps-render-lab-deck.png)
+
+* **round reactor hall**: a 12-sided room carved out of the square grid by
+  wedge brushes. A stepped pit behind a curved see-through railing, a caged
+  column of churning plasma rising into a collar, curved console banks, a
+  glowing cove ring, blinking red emergency blips, and a tiered ceiling
+  (ribbed soffit with flush lamp panels, a brass step up to a coffered
+  crown)
+* a lounge with a long window onto a slowly drifting starfield
+* engineering (plasma conduits, a lit console table, a raised control
+  deck) and a cargo bay with a catwalk, behind sliding doors (3 sectors)
+* both renderers: the raycaster sees the round hall as its 64u grid slice
+  (a stepped circle, the column a pillar)
+
+```sh
+python3 tools/fps-lab/gen_deck.py      # one-time seed (overwrites the .map)
+python3 tools/fps-lab/map2bsp.py carts/fps-render-lab-deck.map carts/fps-render-lab.p64/deck.lua LEVEL_DECK
+```
+
+The cart includes `deck.lua` only when the deck is first picked; switching
+levels re-runs `world_init`/`ray_init`/`bsp_init` and rebuilds the surface
+cache (a "loading" notice shows for a frame first, like the palette switch).
+1-9 warp to the deck's viewpoints (`DECK_WARPS` in `main.lua`, world units,
+mirrored by the `deck_*` poses in `screenshots.py`).
+
+New materials (`gen_art.py`, both palettes, sprites 22-31 and 52-55):
+`deck_bulkhead`, `deck_panel`, `deck_floor`, `deck_ceil`, `deck_trim`,
+`deck_coffer`, `glow_console`, `glow_strip`, `glow_lamp`, `stars` and
+`plasma` (scrolling), `deck_rail` and `glow_alert`. `glow_*`, `stars` and
+`plasma` are fullbright and drawn without fog (surface flag 11 in the level
+data). Two runtime effects are new:
+
+* **see-through textures**: `deck_rail` keeps colour 0 in its gaps. A
+  texel stays colour 0 + 64*light, and colour-0 rows of every light table
+  pass the target through, so the gaps stay transparent through the
+  surface cache; the BSP's back-to-front order shows what's behind. One
+  quad draws a whole run of railing posts
+* **blinking**: `glow_alert` (53) is a turbulent surface whose pixels are
+  swapped with `_alert_off` (54) every 36 frames (`BLINK` in `gfx.lua`)
+
+Railings are **see-through to shots** as well: `map2bsp` lists the
+collision boxes of `deck_rail` brushes in `LEVEL.see`; bodies still collide
+with them, but `point_solid` (hitscan line of sight, fireballs) ignores
+them, so you can fight across the pit.
+
+### Playtest (mock autopilot)
+
+```sh
+python3 tools/fps-lab/screenshots.py /tmp/shots          # writes /tmp/shots/sprites.lua
+lua5.4 tools/fps-lab/mock/playtest_deck.lua carts/fps-render-lab.p64 /tmp/shots/sprites.lua /tmp/play 2
+```
+
+Picks the deck from the menu, fights from the south walkway, then walks a
+route through every room (round the walkway, into the pit and out, through
+both doors, up into the lounge) in the given renderer (1 raycaster, 2 true
+3D); exits non-zero if the player gets stuck or never lands a kill. It found
+the stale collision buckets (`world_init` now resets them on a level switch:
+the deck was colliding with the fortress's walls) and the railings eating
+shots.
+
+### Round rooms in the compiler
+
+Angled brushes needed four changes in `map2bsp.py` (none alters the
+fortress, whose brushes are axial and on the 16u grid):
+
+* **collision**: a wedge's bounding box would block the whole square around
+  it, so brushes with non-axial sides get their footprint rasterised on a
+  16u grid (9 samples per cell, so thin railings can't leak) and merged
+  into boxes
+* **whole faces**: CSG clipped every face against each neighbour's planes,
+  fragmenting it even where nothing was buried; axial pieces got re-merged
+  into rectangles, angled ones never did. A face with nothing buried is
+  now kept whole, and `rect_merge` skips outlines with angled edges (it
+  would have staircased them)
+* **Valve220**: faces can carry their own texture axes, so a curved wall's
+  texture runs along each side and console banks / railings line up
+* **voxel seams**: a voxel centre exactly on the seam between two brushes
+  counted as open (a false LEAK); the solidity test is now closed
+
+Building it: rings of trapezoid prisms that only ever meet face to face
+(ring apothems on multiples of 16), wall wedges stacked in z bands so the
+wall face changes material with height (skirting light, bulkhead, console)
+without extra polygons, consoles flush in the wall rather than boxes on it.
+
+Cost: an open round hall shows ~250 polygons at once (the fortress hall
+~90), many of them BSP split remnants and edge-on slivers. The BSP walk now
+skips any polygon under a pixel thick (it cost a full polygon setup for at
+most one row of pixels). Mock, 240x135: the hall 215-230k instructions
+(about 30 fps), the deck's other rooms 40-110k (60 fps). At 480x270 the
+hall is ~240-250k; AUTO detail drops to 240x135 there. Not yet measured in
+real Picotron (CI's benchmark poses are the fortress's).
 
 ## Level pipeline: TrenchBroom -> BSP
 
@@ -373,6 +475,7 @@ pass the target through, opaque entries carry the 0xc0 bits.
 
 ```
 carts/fps-render-lab.map            level source (TrenchBroom)
+carts/fps-render-lab-deck.map       starship deck source (TrenchBroom, Valve220)
 carts/fps-render-lab.png            gallery thumbnail
 carts/fps-render-lab.p64/
   main.lua    game: menu, player, monsters, shotgun, pickups, HUD, keys
@@ -383,14 +486,17 @@ carts/fps-render-lab.p64/
   world.lua   collision (grid + boxes), doors, sectors, line of sight
   props.lua   crate / barrel / torch meshes
   level.lua   GENERATED by map2bsp.py
+  deck.lua    GENERATED by map2bsp.py (LEVEL_DECK, included on demand)
   sprites/    GENERATED by gen_art.py (hand-editable, index = filename):
               default-32 set; sprites/pal64/ = custom-64 set (+64)
 tools/fps-lab/
   gen_level.py  seed .map (already run - edit the .map now)
+  gen_deck.py   seed the deck's .map (round hall from prisms)
   map2bsp.py    compiler (CSG, lightmaps, sectors, doors, BSP, grid)
   gen_art.py    textures, monsters, props, weapon in both palettes
                 (+ --sheet contact sheet)
-  screenshots.py, mock/   headless verification
+  screenshots.py, mock/   headless verification (mock/playtest_deck.lua:
+                autopilot route + combat through the deck)
   trenchbroom/  TrenchBroom game config, FGD, materials
 ```
 

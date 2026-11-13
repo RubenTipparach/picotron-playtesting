@@ -36,6 +36,7 @@ ray_stats = {cols = 0, rows = 0, sprites = 0, lines = 0}
 
 function ray_init()
 	G = LEVEL.grid
+	sky_cells = {}
 	-- 32x32 i16 maps (power of 2 so tline3d wraps them), one per shade level
 	for k = 0, 3 do
 		local fm, cm = userdata("i16", 32, 32), userdata("i16", 32, 32)

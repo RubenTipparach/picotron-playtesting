@@ -10,6 +10,7 @@ and show up in the gallery next to the games in `public/`.
 
 - How it works + the **required secret** (`PICOTRON_ZIP`):
   [docs/picotron-build.md](docs/picotron-build.md)
-- **FPS Render Lab** - one TrenchBroom level rendered by a raycaster *and* a
-  Quake-style BSP renderer, TAB to compare:
+- **FPS Render Lab** - TrenchBroom levels (a fortress and a starship deck
+  with a round reactor hall) rendered by a raycaster *and* a Quake-style
+  BSP renderer, TAB to compare:
   [docs/fps-render-lab.md](docs/fps-render-lab.md)

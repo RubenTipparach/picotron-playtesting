@@ -1,6 +1,6 @@
 --[[pod_format="raw",created="2026-09-30 12:00:00",modified="2026-09-30 12:00:00",revision=1]]
 --[[
-	FPS Render Lab - one level, two engines.
+	FPS Render Lab - two levels, two engines.
 
 	The same TrenchBroom map (carts/fps-render-lab.map, compiled by
 	tools/fps-lab/map2bsp.py) is rendered two ways; TAB flips between them
@@ -12,7 +12,9 @@
 	                        lightmaps in a surface cache, real pitch, stairs,
 	                        platforms, bridges, sloped braces, 3D props
 
-	A menu picks the renderer at start (up/down + Z, or click); M returns to it.
+	A menu picks the level (left/right) and the renderer (up/down + Z, or
+	click); M returns to it. Levels: the fortress (level.lua) and a starship
+	deck (deck.lua, from carts/fps-render-lab-deck.map, loaded on demand).
 	Controls: WASD move, mouse (click to lock) or arrows look, click / Z /
 	space to fire, TAB switch renderer, V detail (480x270 / 240x135),
 	H show/hide the renderer stats, G switch palette + art set (default 32
@@ -35,6 +37,23 @@ things, player = nil, nil        -- globals so tools/fps-lab/mock can pose the c
 local frame, fire_cd, flash, bob, locked = 0, 0, 0, 0, false
 local cpu_hist = {0, 0}
 local surf_texels = 0
+
+-- ------------------------------------------------------------- levels ---
+-- LEVEL is whichever level is loaded; the deck's data is only included the
+-- first time it is picked (it is ~650 KB of Lua)
+LEVELS = {
+	{name = "FORTRESS", desc = "halls, acid works, sun atrium"},
+	{name = "STARSHIP DECK", desc = "reactor hall, lounge, engineering"},
+}
+LEVEL_MAIN = LEVEL
+level_cur = 1
+local function level_data(i)
+	if i == 2 then
+		if not LEVEL_DECK then include("deck.lua") end
+		return LEVEL_DECK
+	end
+	return LEVEL_MAIN
+end
 
 -- ------------------------------------------------------------ sound -----
 -- short note() blips on the bundled instrument bank (sfx/0.sfx)
@@ -357,11 +376,20 @@ local WARPS = {  -- grid col, row (row 0 = north), yaw, pitch
 	{6.5, 15.2, 0.75, 0.03}, {18.8, 20.5, 0.04, 0}, {26.5, 20, 0, 0},
 	{37.2, 21.6, 0.07, -0.03}, {43, 6.4, 0.25, 0.05}, {31.6, 4, 0.5, 0},
 }
+DECK_WARPS = {   -- world x, y, yaw, pitch (keep in sync with tools/fps-lab/screenshots.py)
+	{1056, 144, 0.25, 0}, {800, 780, 0.875, 0.02}, {1056, 820, 0.75, -0.1},
+	{900, 1260, 0.25, 0.03}, {360, 300, 0.4, 0}, {1740, 200, 0.2, 0},
+	{1300, 300, 0.6, 0.12}, {1056, 1080, 0.25, 0}, {640, 544, 0.5, 0},
+}
 local function warp_keys()
-	for i, w in ipairs(WARPS) do
+	for i, w in ipairs(level_cur == 2 and DECK_WARPS or WARPS) do
 		if keyp(tostring(i)) then
-			player.x, player.y = w[1] * CELL + CELL / 2, (LEVEL.grid.h - 1 - w[2]) * CELL + CELL / 2 + LEVEL.grid.y0
-			player.x = player.x + LEVEL.grid.x0
+			if level_cur == 2 then
+				player.x, player.y = w[1], w[2]
+			else
+				player.x, player.y = w[1] * CELL + CELL / 2, (LEVEL.grid.h - 1 - w[2]) * CELL + CELL / 2 + LEVEL.grid.y0
+				player.x = player.x + LEVEL.grid.x0
+			end
 			player.yaw, player.pitch = w[3], w[4]
 			settle_player()
 		end
@@ -381,6 +409,19 @@ local function do_switch_palette()
 	msg, msg_t = "palette: " .. PALETTES[pal_set].name, 120
 end
 
+-- level switch: like the palette switch, a notice first (the surface cache
+-- rebuild takes a moment), the work on the next update
+local level_pending = false             -- false / {i, "asked" | "shown"}
+function load_level(i)
+	LEVEL = level_data(i)
+	level_cur = i
+	world_init()
+	ray_init()
+	bsp_init()
+	surf_texels = build_surfaces()
+	reset_game()
+end
+
 local function door_moved(d)
 	local dx, dy = player.x - d.cx, player.y - d.cy
 	if dx * dx + dy * dy < 500 * 500 then snd("door") end
@@ -392,9 +433,9 @@ local MENU_ITEMS = {
 	{MODE_RAY, "RAYCASTER", "grid DDA, Wolfenstein style"},
 	{MODE_BSP, "TRUE 3D", "BSP + lightmaps, Quake style"},
 }
-local function menu_box(i)
+local function menu_box(i)              -- i = 0: the level picker, 1..2: renderers
 	local w, h = detail_half and 180 or 220, detail_half and 26 or 34
-	local y = CY - h - 4 + (i - 1) * (h + 8)
+	local y = CY - h - 4 + (i - 1) * (h + 8) + (i == 0 and -8 or 8)
 	return CX - w / 2, y, w, h
 end
 
@@ -406,6 +447,20 @@ function update_menu()
 	if keyp("g") then switch_palette() end
 	local start = keyp("z") or keyp("space") or keyp("enter") or btnp(4) or btnp(5)
 	local mx, my, mb = mouse()
+	local lsel = 0
+	if keyp("left") or keyp("a") or btnp(0) then lsel = -1 end
+	if keyp("right") or keyp("d") or btnp(1) then lsel = 1 end
+	do
+		local x, y, w, h = menu_box(0)
+		if mx >= x and mx < x + w and my >= y and my < y + h and mb & 1 == 1 and menu_mouse & 1 == 0 then
+			lsel = mx < x + w / 2 and -1 or 1
+		end
+	end
+	if lsel ~= 0 then
+		level_pending = {(level_cur - 1 + lsel) % #LEVELS + 1, "asked"}
+		menu_mouse = mb
+		return
+	end
 	for i, it in ipairs(MENU_ITEMS) do
 		local x, y, w, h = menu_box(i)
 		if mx >= x and mx < x + w and my >= y and my < y + h then   -- mouse() is in vid() pixels
@@ -424,6 +479,16 @@ function update_menu()
 end
 
 local function draw_menu()
+	do
+		local x, y, w, h = menu_box(0)
+		local L = LEVELS[level_cur]
+		rectfill(x, y, x + w - 1, y + h - 1, UI[0])
+		rect(x, y, x + w - 1, y + h - 1, UI[9])
+		print("<", x + 6, y + h / 2 - 3, UI[9])
+		print(">", x + w - 10, y + h / 2 - 3, UI[9])
+		print(L.name, CX - #L.name * 2.5, y + 5, UI[10])
+		print(L.desc, CX - #L.desc * 2.5, y + h - 12, UI[6])
+	end
 	for i, it in ipairs(MENU_ITEMS) do
 		local x, y, w, h = menu_box(i)
 		local on = menu_sel == it[1]
@@ -433,7 +498,7 @@ local function draw_menu()
 		print(it[3], x + 8, y + h - 12, UI[on and 12 or 5])
 	end
 	local _, y, _, h = menu_box(2)
-	print("up/down + Z or click", CX - 50, y + h + 8, UI[6])
+	print("left/right level, up/down + Z or click", CX - 95, y + h + 8, UI[6])
 end
 
 -- -------------------------------------------------------------- update ---
@@ -441,6 +506,14 @@ function _update()
 	frame = frame + 1
 	if pal_pending then
 		if pal_pending == "shown" then pal_pending = false; do_switch_palette() end
+		return
+	end
+	if level_pending then
+		if level_pending[2] == "shown" then
+			local i = level_pending[1]
+			level_pending = false
+			load_level(i)
+		end
 		return
 	end
 	snd_update()
@@ -593,6 +666,13 @@ function _draw()
 		rectfill(CX - 50, CY - 8, CX + 50, CY + 8, UI[1])
 		print(t, CX - #t * 2.5, CY - 3, UI[7])
 		pal_pending = "shown"
+		return
+	end
+	if level_pending then
+		local t = "loading " .. LEVELS[level_pending[1]].name .. "..."
+		rectfill(CX - 70, CY - 8, CX + 70, CY + 8, UI[1])
+		print(t, CX - #t * 2.5, CY - 3, UI[7])
+		level_pending[2] = "shown"
 		return
 	end
 	cls(0)
